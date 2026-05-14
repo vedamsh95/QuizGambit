@@ -75,7 +75,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
     joinLobby();
   }, [code, playerId, name]);
 
-  // ARENA MODE DETECTION - Always check lobby mode and redirect if needed
+  // ARENA MODE DETECTION: use one authoritative fetch driven by the shared lobby status stream.
   useEffect(() => {
     if (!code) return;
 
@@ -86,61 +86,26 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
         .eq("code", code)
         .single();
 
-      if (lobbyData?.mode === "ARENA") {
-        // Redirect if: status is PLAYING/READING/RACE OR draft is complete
-        const isDraftComplete = lobbyData.settings?.draft?.isComplete === true;
-        const isGameActive = ["PLAYING", "READING", "RACE"].includes(
+      if (lobbyData?.mode !== "ARENA") return;
+
+      const isDraftComplete = lobbyData.settings?.draft?.isComplete === true;
+      const isGameActive = ["PLAYING", "READING", "RACE"].includes(
+        lobbyData.status,
+      );
+
+      if (isGameActive || isDraftComplete) {
+        console.log(
+          "[PlayerView] Arena game ready, redirecting to ArenaBoard. DraftComplete:",
+          isDraftComplete,
+          "Status:",
           lobbyData.status,
         );
-
-        if (isGameActive || isDraftComplete) {
-          console.log(
-            "[PlayerView] Arena game ready, redirecting to ArenaBoard. DraftComplete:",
-            isDraftComplete,
-            "Status:",
-            lobbyData.status,
-          );
-          navigate(`/play?code=${code}&mode=arena`);
-        }
+        navigate(`/play?code=${code}&mode=arena`);
       }
     };
 
     checkAndRedirectArena();
-
-    // Subscribe to lobby changes
-    const channel = supabase
-      .channel(`arena_mode_check:${code}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "lobbies",
-          filter: `code=eq.${code}`,
-        },
-        (payload) => {
-          if (payload.new.mode === "ARENA") {
-            const isDraftComplete =
-              payload.new.settings?.draft?.isComplete === true;
-            const isGameActive = ["PLAYING", "READING", "RACE"].includes(
-              payload.new.status,
-            );
-
-            if (isGameActive || isDraftComplete) {
-              console.log(
-                "[PlayerView] Arena game started, redirecting to ArenaBoard",
-              );
-              navigate(`/play?code=${code}&mode=arena`);
-            }
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [code]);
+  }, [code, status, navigate]);
 
   // Load categories if drafting
   useEffect(() => {
