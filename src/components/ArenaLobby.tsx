@@ -251,9 +251,23 @@ export default function ArenaLobby() {
         },
         (payload) => {
           console.log("[Arena] Lobby sync update received via Realtime");
-          // FIX: Use DEFAULT_SETTINGS fallback to prevent undefined settings crash
-          setSettings(payload.new.settings || DEFAULT_SETTINGS);
-          settingsRef.current = payload.new.settings || DEFAULT_SETTINGS;
+
+          const incomingSettings = payload.new.settings as ArenaSettings | null;
+          if (!incomingSettings) return;
+
+          // Prevent draft flicker: if DB payload temporarily drops draft while we're in draft flow,
+          // keep the richer local draft state.
+          const shouldPreserveDraft =
+            settingsRef.current?.draft &&
+            !incomingSettings?.draft &&
+            payload.new.status === "SELECTING";
+
+          const mergedSettings = shouldPreserveDraft
+            ? { ...incomingSettings, draft: settingsRef.current.draft }
+            : incomingSettings;
+
+          setSettings(mergedSettings || DEFAULT_SETTINGS);
+          settingsRef.current = mergedSettings || DEFAULT_SETTINGS;
         },
       )
       .subscribe();
@@ -261,23 +275,40 @@ export default function ArenaLobby() {
     // CRITICAL: Polling fallback for cross-network reliability
     // Skip during active draft to avoid interference with draft engine
     const settingsPoller = setInterval(async () => {
-      // Skip polling during active draft - draft engine handles its own sync
-      if (settingsRef.current?.draft?.isActive) return;
+      // Skip polling during draft (active OR complete) to avoid UI flicker.
+      if (
+        settingsRef.current?.draft?.isActive ||
+        settingsRef.current?.draft?.isComplete
+      )
+        return;
 
       const { data } = await supabase
         .from("lobbies")
         .select("settings, status")
         .eq("code", lobbyCode)
         .single();
-      if (data?.settings) {
-        // Only update if actually changed
-        if (
-          JSON.stringify(data.settings) !== JSON.stringify(settingsRef.current)
-        ) {
-          console.log("[Arena] Settings update detected via polling");
-          setSettings(data.settings || DEFAULT_SETTINGS);
-          settingsRef.current = data.settings || DEFAULT_SETTINGS;
-        }
+
+      if (!data?.settings) return;
+
+      const incomingSettings = data.settings as ArenaSettings;
+
+      // Prevent draft flicker from stale snapshots while lobby is in SELECTING.
+      const shouldPreserveDraft =
+        settingsRef.current?.draft &&
+        !incomingSettings?.draft &&
+        data.status === "SELECTING";
+
+      const mergedSettings = shouldPreserveDraft
+        ? { ...incomingSettings, draft: settingsRef.current.draft }
+        : incomingSettings;
+
+      // Only update if actually changed
+      if (
+        JSON.stringify(mergedSettings) !== JSON.stringify(settingsRef.current)
+      ) {
+        console.log("[Arena] Settings update detected via polling");
+        setSettings(mergedSettings || DEFAULT_SETTINGS);
+        settingsRef.current = mergedSettings || DEFAULT_SETTINGS;
       }
     }, 2000);
 
@@ -396,6 +427,7 @@ export default function ArenaLobby() {
   // Sync Settings changes to DB
   const updateSettings = async (newSettings: ArenaSettings) => {
     setSettings(newSettings);
+    settingsRef.current = newSettings;
     if (lobbyCode) {
       await supabase
         .from("lobbies")
@@ -455,10 +487,12 @@ export default function ArenaLobby() {
       selectionMode: "PLAYER",
     };
 
-    await updateSettings(finalSettings);
+    // Single DB write avoids status/settings race and reduces flicker from rapid updates.
+    setSettings(finalSettings);
+    settingsRef.current = finalSettings;
     await supabase
       .from("lobbies")
-      .update({ status: "SELECTING" })
+      .update({ settings: finalSettings, status: "SELECTING" })
       .eq("code", lobbyCode);
   };
 
