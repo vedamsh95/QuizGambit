@@ -409,7 +409,7 @@ export default function HostDashboard() {
               question_text: q.question_text,
               answer_text: q.answer_text,
               options: q.options, // Pass options if exist
-              q_type: q.q_type || (q.options ? "MCQ" : "NUMERIC"), // Infer/Pass type
+q_type: "MCQ", // All questions are now MCQ only
               is_revealed: false,
             });
           });

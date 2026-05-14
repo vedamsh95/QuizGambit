@@ -73,7 +73,6 @@ export async function smartSelectQuestions(
 }
 
 export function isNumericQuestion(q: any): boolean {
-    // Detect if question is numeric based on metadata or structure
-    // Since we failed to migrate schema, we rely on content convention or explicit 'q_type' if it exists in JSON
-    return q.q_type === 'NUMERIC' || (q.options === null && typeof q.answer_text === 'string' && !isNaN(parseFloat(q.answer_text)))
+    // All questions are now MCQ only - numeric questions have been removed
+    return false
 }
