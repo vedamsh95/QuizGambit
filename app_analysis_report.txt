@@ -1,0 +1,107 @@
+QUIZGAMBIT APPLICATION ANALYSIS REPORT
+Generated: 2026-01-07
+
+1. EXECUTIVE OVERVIEW
+---------------------
+QuizGambit is a real-time multiplayer trivia application with two distinct game modes: "Standard" (Host/Buzzer style) and "Arena" (PvP draft & tactical style). It uses a "Host-Client" architecture where one device acts as the console (Host) and others as controllers/displays (Players).
+
+Tech Stack:
+- Frontend: React (Vite), Tailwind CSS
+- Backend: Supabase (PostgreSQL, Realtime, Auth, RPCs)
+- State: React State + Realtime Subscriptions (No global store like Redux)
+- AI: OpenAI, Gemini, Groq integration for question generation
+
+2. NAVIGATION & ENTRY POINTS
+----------------------------
+Root (`/`) - `Home.tsx`
+- Main landing page.
+- Actions:
+  - "Local Play": Starts `LocalPlaySetup` -> `GameBoard` (No backend needed).
+  - "Join Arena": Keypad entry for Game Code -> `/play`.
+  - "Host Standard": Redirects to `/host`.
+  - "Create Arena": Redirects to `/arena`.
+  - "Library": Redirects to `/library`.
+  - "Admin": Redirects to `/admin` (admin only).
+- Auth: Lightweight modal/button in header.
+
+3. GAME MODES & LOGIC
+---------------------
+
+A. STANDARD MODE (The "Jeopardy" Style)
+   - Target: TV/Projector + Phones.
+   - Host View (`/host` -> `HostDashboard.tsx`):
+     - Lobby Creation: auto-generates 4-letter code.
+     - Category Selection: Host picks categories manually OR monitors a "Player Draft".
+     - Spaced Repetition: Logic ensures questions aren't repeated for the same group/host context.
+   - Game Board (`GameBoard.tsx`):
+     - Grid: Classic 5x5 grid of categories/points.
+     - Question Modal: Show Question -> Reveal Answer -> Grade Players (+/-).
+     - Features: Timer, Buzzer Lock/Unlock, Score syncing.
+   - Player View (`/play` -> `PlayerView.tsx`):
+     - Mobile-first interface.
+     - Giant "Buzzer" button (Synced realtime with Host lock state).
+     - "Draft" interface (if Player Draft is enabled) to pick categories.
+
+B. ARENA MODE (The "PvP" Style)
+   - Target: All players on own screens.
+   - Host View (`/arena` -> `ArenaLobby.tsx`):
+     - Sets parameters: Rounds, Cats/Round, Timer, Mystery Mode.
+     - Manages "Draft Phase" (Turn-based category picking).
+     - "Command Center" style UI.
+   - Player View (`/play?mode=arena` -> `ArenaBoard.tsx`):
+     - FULL Game Board on player device (unlike Standard).
+     - Turn-Based Picking: Active player picks category/question from grid.
+     - Answering:
+       - Inputs: Numeric keypad or MCQ buttons.
+       - Timer: Synced countdown.
+     - Results: Speed-based scoring display after every question.
+     - Features: Realtime rank tracking, "My Turn" notifications.
+
+4. UI/UX & AESTHETICS
+---------------------
+Current Theme: "Cyberpunk / Neon Void"
+- Colors: `bg-deep-void` (Dark Blue/Black), `text-neon-emerald` (Green), `text-neon-pink`.
+- Fonts: `Orbitron` (Headers - SciFi feel), `Inter` (Body).
+- Graphical Elements:
+  - Glassmorphism (`glass`, `glass-dark` utility classes).
+  - Neon glows and borders.
+  - Animated pulsing badges.
+  - Confetti effects on wins/correct answers.
+
+Key UI Patterns:
+- "Lobby Codes": Large, 4-character uppercase codes.
+- "Avatars": Generated from first letter + gradient background.
+- "Cards": Questions are facedown cards that reveal on click.
+- "Modals": Full-screen overlays for Auth, Settings, Active Question.
+
+5. DATA & BACKEND STRUCTURE
+---------------------------
+Tables (Inferred):
+- `lobbies`: Stores game state (`status`, `settings`, `arena_state`, `current_question`).
+- `players`: Connected users per lobby (`score`, `name`, `metadata`).
+- `questions`: Active game questions (copied from Library during draft).
+- `categories_library`: Permanent storage of AI-generated content.
+- `arena_answers`: Log of answers for PvP scoring logic.
+
+Key Logic:
+- Realtime Sync: Heavy use of `supabase.channel` to sync game state (phase, active question, buzzers) across clients.
+- Polling Fallbacks: Implemented to handle network instability.
+- RPCs: Used for complex state transitions (`next_arena_turn`, `submit_arena_answer`, `start_arena_session`).
+
+6. FEATURE INVENTORY
+--------------------
+[x] Local Play (Offline support)
+[x] AI Generator (Generate categories via LLM)
+[x] Library (Manage/Delete categories)
+[x] Host Controls (Kick, Edit Score, End Game)
+[x] Player Draft (Round-robin selection of categories)
+[x] Spaced Repetition (Smart question selection)
+[x] Mystery Mode (Hidden categories in draft)
+[x] Admin Dashboard (User mgmt - basic)
+
+7. MISSING / POTENTIAL IMPROVEMENTS (For Redesign Context)
+----------------------------------------------------------
+- Navigation is currently scattered (sidebar vs top bar vs dashboard cards).
+- Visual hierarchy can be cluttered with "Neon" everywhere.
+- "Mobile Host" experience is likely cramped (HostDashboard is dense).
+- Transition between "Lobby" and "Game" is sometimes abrupt.

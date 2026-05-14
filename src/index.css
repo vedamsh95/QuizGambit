@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+    --color-deep-void: #050505;
+    --color-neon-emerald: #10B981;
+    --font-orbitron: "Orbitron", sans-serif;
+    --font-inter: "Inter", sans-serif;
+}
+
+:root {
+    color-scheme: dark;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: #050505;
+    overflow-x: hidden;
+}
+
+@layer base {
+    * {
+        font-family: 'Inter', sans-serif;
+    }
+}
+
+@layer components {
+    .glass {
+        @apply bg-zinc-900/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.8)];
+    }
+
+    .glass-dark {
+        @apply bg-black/60 backdrop-blur-3xl border border-white/5 shadow-2xl;
+    }
+
+    .emerald-glow {
+        box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+    }
+
+    .text-glow {
+        text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    }
+
+    .animate-shake {
+        animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both;
+    }
+}
+
+@keyframes shake {
+
+    10%,
+    90% {
+        transform: translate3d(-1px, 0, 0);
+    }
+
+    20%,
+    80% {
+        transform: translate3d(2px, 0, 0);
+    }
+
+    30%,
+    50%,
+    70% {
+        transform: translate3d(-4px, 0, 0);
+    }
+
+    40%,
+    60% {
+        transform: translate3d(4px, 0, 0);
+    }
+}
+
+@keyframes pulse-slow {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-pulse-slow {
+    animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
