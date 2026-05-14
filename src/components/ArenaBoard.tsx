@@ -73,11 +73,22 @@ export default function ArenaBoard({
   const [numericInput, setNumericInput] = useState("");
   const [answerTimings, setAnswerTimings] = useState<any[]>([]);
   const [submitStatus, setSubmitStatus] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugEvents, setDebugEvents] = useState<string[]>([]);
   const lastQuestionIdRef = useRef<string | null>(null);
+  const roundTraceIdRef = useRef<string>("-");
 
   // Timer
   const [timeLeft, setTimeLeft] = useState(0);
   const isHost = lobby?.host_id === playerId;
+
+  const pushDebug = (event: string, details?: string) => {
+    const ts = new Date().toISOString().slice(11, 19);
+    const qId = arenaState?.activeQuestion?.id || "-";
+    const line = `[${ts}] [trace:${roundTraceIdRef.current}] [q:${qId}] ${event}${details ? ` | ${details}` : ""}`;
+    setDebugEvents((prev) => [line, ...prev].slice(0, 30));
+    console.log("[ArenaDebug]", line);
+  };
 
   // Initial Fetch & Subscription & Polling
   useEffect(() => {
@@ -204,6 +215,7 @@ export default function ArenaBoard({
               setNumericInput("");
               setAnswerTimings([]);
               setSubmitStatus(null);
+              pushDebug("phase:PICKING", "local answer state reset");
             }
           }
         },
@@ -237,7 +249,12 @@ export default function ArenaBoard({
           const newAnswer = payload.new as any;
           if (newAnswer.player_id === playerId) {
             setMyAnswer(newAnswer.answer_text);
+            setSubmitStatus("Answer received");
           }
+          pushDebug(
+            "answer:insert",
+            `${newAnswer.player_name || newAnswer.player_id} rank:${newAnswer.rank ?? "-"} points:${newAnswer.points_awarded ?? "-"}`,
+          );
           setAnswerTimings((prev: any[]) => {
             const exists = prev.find(
               (a: any) => a.player_id === newAnswer.player_id,
@@ -285,10 +302,12 @@ export default function ArenaBoard({
 
     if (lastQuestionIdRef.current !== qId) {
       lastQuestionIdRef.current = qId;
+      roundTraceIdRef.current = `${code}-${qId}-${Date.now().toString(36)}`;
       setMyAnswer(null);
       setNumericInput("");
       setAnswerTimings([]);
       setSubmitStatus(null);
+      pushDebug("question:changed", `new trace created for ${qId}`);
     }
   }, [arenaState?.activeQuestion?.id]);
 
@@ -375,6 +394,7 @@ export default function ArenaBoard({
       return;
 
     console.log("[Arena] Opening Question RPC...");
+    pushDebug("question:open", `${categoryName} ${q.points}`);
     await supabase.rpc("open_arena_question", {
       p_lobby_code: code,
       p_question_data: {
@@ -403,6 +423,7 @@ export default function ArenaBoard({
     };
 
     console.log("Submitting Answer Payload:", payload);
+    pushDebug("answer:submit", `text:${answer}`);
 
     const { data, error } = await supabase.rpc("submit_arena_answer", payload);
 
@@ -416,10 +437,15 @@ export default function ArenaBoard({
       ) {
         console.warn("[Arena] Duplicate answer ignored (409/23505)");
         setSubmitStatus("Answer received");
+        pushDebug("answer:duplicate", "server reported duplicate");
       } else {
         console.error("Answer submit failed:", error);
         setMyAnswer(null);
         setSubmitStatus("Network issue. Try again.");
+        pushDebug(
+          "answer:error",
+          `${error.code || "unknown"} ${error.message || "rpc failed"}`,
+        );
       }
       return;
     }
@@ -428,10 +454,18 @@ export default function ArenaBoard({
       console.warn("[Arena] Answer rejected by server:", data);
       setMyAnswer(null);
       setSubmitStatus(data?.error || "Answer rejected");
+      pushDebug(
+        "answer:rejected",
+        `${data?.error_code || "-"} ${data?.error || "rejected"}`,
+      );
       return;
     }
 
     setSubmitStatus("Answer received");
+    pushDebug(
+      "answer:accepted",
+      `points:${data?.points ?? "-"} correct:${data?.correct ?? "-"}`,
+    );
 
     // RPC may trigger phase change to RESULTS if everyone answered
     if (data?.all_answered) {
@@ -520,6 +554,16 @@ export default function ArenaBoard({
             <LogOut className="w-4 h-4" />
             <span className="hidden md:inline">Leave</span>
           </button>
+          {isHost && (
+            <button
+              onClick={() => setShowDebug((v) => !v)}
+              className={`ml-1 p-2 rounded-lg transition-all flex items-center gap-1 text-xs border ${showDebug ? "bg-neon-emerald/20 text-neon-emerald border-neon-emerald/40" : "bg-white/5 text-white/50 border-white/10 hover:text-white"}`}
+              title="Toggle Arena Debug"
+            >
+              <Eye className="w-4 h-4" />
+              <span className="hidden md:inline">Debug</span>
+            </button>
+          )}
         </div>
 
         <div
@@ -541,6 +585,33 @@ export default function ArenaBoard({
           </div>
         </div>
       </div>
+
+      {isHost && showDebug && (
+        <div className="mb-3 rounded-xl border border-neon-emerald/30 bg-black/60 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-neon-emerald text-[10px] font-black uppercase tracking-widest">
+              Arena Debug Stream
+            </div>
+            <button
+              onClick={() => setDebugEvents([])}
+              className="text-[10px] text-white/50 hover:text-white underline"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="max-h-36 overflow-y-auto font-mono text-[10px] text-white/70 space-y-1">
+            {debugEvents.length === 0 ? (
+              <div className="text-white/30">No events yet...</div>
+            ) : (
+              debugEvents.map((evt, idx) => (
+                <div key={`dbg-${idx}`} className="break-all">
+                  {evt}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 gap-4 overflow-hidden">
         <div className="flex-1 flex flex-col relative">
