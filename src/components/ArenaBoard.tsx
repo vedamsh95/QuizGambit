@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { Trophy, Zap, XCircle, Eye, Clock, LogOut } from "lucide-react";
@@ -72,6 +72,8 @@ export default function ArenaBoard({
   const [myAnswer, setMyAnswer] = useState<string | null>(null);
   const [numericInput, setNumericInput] = useState("");
   const [answerTimings, setAnswerTimings] = useState<any[]>([]);
+  const [submitStatus, setSubmitStatus] = useState<string | null>(null);
+  const lastQuestionIdRef = useRef<string | null>(null);
 
   // Timer
   const [timeLeft, setTimeLeft] = useState(0);
@@ -201,6 +203,7 @@ export default function ArenaBoard({
               setMyAnswer(null);
               setNumericInput("");
               setAnswerTimings([]);
+              setSubmitStatus(null);
             }
           }
         },
@@ -250,60 +253,63 @@ export default function ArenaBoard({
         console.log("[Arena] Realtime status:", status);
       });
 
-    // RESTORED: Lightweight 3s polling fallback (Realtime can be flaky)
+    // Sparse 10s polling fallback (Realtime can be flaky)
     const poller = setInterval(async () => {
       const { data } = await supabase
         .from("lobbies")
         .select("arena_state")
         .eq("code", code)
         .single();
+
       if (data?.arena_state) {
         setArenaState((prev: any) => {
-          // Only update if state actually changed
           if (JSON.stringify(prev) !== JSON.stringify(data.arena_state)) {
             console.log("[Arena] Poller detected state change");
-            // Reset on new PICKING phase
-            if (
-              data.arena_state.phase === "PICKING" &&
-              prev?.phase !== "PICKING"
-            ) {
-              setMyAnswer(null);
-              setNumericInput("");
-              setAnswerTimings([]);
-            }
             return data.arena_state;
           }
           return prev;
         });
-
-        // Fetch answer timings for current question
-        if (data.arena_state?.activeQuestion?.id) {
-          const { data: answersData } = await supabase
-            .from("arena_answers")
-            .select("*")
-            .eq("lobby_code", code)
-            .eq("question_id", data.arena_state.activeQuestion.id)
-            .order("answer_time_ms", { ascending: true });
-
-          if (answersData && answersData.length > 0) {
-            setAnswerTimings(answersData);
-          }
-        }
       }
-      // Also refresh players
-      const { data: pData } = await supabase
-        .from("players")
-        .select("*")
-        .eq("lobby_code", code)
-        .order("score", { ascending: false });
-      if (pData) setPlayers(pData);
-    }, 3000);
+    }, 10000);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(poller);
     };
   }, [code, playerId]);
+
+  // Reset local input when active question changes (authoritative server phase + question id)
+  useEffect(() => {
+    const qId = arenaState?.activeQuestion?.id || null;
+    if (!qId) return;
+
+    if (lastQuestionIdRef.current !== qId) {
+      lastQuestionIdRef.current = qId;
+      setMyAnswer(null);
+      setNumericInput("");
+      setAnswerTimings([]);
+      setSubmitStatus(null);
+    }
+  }, [arenaState?.activeQuestion?.id]);
+
+  // Hydrate answer timings on RESULTS in case client missed insert events
+  useEffect(() => {
+    if (arenaState.phase !== "RESULTS" || !arenaState?.activeQuestion?.id)
+      return;
+
+    const loadResults = async () => {
+      const { data } = await supabase
+        .from("arena_answers")
+        .select("*")
+        .eq("lobby_code", code)
+        .eq("question_id", arenaState.activeQuestion.id)
+        .order("answer_time_ms", { ascending: true });
+
+      if (data) setAnswerTimings(data);
+    };
+
+    loadResults();
+  }, [arenaState.phase, arenaState?.activeQuestion?.id, code]);
 
   // P3: Host Watchdog for Stale Pickers
   useEffect(() => {
@@ -347,7 +353,6 @@ export default function ArenaBoard({
   // Submit TIMEOUT answer
   const submitTimeout = async () => {
     if (myAnswer) return;
-    setMyAnswer("TIMEOUT");
     await handleAnswer("TIMEOUT");
   };
 
@@ -385,9 +390,11 @@ export default function ArenaBoard({
 
   const handleAnswer = async (answer: string) => {
     if (!activeQ) return;
+    if (myAnswer) return;
 
-    // Optimistic update
+    // Optimistic update for snappy UX
     setMyAnswer(answer);
+    setSubmitStatus("Submitting...");
 
     const payload = {
       p_lobby_code: code,
@@ -400,8 +407,7 @@ export default function ArenaBoard({
     const { data, error } = await supabase.rpc("submit_arena_answer", payload);
 
     if (error) {
-      // FIX: Treat 409 Conflict (Duplicate) as success to prevent UI hang
-      // Supabase/Postgres returns '23505' for unique violations
+      // Treat duplicate insert as already accepted
       if (
         error.code === "409" ||
         error.code === "23505" ||
@@ -409,12 +415,25 @@ export default function ArenaBoard({
         error.message?.includes("duplicate")
       ) {
         console.warn("[Arena] Duplicate answer ignored (409/23505)");
+        setSubmitStatus("Answer received");
       } else {
         console.error("Answer submit failed:", error);
+        setMyAnswer(null);
+        setSubmitStatus("Network issue. Try again.");
       }
+      return;
     }
 
-    // RPC will trigger phase change to RESULTS if everyone answered
+    if (data?.success === false) {
+      console.warn("[Arena] Answer rejected by server:", data);
+      setMyAnswer(null);
+      setSubmitStatus(data?.error || "Answer rejected");
+      return;
+    }
+
+    setSubmitStatus("Answer received");
+
+    // RPC may trigger phase change to RESULTS if everyone answered
     if (data?.all_answered) {
       console.log("All players answered! Waiting for sync...");
     }
@@ -609,11 +628,11 @@ export default function ArenaBoard({
                     )}
 
                     {/* Waiting Message */}
-                    {myAnswer && (
+                    {(myAnswer || submitStatus) && (
                       <div className="mt-8 text-white/60 animate-pulse font-mono flex flex-col items-center justify-center gap-4">
                         <div className="flex items-center gap-2">
                           <Clock className="w-4 h-4" />
-                          Waiting for other players...
+                          {submitStatus || "Waiting for other players..."}
                         </div>
                         {isHost && timeLeft <= -5 && (
                           <button

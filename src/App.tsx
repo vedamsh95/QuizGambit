@@ -30,9 +30,9 @@ function PlayerRoute() {
     return newId;
   });
 
-  // Heartbeat: Proof of Life (Every 2s for snappy detection - industry standard)
+  // Heartbeat: lighter cadence to reduce DB write load under multiplayer concurrency
   useEffect(() => {
-    if (!playerId) return;
+    if (!playerId || !code) return;
 
     const beat = async () => {
       await supabase
@@ -44,9 +44,9 @@ function PlayerRoute() {
     // Initial beat
     beat();
 
-    const interval = setInterval(beat, 2000);
+    const interval = setInterval(beat, 10000);
     return () => clearInterval(interval);
-  }, [playerId]);
+  }, [playerId, code]);
 
   // If no code, show a clear recovery path.
   if (!code)
