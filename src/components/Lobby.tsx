@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { Users, Settings2, Play, Crown, Clock, Hash, Zap, ChevronRight, Share2, LogOut } from 'lucide-react'
+import { Users, Settings2, Play, Crown, Clock, Hash, Zap, ChevronRight, Share2, LogOut, Wifi, WifiOff } from 'lucide-react'
+import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
 
 interface LobbyProps {
     lobbyCode: string
@@ -19,6 +20,37 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
         categorySource: 'both' // 'global' | 'host' | 'both'
     })
     const [syncing, setSyncing] = useState(false)
+
+    // ── Realtime Channel (Presence + Broadcast) ─────────────────────────────
+    const { broadcast, onBroadcast, presences, isConnected } = useRealtimeChannel({
+        channelName: `lobby:${lobbyCode}`,
+        enablePresence: true,
+        presenceData: { playerId: 'host', name: 'Host', status: 'connected' as const },
+        subscribeLobby: lobbyCode,
+        onLobbyChange: (payload: any) => {
+            const updated = payload.new
+            if (updated?.settings) {
+                setSettings(prev => ({ ...prev, ...updated.settings }))
+            }
+        },
+    })
+
+    // ── Broadcast: settings sync ────────────────────────────────────────────
+    useEffect(() => {
+        const unsubs: (() => void)[] = []
+        unsubs.push(onBroadcast('settings:update', (payload: any) => {
+            if (payload && typeof payload === 'object') {
+                setSettings(prev => ({ ...prev, ...payload }))
+            }
+        }))
+        return () => unsubs.forEach(fn => fn())
+    }, [onBroadcast])
+
+    // ── Presence-based player tracking ──────────────────────────────────────
+    const onlineCount = useMemo(() => {
+        const presenceCount = Object.keys(presences).length
+        return presenceCount > 0 ? presenceCount : players.length
+    }, [presences, players.length])
 
     useEffect(() => {
         // Initial fetch
@@ -45,7 +77,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
         fetchLobby()
         fetchPlayers()
 
-        // Realtime players
+        // Players subscription via postgres_changes (DB authority)
         const playersChannel = supabase.channel(`lobby_players:${lobbyCode}`)
             .on('postgres_changes', {
                 event: '*',
@@ -67,12 +99,15 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
         setSettings(newSettings)
         setSyncing(true)
 
-        const { error } = await supabase
-            .from('lobbies')
-            .update({ settings: newSettings })
-            .eq('code', lobbyCode)
+        // Targeted jsonb_set RPC — avoids read-modify-write race conditions
+        const { error } = await supabase.rpc('update_lobby_setting_key', {
+            p_lobby_code: lobbyCode,
+            p_key: key,
+            p_value: typeof val === 'boolean' ? val : val
+        })
 
         if (error) console.error('Error updating settings:', error)
+        else broadcast('settings:update', { [key]: val })
         setSyncing(false)
     }
 
@@ -268,8 +303,15 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6" /><path d="M2.5 22v-6h6" /><path d="M2 11.5a10 10 0 0 1 18.8-4.3" /><path d="M22 12.5a10 10 0 0 1-18.8 4.2" /></svg>
                         </button>
                         <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+                            {isConnected ? (
+                                <Wifi className="w-4 h-4 text-neon-emerald" />
+                            ) : (
+                                <WifiOff className="w-4 h-4 text-red-500" />
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
                             <Users className="w-4 h-4 text-neon-emerald" />
-                            <span className="text-sm font-bold text-white/60">{players.length} Players</span>
+                            <span className="text-sm font-bold text-white/60">{onlineCount} Online</span>
                         </div>
                     </div>
                 </div>

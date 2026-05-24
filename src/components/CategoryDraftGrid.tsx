@@ -27,7 +27,7 @@ export default function CategoryDraftGrid({ categories, unavailableIds, isMyster
     }
 
     return (
-        <div className="grid gap-4">
+        <div className="grid gap-3 md:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map(cat => {
                 const isTaken = unavailableIds.has(cat.id)
                 // In Mystery Mode, available picks are mystery. Taken picks show their true face? 
@@ -43,7 +43,9 @@ export default function CategoryDraftGrid({ categories, unavailableIds, isMyster
                         key={cat.id}
                         disabled={!canPick || isTaken}
                         onClick={() => onSelect(cat)}
-                        className={`p-6 rounded-2xl text-left transition-all active:scale-95 border group ${isTaken
+                        aria-label={isMystery ? `Mystery category` : `${cat.name} — ${cat.description}`}
+                        aria-disabled={!canPick || isTaken}
+                        className={`p-6 rounded-2xl text-left transition-all active:scale-95 border group focus-visible:ring-2 focus-visible:ring-neon-emerald focus-visible:ring-offset-2 focus-visible:ring-offset-black ${isTaken
                             ? 'bg-black/20 border-white/5 opacity-50 cursor-not-allowed grayscale'
                             : !canPick
                                 ? 'bg-white/5 border-white/5 opacity-50 cursor-wait'

@@ -1,34 +1,29 @@
 import { useState, useEffect } from "react";
 import { Routes, Route, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "./lib/supabase";
-// import LocalPlaySetup from './LocalPlaySetup' // Import removed as file is missing
+import { store } from "./lib/storage";
 import GameBoard from "./components/GameBoard";
+import GameRoom from "./components/GameRoom";
 import Library from "./components/Library";
 import AdminDashboard from "./components/AdminDashboard";
 import HostDashboard from "./components/HostDashboard";
+import HostLobby from "./components/HostLobby";
 import PlayerView from "./components/PlayerView";
 import ArenaLobby from "./components/ArenaLobby";
 import ArenaBoard from "./components/ArenaBoard";
 import AIGeneratorView from "./components/AIGeneratorView";
 import Home from "./components/Home";
 
-// Wrapper for PlayerView to handle URL params
-// Wrapper for PlayerView to handle URL params
+// PlayerRoute: wraps PlayerView/ArenaBoard, handles URL params for /play?code=&mode=
 function PlayerRoute() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const code = searchParams.get("code") || "";
   const mode = searchParams.get("mode");
-  const storedName = localStorage.getItem("qb_player_name") || "";
+  const storedName = store.getPlayerName();
 
   // Shared ID Logic
-  const [playerId] = useState(() => {
-    const saved = localStorage.getItem("qb_pid");
-    if (saved) return saved;
-    const newId = crypto.randomUUID();
-    localStorage.setItem("qb_pid", newId);
-    return newId;
-  });
+  const [playerId] = useState(() => store.ensurePlayerId());
 
   // Heartbeat: lighter cadence to reduce DB write load under multiplayer concurrency
   useEffect(() => {
@@ -77,8 +72,8 @@ function PlayerRoute() {
 export default function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [localSettings, setLocalSettings] = useState<any>(null);
+  const [adminState, setAdminState] = useState<'loading' | 'yes' | 'no'>('loading');
+  const [localSettings, setLocalSettings] = useState<any>(() => store.getLocalGameSettings());
 
   useEffect(() => {
     // Auth Subscription
@@ -99,24 +94,30 @@ export default function App() {
 
   const checkAdmin = async (userId: string | undefined) => {
     if (!userId) {
-      setIsAdmin(false);
+      setAdminState('no');
       return;
     }
-    const { data } = await supabase
-      .from("profiles")
-      .select("is_admin")
-      .eq("id", userId)
-      .single();
-    setIsAdmin(data?.is_admin || false);
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("is_admin")
+        .eq("id", userId)
+        .single();
+      setAdminState(data?.is_admin ? 'yes' : 'no');
+    } catch (err) {
+      console.error("Failed to check admin status:", err);
+      setAdminState('no'); // Fail closed
+    }
   };
 
   // Handlers
   const handleHost = () => navigate("/host");
   const handleJoin = (code: string, name: string) => {
-    localStorage.setItem("qb_player_name", name);
-    navigate(`/play?code=${code}`);
+    store.setPlayerName(name);
+    navigate(`/play/${code}`);
   };
   const handleStartLocal = (settings: any) => {
+    store.setLocalGameSettings(settings);
     setLocalSettings(settings);
     navigate("/local");
   };
@@ -129,7 +130,7 @@ export default function App() {
           path="/"
           element={
             <Home
-              isAdmin={isAdmin}
+              isAdmin={adminState === 'yes'}
               onHost={handleHost}
               onCreateArena={handleCreateArena}
               onJoin={handleJoin}
@@ -141,8 +142,10 @@ export default function App() {
         />
 
         <Route path="/host" element={<HostDashboard />} />
+        <Route path="/host/:code" element={<HostLobby />} />
         <Route path="/arena" element={<ArenaLobby />} />
         <Route path="/play" element={<PlayerRoute />} />
+        <Route path="/play/:code" element={<GameRoom />} />
 
         <Route
           path="/library"
@@ -162,7 +165,11 @@ export default function App() {
         <Route
           path="/admin"
           element={
-            isAdmin ? (
+            adminState === 'loading' ? (
+              <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-neon-emerald"></div>
+              </div>
+            ) : adminState === 'yes' ? (
               <AdminDashboard onBack={() => navigate("/")} />
             ) : (
               <div className="min-h-screen flex flex-col items-center justify-center text-white p-10 text-center gap-4">

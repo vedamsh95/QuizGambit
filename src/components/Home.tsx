@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Trophy, Users, Settings2, Check, Layout, Sparkles, LogIn, User, LogOut, ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { store } from '../lib/storage'
 import Auth from './Auth'
 import LocalPlaySetup from './LocalPlaySetup'
 
@@ -29,15 +30,11 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
     const [user, setUser] = useState<any>(null)
 
     const [selectedProvider, setSelectedProvider] = useState(() =>
-        localStorage.getItem('qb_ai_provider') || 'openai'
+        store.getAiProvider() || 'openai'
     )
 
     const [keys, setKeys] = useState(() => {
-        try {
-            return JSON.parse(localStorage.getItem('qb_ai_keys') || '{}')
-        } catch {
-            return {}
-        }
+        return store.getAiKeys();
     })
 
     useEffect(() => {
@@ -54,14 +51,13 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
     }, [])
 
     const handleKeyChange = (val: string) => {
-        const newKeys = { ...keys, [selectedProvider]: val }
-        setKeys(newKeys)
-        localStorage.setItem('qb_ai_keys', JSON.stringify(newKeys))
+        store.setAiKeyForProvider(selectedProvider, val);
+        setKeys(store.getAiKeys());
     }
 
     const handleProviderSelect = (id: string) => {
         setSelectedProvider(id)
-        localStorage.setItem('qb_ai_provider', id)
+        store.setAiProvider(id)
     }
 
     const handleLogout = async () => {
@@ -174,7 +170,6 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                 {viewMode === 'LOCAL' ? (
                     <div className="flex-1 flex flex-col">
                         <LocalPlaySetup onStart={onStartLocal} />
-                        {/* Host Mode moved to top menu */}
                     </div>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-8 duration-500">
@@ -184,33 +179,37 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                             </div>
 
                             <div>
-                                <h2 className="text-3xl font-orbitron font-black text-white tracking-widest mb-2">JOIN FREQUENCY</h2>
-                                <p className="text-white/40 text-[10px] font-black tracking-[0.3em] uppercase">Enter encryption keys to sync</p>
+                                <h2 className="text-3xl font-orbitron font-black text-white tracking-widest mb-2">JOIN GAME</h2>
+                                <p className="text-white/40 text-[10px] font-black tracking-[0.3em] uppercase">Enter your room code to join</p>
                             </div>
 
                             <div className="space-y-4">
                                 <input
-                                    placeholder="ACCESS CODE"
+                                    placeholder="ROOM CODE"
                                     maxLength={4}
                                     className="w-full bg-black/60 border border-white/10 p-5 rounded-2xl text-center text-2xl font-orbitron font-black text-blue-500 focus:border-blue-500/50 outline-none transition-all placeholder:text-white/10 uppercase tracking-widest"
                                     value={code}
                                     onChange={e => setCode(e.target.value.toUpperCase())}
+                                    onKeyDown={e => e.key === 'Enter' && code && onJoin(code, name || 'Player')}
                                 />
-                                <input
-                                    placeholder="OPERATOR ALIAS"
-                                    className="w-full bg-black/60 border border-white/10 p-5 rounded-2xl text-center font-bold text-sm tracking-widest uppercase focus:border-blue-500/50 outline-none transition-all placeholder:text-white/10"
-                                    value={name}
-                                    onChange={e => setName(e.target.value)}
-                                />
+                                {name && (
+                                    <p className="text-white/40 text-xs">
+                                        Playing as <span className="text-neon-emerald font-bold">{name}</span>
+                                    </p>
+                                )}
                             </div>
 
                             <button
-                                disabled={!code || !name}
-                                onClick={() => onJoin(code, name)}
+                                disabled={!code}
+                                onClick={() => onJoin(code, name || 'Player')}
                                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-20 text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] uppercase tracking-[0.2em] shadow-lg shadow-blue-900/20"
                             >
-                                Connect to Arena
+                                Enter Room
                             </button>
+
+                            <p className="text-white/20 text-[10px] tracking-widest uppercase">
+                                Need a code? Ask your host.
+                            </p>
                         </div>
                     </div>
                 )}

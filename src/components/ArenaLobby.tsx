@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
+import { store } from "../lib/storage";
 import {
   Users,
   Copy,
@@ -27,7 +28,7 @@ export default function ArenaLobby() {
     "LOADING",
   );
   const [hostName, setHostName] = useState(
-    () => localStorage.getItem("qb_player_name") || "",
+    () => store.getPlayerName(),
   );
 
   // Lobby State
@@ -109,14 +110,13 @@ export default function ArenaLobby() {
       // FIX: Use qb_pid (same as PlayerRoute) to ensure Host is recognized as player
       let currentUserId = session?.user.id;
       if (!currentUserId) {
-        currentUserId = localStorage.getItem("qb_pid") || crypto.randomUUID();
-        localStorage.setItem("qb_pid", currentUserId);
+        currentUserId = store.ensurePlayerId();
       }
 
       setUserId(currentUserId);
 
       // Try to restore previous session
-      const storedCode = localStorage.getItem("arena_host_code");
+      const storedCode = store.getArenaHostCode();
       if (storedCode) {
         console.log("[Arena] Attempting to restore lobby:", storedCode);
         const { data: lobbyData, error } = await supabase
@@ -139,7 +139,7 @@ export default function ArenaLobby() {
           );
           return;
         } else {
-          localStorage.removeItem("arena_host_code");
+          store.clearArenaHostCode();
         }
       }
 
@@ -155,7 +155,7 @@ export default function ArenaLobby() {
       return;
     }
 
-    localStorage.setItem("qb_player_name", hostName);
+    store.setPlayerName(hostName);
 
     const code = Math.random().toString(36).substring(2, 6).toUpperCase();
     const { error } = await supabase.from("lobbies").insert({
@@ -184,7 +184,7 @@ export default function ArenaLobby() {
       { onConflict: "id" },
     );
 
-    localStorage.setItem("arena_host_code", code);
+    store.setArenaHostCode(code);
     setLobbyCode(code);
 
     if (userId)
@@ -403,10 +403,10 @@ export default function ArenaLobby() {
           settingsRef.current = newSettings;
           setSettings(newSettings);
 
-          const { error } = await supabase
-            .from("lobbies")
-            .update({ settings: newSettings })
-            .eq("code", lobbyCode);
+          const { error } = await supabase.rpc('merge_lobby_settings', {
+            p_lobby_code: lobbyCode,
+            p_merge: { draft: newSettings.draft }
+          });
           if (error) console.error("[DRAFT ENGINE] DB Write Error:", error);
 
           // Release lock after DB write completes
@@ -429,10 +429,12 @@ export default function ArenaLobby() {
     setSettings(newSettings);
     settingsRef.current = newSettings;
     if (lobbyCode) {
-      await supabase
-        .from("lobbies")
-        .update({ settings: newSettings })
-        .eq("code", lobbyCode);
+      // Targeted merge — only writes changed keys, no read-modify-write race
+      const { error } = await supabase.rpc('merge_lobby_settings', {
+        p_lobby_code: lobbyCode,
+        p_merge: newSettings
+      });
+      if (error) console.error('[Arena] merge_lobby_settings error:', error);
     }
   };
 
@@ -490,10 +492,16 @@ export default function ArenaLobby() {
     // Single DB write avoids status/settings race and reduces flicker from rapid updates.
     setSettings(finalSettings);
     settingsRef.current = finalSettings;
+
+    // Write status + settings atomically via separate updates
     await supabase
       .from("lobbies")
-      .update({ settings: finalSettings, status: "SELECTING" })
+      .update({ status: "SELECTING" })
       .eq("code", lobbyCode);
+    await supabase.rpc('merge_lobby_settings', {
+      p_lobby_code: lobbyCode,
+      p_merge: finalSettings
+    });
   };
 
   // RENDER: LOADING
@@ -539,11 +547,11 @@ export default function ArenaLobby() {
             CREATE ARENA <ArrowRight className="w-5 h-5" />
           </button>
 
-          {localStorage.getItem("arena_host_code") && (
+          {store.getArenaHostCode() && (
             <button
               onClick={() => {
-                localStorage.removeItem("arena_host_code");
-                localStorage.removeItem("arena_host_id");
+                store.clearArenaHostCode();
+                store.clearArenaHostId();
                 window.location.reload();
               }}
               className="w-full text-white/20 hover:text-red-400 text-xs uppercase font-bold tracking-widest transition-colors flex items-center justify-center gap-2"
@@ -597,8 +605,8 @@ export default function ArenaLobby() {
           {/* New Arena Button */}
           <button
             onClick={() => {
-              localStorage.removeItem("arena_host_code");
-              localStorage.removeItem("arena_host_id");
+              store.clearArenaHostCode();
+              store.clearArenaHostId();
               navigate("/arena");
             }}
             className="absolute top-0 right-0 text-white/30 hover:text-red-400 text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-1 rounded-lg border border-white/10 hover:border-red-400/30"

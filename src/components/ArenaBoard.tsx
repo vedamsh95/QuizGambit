@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Trophy, Zap, XCircle, Eye, Clock, LogOut } from "lucide-react";
-import confetti from "canvas-confetti";
-import { pickUnseenQuestion } from "../lib/spacedRepetition";
+import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
+import { store } from "../lib/storage";
+import { Trophy, Zap, XCircle, Eye, Clock, LogOut, Wifi, WifiOff } from "lucide-react";
+import GameOver from "./GameOver";
 
 interface ArenaBoardProps {
   code: string;
@@ -52,10 +53,14 @@ const CATEGORY_COLORS = [
 
 export default function ArenaBoard({
   code,
-  playerId,
+  playerId: initialPlayerId,
   playerName,
 }: ArenaBoardProps) {
   const navigate = useNavigate();
+  // Local playerId that can be overridden on name collision (prevents reload loop)
+  const [playerId, setPlayerId] = useState<string>(initialPlayerId);
+  // Ref to avoid re-triggering the init effect when playerId syncs after collision
+  const resolvedPlayerIdRef = useRef<string>(initialPlayerId);
   const [lobby, setLobby] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -74,13 +79,83 @@ export default function ArenaBoard({
   const [answerTimings, setAnswerTimings] = useState<any[]>([]);
   const [submitStatus, setSubmitStatus] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [isGameOver, setIsGameOver] = useState(false);
   const [debugEvents, setDebugEvents] = useState<string[]>([]);
   const lastQuestionIdRef = useRef<string | null>(null);
   const roundTraceIdRef = useRef<string>("-");
 
+  // ── Presence: track this player + all online players ────────────────────
+  const { presences, isConnected, broadcast, onBroadcast } = useRealtimeChannel({
+    channelName: `arena:${code}`,
+    enablePresence: true,
+    presenceData: {
+      playerId,
+      name: playerName || "Player",
+      status: "connected" as const,
+    },
+  });
+
+  // Track players who broadcast their answer (optimistic, before DB confirmation)
+  const [broadcastedAnswers, setBroadcastedAnswers] = useState<Set<string>>(new Set());
+
   // Timer
   const [timeLeft, setTimeLeft] = useState(0);
   const isHost = lobby?.host_id === playerId;
+
+  // ── Broadcast event handlers (instant peer-to-peer communication) ──────
+  useEffect(() => {
+    const unsubs: (() => void)[] = [];
+
+    // Timer ticks from host (sync display across all clients)
+    unsubs.push(
+      onBroadcast('timer:tick', (payload: any) => {
+        // Minor sync: update if drift exceeds 1s
+        setTimeLeft((prev) => {
+          if (Math.abs(prev - payload.remainingSec) > 1) {
+            return payload.remainingSec;
+          }
+          return prev;
+        });
+      })
+    );
+
+    // Answer submitted by another player (instant sidebar feedback)
+    unsubs.push(
+      onBroadcast('answer:submit', (payload: any) => {
+        setBroadcastedAnswers((prev) => {
+          const next = new Set(prev);
+          next.add(payload.playerId);
+          return next;
+        });
+      })
+    );
+
+    // Question opened by host
+    unsubs.push(
+      onBroadcast('question:open', (_payload: any) => {
+        // Reset local answer state for snappy transition
+        setMyAnswer(null);
+        setNumericInput('');
+        setSubmitStatus(null);
+        setBroadcastedAnswers(new Set());
+      })
+    );
+
+    // Phase change from host
+    unsubs.push(
+      onBroadcast('phase:change', (payload: any) => {
+        if (payload.phase === 'PICKING') {
+          setMyAnswer(null);
+          setNumericInput('');
+          setAnswerTimings([]);
+          setSubmitStatus(null);
+          setBroadcastedAnswers(new Set());
+        }
+      })
+    );
+
+    return () => unsubs.forEach((fn) => fn());
+  }, [onBroadcast]);
 
   const pushDebug = (event: string, details?: string) => {
     const ts = new Date().toISOString().slice(11, 19);
@@ -137,14 +212,16 @@ export default function ArenaBoard({
           );
 
           if (existingByName) {
-            // Player exists with different ID - update localStorage to match
+            // Player exists with different ID - sync localStorage to match
+            // Use the existing player's ID instead of reloading (fixes infinite loop)
             console.log(
               "[Arena] Found existing player by name, syncing ID:",
               existingByName.id.slice(0, 8),
             );
-            localStorage.setItem("qb_pid", existingByName.id);
-            // Force page reload to use correct ID
-            window.location.reload();
+            store.setPlayerId(existingByName.id);
+            // Continue with synced ID — no reload needed
+            resolvedPlayerIdRef.current = existingByName.id;
+            setPlayerId(existingByName.id);
           } else {
             // Truly new player - auto-register
             const { error } = await supabase.from("players").upsert(
@@ -215,6 +292,7 @@ export default function ArenaBoard({
               setNumericInput("");
               setAnswerTimings([]);
               setSubmitStatus(null);
+              setBroadcastedAnswers(new Set());
               pushDebug("phase:PICKING", "local answer state reset");
             }
           }
@@ -270,30 +348,10 @@ export default function ArenaBoard({
         console.log("[Arena] Realtime status:", status);
       });
 
-    // Sparse 10s polling fallback (Realtime can be flaky)
-    const poller = setInterval(async () => {
-      const { data } = await supabase
-        .from("lobbies")
-        .select("arena_state")
-        .eq("code", code)
-        .single();
-
-      if (data?.arena_state) {
-        setArenaState((prev: any) => {
-          if (JSON.stringify(prev) !== JSON.stringify(data.arena_state)) {
-            console.log("[Arena] Poller detected state change");
-            return data.arena_state;
-          }
-          return prev;
-        });
-      }
-    }, 10000);
-
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(poller);
     };
-  }, [code, playerId]);
+  }, [code]); // Only re-init on code change — playerId sync handled via ref
 
   // Reset local input when active question changes (authoritative server phase + question id)
   useEffect(() => {
@@ -307,6 +365,7 @@ export default function ArenaBoard({
       setNumericInput("");
       setAnswerTimings([]);
       setSubmitStatus(null);
+      setBroadcastedAnswers(new Set());
       pushDebug("question:changed", `new trace created for ${qId}`);
     }
   }, [arenaState?.activeQuestion?.id]);
@@ -341,7 +400,9 @@ export default function ArenaBoard({
     return () => clearInterval(watchdog);
   }, [isHost, code]);
 
-  // Timer Logic
+  // Timer Logic (local countdown + Broadcast sync)
+  const lastBroadcastTickRef = useRef(0);
+
   useEffect(() => {
     if (arenaState.phase !== "OPEN" || !arenaState.timerEndTime) {
       setTimeLeft(0);
@@ -353,6 +414,12 @@ export default function ArenaBoard({
       const rawRemaining = Math.ceil(arenaState.timerEndTime - now);
       const displayRemaining = Math.max(0, rawRemaining);
       setTimeLeft(displayRemaining);
+
+      // Host broadcasts timer tick every 1s for instant sync across clients
+      if (isHost && displayRemaining > 0 && Math.abs(displayRemaining - lastBroadcastTickRef.current) >= 1) {
+        lastBroadcastTickRef.current = displayRemaining;
+        broadcast('timer:tick', { remainingSec: displayRemaining });
+      }
 
       // Player auto-submits their own timeout
       if (rawRemaining <= 0 && !myAnswer && arenaState.phase === "OPEN") {
@@ -367,7 +434,7 @@ export default function ArenaBoard({
     }, 500);
 
     return () => clearInterval(interval);
-  }, [arenaState.timerEndTime, arenaState.phase, myAnswer, isHost, code]);
+  }, [arenaState.timerEndTime, arenaState.phase, myAnswer, isHost, code, broadcast]);
 
   // Submit TIMEOUT answer
   const submitTimeout = async () => {
@@ -383,6 +450,30 @@ export default function ArenaBoard({
     "Unknown";
   const activeQ = arenaState.activeQuestion;
 
+  // ── Game-over detection: all questions revealed across all categories ────
+  const totalRevealableQuestions = useMemo(() => {
+    let count = 0;
+    categories.slice(0, 5).forEach((cat: any) => {
+      const allQuestions = cat.data || [];
+      const pointValues = [100, 200, 300, 400, 500];
+      pointValues.forEach((pts) => {
+        const atThisLevel = allQuestions.filter((q: any) => q.points === pts);
+        if (atThisLevel.length > 0) count++;
+      });
+    });
+    return count;
+  }, [categories]);
+
+  // Transition to game-over when all questions are exhausted
+  useEffect(() => {
+    if (arenaState.phase === "PICKING" && totalRevealableQuestions > 0) {
+      const revealed = arenaState.revealedQuestions || [];
+      if (revealed.length >= totalRevealableQuestions) {
+        setIsGameOver(true);
+      }
+    }
+  }, [arenaState.phase, arenaState.revealedQuestions, totalRevealableQuestions]);
+
   // Actions
   const openQuestion = async (q: any, categoryName: string) => {
     if (!isPicker) return;
@@ -395,6 +486,15 @@ export default function ArenaBoard({
 
     console.log("[Arena] Opening Question RPC...");
     pushDebug("question:open", `${categoryName} ${q.points}`);
+
+    // Broadcast for instant (sub-50ms) transition on all clients
+    const qId = q.id || `${categoryName}-${q.points}`;
+    broadcast('question:open', {
+      questionId: qId,
+      category: categoryName,
+      points: q.points,
+    });
+
     await supabase.rpc("open_arena_question", {
       p_lobby_code: code,
       p_question_data: {
@@ -415,6 +515,12 @@ export default function ArenaBoard({
     // Optimistic update for snappy UX
     setMyAnswer(answer);
     setSubmitStatus("Submitting...");
+
+    // Broadcast instantly so other clients see "X answered" (<50ms)
+    broadcast('answer:submit', {
+      playerId,
+      questionId: activeQ.id,
+    });
 
     const payload = {
       p_lobby_code: code,
@@ -497,6 +603,11 @@ export default function ArenaBoard({
       "Revealing Q:",
       arenaState.activeQuestion?.id,
     );
+
+    // Broadcast for instant transition on all clients
+    broadcast('turn:next', { nextPickerId });
+    broadcast('phase:change', { phase: 'PICKING', nextPickerId });
+
     await supabase.rpc("next_arena_turn", {
       p_lobby_code: code,
       p_next_picker_id: nextPickerId,
@@ -511,8 +622,65 @@ export default function ArenaBoard({
       </div>
     );
 
+  // ── Game Over Screen ──────────────────────────────────────────────────
+  if (isGameOver) {
+    return (
+      <GameOver
+        lobbyCode={code}
+        players={players.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          score: p.score || 0,
+        }))}
+        playerId={playerId}
+        onPlayAgain={async () => {
+          // Return to lobby state for a new game
+          if (isHost) {
+            await supabase.rpc("reset_lobby_for_new_game", {
+              p_lobby_code: code,
+            });
+          }
+          navigate(`/play/${code}`);
+        }}
+        onLeave={async () => {
+          const { error } = await supabase.rpc("leave_game", {
+            p_lobby_code: code,
+            p_player_id: playerId,
+          });
+          if (error) {
+            await supabase
+              .from("players")
+              .delete()
+              .eq("id", playerId)
+              .eq("lobby_code", code);
+          }
+          store.clearArenaHostCode();
+          navigate("/");
+        }}
+        onNewGame={isHost ? () => {
+          store.clearArenaHostCode();
+          navigate("/arena");
+        } : undefined}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-deep-void flex flex-col p-4 relative">
+      {/* Reconnection Banner */}
+      {!isConnected && (
+        <div className="fixed top-0 left-0 right-0 z-[110] bg-red-500/10 border-b border-red-500/30 px-4 py-3 flex items-center justify-center gap-3 animate-pulse backdrop-blur-sm">
+          <WifiOff className="w-4 h-4 text-red-500" />
+          <span className="text-red-400 text-xs font-bold uppercase tracking-widest">
+            Connection lost — reconnecting...
+          </span>
+          <span className="flex gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+        </div>
+      )}
       <div className="fixed top-0 left-0 bg-black/90 text-green-400 text-[10px] z-[100] px-2 py-1 font-mono pointer-events-none border-b border-green-900 w-full text-center">
         ME:{playerId?.slice(0, 4)} | PK_ID:{arenaState.pickerId?.slice(0, 4)} |
         IS_PK:{String(isPicker)} | PH:{arenaState.phase}
@@ -524,6 +692,13 @@ export default function ArenaBoard({
             ARENA
           </span>
           <span className="text-white/20 font-mono text-sm">{code}</span>
+          {/* Connection indicator */}
+          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-neon-emerald animate-pulse" : "bg-red-500"}`} />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+              {isConnected ? `${Object.keys(presences).length} online` : "Reconnecting..."}
+            </span>
+          </div>
           <button
             onClick={async () => {
               if (confirm("Are you sure you want to leave the game?")) {
@@ -544,7 +719,7 @@ export default function ArenaBoard({
                     .eq("lobby_code", code);
                 }
 
-                localStorage.removeItem("arena_host_code");
+                store.clearArenaHostCode();
                 navigate("/");
               }
             }}
@@ -567,6 +742,7 @@ export default function ArenaBoard({
         </div>
 
         <div
+          role="status" aria-live="polite"
           className={`px-4 py-2 rounded-xl ${isPicker && arenaState.phase === "PICKING" ? "bg-neon-emerald text-black animate-pulse" : "bg-white/10 text-white/60"} font-bold text-sm uppercase tracking-wider flex items-center gap-2`}
         >
           <Zap className="w-4 h-4" />
@@ -613,8 +789,8 @@ export default function ArenaBoard({
         </div>
       )}
 
-      <div className="flex flex-1 gap-4 overflow-hidden">
-        <div className="flex-1 flex flex-col relative">
+      <div className="flex flex-1 gap-4 overflow-hidden flex-col lg:flex-row">
+        <div className="flex-1 flex flex-col relative min-h-0">
           {/* MODAL: QUESTION PHASE or RESULTS PHASE */}
           {(arenaState.phase === "OPEN" || arenaState.phase === "RESULTS") &&
           activeQ ? (
@@ -783,10 +959,10 @@ export default function ArenaBoard({
             </div>
           ) : (
             /* GRID (Only visible when no Active Question modal) */
-            <div
-              className="h-full grid gap-2"
+              <div
+              className="h-full grid gap-1 md:gap-2"
               style={{
-                gridTemplateColumns: `repeat(${Math.min(categories.length, 5)}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${Math.min(categories.length, typeof window !== 'undefined' && window.innerWidth >= 1024 ? 5 : 3)}, minmax(0, 1fr))`,
               }}
             >
               {categories.slice(0, 5).map((cat: any, colIndex: number) => {
@@ -836,12 +1012,22 @@ export default function ArenaBoard({
                                 !isPicker ||
                                 arenaState.phase !== "PICKING"
                               }
+                              role="button"
+                              aria-label={`${q.points} points ${isRevealed ? 'revealed' : ''}${!isRevealed && isPicker && arenaState.phase === 'PICKING' ? ' click to open' : ''}`}
+                              aria-disabled={isRevealed || !isPicker || arenaState.phase !== 'PICKING'}
+                              tabIndex={isRevealed || !isPicker || arenaState.phase !== 'PICKING' ? -1 : 0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  openQuestion(q, cat.name);
+                                }
+                              }}
                               className={`flex-1 rounded flex flex-col items-center justify-center transition-all group relative overflow-hidden border p-1 ${
                                 isRevealed
                                   ? "bg-slate-600/80 border-slate-400/50 cursor-default"
                                   : !isPicker || arenaState.phase !== "PICKING"
                                     ? `${theme.border} border-opacity-30 opacity-50 cursor-not-allowed`
-                                    : `hover:bg-white/10 ${theme.border} border-opacity-30 cursor-pointer hover:scale-105`
+                                    : `hover:bg-white/10 ${theme.border} border-opacity-30 cursor-pointer hover:scale-105 focus-visible:ring-2 focus-visible:ring-neon-emerald focus-visible:ring-offset-2 focus-visible:ring-offset-black`
                               }`}
                             >
                               {!isRevealed && (
@@ -876,7 +1062,7 @@ export default function ArenaBoard({
         </div>
 
         {/* Sidebar - FIX #2: Split into Standings + Results */}
-        <div className="w-72 bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col gap-4 overflow-hidden">
+        <div className="w-full lg:w-72 bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 flex flex-col gap-4 overflow-hidden max-h-48 lg:max-h-none shrink-0">
           {/* Top Half: Standings */}
           <div className="flex-1 min-h-0">
             <h3 className="text-white/40 text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-2">
@@ -913,41 +1099,66 @@ export default function ArenaBoard({
               <Clock className="w-4 h-4" /> This Round
             </h3>
             <div className="space-y-1 max-h-40 overflow-y-auto">
-              {answerTimings.length > 0 ? (
-                answerTimings.map((a: any, idx: number) => (
-                  <div
-                    key={a.player_id}
-                    className={`flex items-center justify-between p-2 rounded-lg ${a.is_correct ? "bg-green-500/10" : "bg-red-500/10"}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
-                        {a.rank === 1
-                          ? "🥇"
-                          : a.rank === 2
-                            ? "🥈"
-                            : a.rank === 3
-                              ? "🥉"
-                              : a.is_correct
-                                ? "✅"
-                                : "❌"}
-                      </span>
-                      <span className="text-white text-xs truncate max-w-16">
-                        {a.player_name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/50 font-mono text-[10px]">
-                        {(a.answer_time_ms / 1000).toFixed(1)}s
-                      </span>
-                      <span
-                        className={`font-mono font-bold text-xs ${a.points_awarded >= 0 ? "text-green-400" : "text-red-400"}`}
+              {answerTimings.length > 0 || broadcastedAnswers.size > 0 ? (
+                <>
+                  {/* Broadcast answers (instant, before DB confirm) */}
+                  {Array.from(broadcastedAnswers).map((pid) => {
+                    // Skip if already in answerTimings (confirmed by DB)
+                    if (answerTimings.find((a: any) => a.player_id === pid)) return null;
+                    const p = players.find((pl: any) => pl.id === pid);
+                    return (
+                      <div
+                        key={`bc-${pid}`}
+                        className="flex items-center justify-between p-2 rounded-lg bg-neon-emerald/5 border border-neon-emerald/20 animate-pulse"
                       >
-                        {a.points_awarded >= 0 ? "+" : ""}
-                        {a.points_awarded}
-                      </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">⏳</span>
+                          <span className="text-neon-emerald text-xs truncate max-w-16">
+                            {p?.name || pid.slice(0, 6)}
+                          </span>
+                        </div>
+                        <span className="text-neon-emerald/50 font-mono text-[10px]">
+                          answering...
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {/* DB-confirmed answers */}
+                  {answerTimings.map((a: any) => (
+                    <div
+                      key={a.player_id}
+                      className={`flex items-center justify-between p-2 rounded-lg ${a.is_correct ? "bg-green-500/10" : "bg-red-500/10"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">
+                          {a.rank === 1
+                            ? "🥇"
+                            : a.rank === 2
+                              ? "🥈"
+                              : a.rank === 3
+                                ? "🥉"
+                                : a.is_correct
+                                  ? "✅"
+                                  : "❌"}
+                        </span>
+                        <span className="text-white text-xs truncate max-w-16">
+                          {a.player_name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/50 font-mono text-[10px]">
+                          {(a.answer_time_ms / 1000).toFixed(1)}s
+                        </span>
+                        <span
+                          className={`font-mono font-bold text-xs ${a.points_awarded >= 0 ? "text-green-400" : "text-red-400"}`}
+                        >
+                          {a.points_awarded >= 0 ? "+" : ""}
+                          {a.points_awarded}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </>
               ) : (
                 <div className="text-white/30 text-xs text-center py-4">
                   Waiting for answers...

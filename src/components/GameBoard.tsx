@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { Trophy, Clock, Zap, CheckCircle2, XCircle, Play, Eye, Users, Plus, Minus, Edit2, Save, RotateCcw, Lock, Unlock, Timer as TimerIcon, Trash2, LogOut } from 'lucide-react'
+import { Trophy, Clock, Zap, XCircle, Play, Eye, Users, Plus, Minus, Edit2, Save, RotateCcw, Lock, Unlock, Timer as TimerIcon, Trash2, LogOut, Wifi, WifiOff } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { pickQuestionsForGame } from '../lib/spacedRepetition'
+import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
 
 interface GameBoardProps {
     lobbyCode: string
@@ -10,6 +11,7 @@ interface GameBoardProps {
     isLocal?: boolean
     initialCategories?: any // Local mode categories group
     onExit?: () => void
+    onReturnToLobby?: () => void // Sticky lobby — return to lobby for next game
 }
 
 // Neon Color Palette for Categories
@@ -22,7 +24,7 @@ const CATEGORY_COLORS = [
     { name: 'orange', bg: 'bg-orange-500', text: 'text-orange-500', border: 'border-orange-500/50', gradient: 'from-orange-500/20' },
 ]
 
-export default function GameBoard({ lobbyCode, settings, isLocal = false, initialCategories, onExit }: GameBoardProps) {
+export default function GameBoard({ lobbyCode, settings, isLocal = false, initialCategories, onExit, onReturnToLobby }: GameBoardProps) {
 
     const [currentRound, setCurrentRound] = useState(1)
     const [activeQuestion, setActiveQuestion] = useState<any>(null)
@@ -79,50 +81,105 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
 
     // ... existing hooks ...
 
-    // Timer Logic
+    // ── Realtime Channel (Broadcast + Presence + postgres_changes) ────────────
+    const { broadcast, onBroadcast, presences, isConnected } = useRealtimeChannel({
+        channelName: `standard:${lobbyCode}`,
+        enablePresence: !isLocal && !!lobbyCode,
+        presenceData: !isLocal ? { playerId: 'host', name: 'Host', status: 'connected' as const } : undefined,
+        subscribeLobby: !isLocal ? lobbyCode : undefined,
+        subscribePlayers: !isLocal ? lobbyCode : undefined,
+        onLobbyChange: (payload: any) => {
+            const newLobby = payload.new
+            if (newLobby.status) setStatus(newLobby.status)
+            if (newLobby.buzzed_player_id !== undefined) setBuzzedPlayerId(newLobby.buzzed_player_id)
+        },
+        onPlayerChange: async () => {
+            const { data } = await supabase.from('players').select('*').eq('lobby_code', lobbyCode)
+            if (data) setPlayers(data.sort((a: any, b: any) => b.score - a.score))
+        },
+    })
+
+    // ── Broadcast event handlers ─────────────────────────────────────────────
+    useEffect(() => {
+        if (isLocal) return
+
+        const unsubs: (() => void)[] = []
+
+        // Handle buzzer press from players
+        unsubs.push(onBroadcast('buzzer:press', (payload: any) => {
+            if (payload.playerId) {
+                setBuzzedPlayerId(payload.playerId)
+            }
+        }))
+
+        // Handle timer ticks from host (non-host clients sync display)
+        unsubs.push(onBroadcast('timer:tick', (payload: any) => {
+            if (payload.remainingSec !== undefined) {
+                setTimer(payload.remainingSec)
+                if (payload.remainingSec > 0 && !isTimerRunning) setIsTimerRunning(true)
+                if (payload.remainingSec <= 0) setIsTimerRunning(false)
+            }
+        }))
+
+        // Handle score updates
+        unsubs.push(onBroadcast('score:update', (payload: any) => {
+            if (payload.playerId && payload.score !== undefined) {
+                setPlayers(prev => {
+                    const updated = prev.map(p =>
+                        p.id === payload.playerId ? { ...p, score: payload.score } : p
+                    ).sort((a: any, b: any) => b.score - a.score)
+                    return updated
+                })
+            }
+        }))
+
+        // Handle question open (phase transition)
+        unsubs.push(onBroadcast('question:open', (payload: any) => {
+            if (payload.questionId) {
+                setStatus('READING')
+                setBuzzedPlayerId(null)
+            }
+        }))
+
+        // Handle question close (phase transition)
+        unsubs.push(onBroadcast('question:close', (payload: any) => {
+            setActiveQuestion(null)
+            setIsAnswerRevealed(false)
+            setGradedPlayers({})
+            setStatus('LOBBY')
+            setBuzzedPlayerId(null)
+        }))
+
+        return () => unsubs.forEach(fn => fn())
+    }, [onBroadcast, isLocal])
+
+    // ── Online player count from Presence ────────────────────────────────────
+    const onlineCount = useMemo(() => {
+        if (isLocal) return players.length
+        return Object.keys(presences).length || players.length
+    }, [presences, players.length, isLocal])
+
+    // ── Timer Logic (host broadcasts ticks) ──────────────────────────────────
     useEffect(() => {
         let interval: any
         if (isTimerRunning && timer > 0) {
             interval = setInterval(() => {
-                setTimer((t: number) => t - 1)
+                setTimer((t: number) => {
+                    const next = t - 1
+                    if (!isLocal) {
+                        broadcast('timer:tick', { remainingSec: next })
+                    }
+                    return next
+                })
             }, 1000)
         } else if (timer === 0) {
             setIsTimerRunning(false)
+            if (!isLocal) broadcast('timer:tick', { remainingSec: 0 })
         }
         return () => clearInterval(interval)
-    }, [isTimerRunning, timer])
+    }, [isTimerRunning, timer, isLocal, broadcast])
 
-    // Host Mode: Fetch & Subscribe to Players
-    useEffect(() => {
-        if (!isLocal && lobbyCode) {
-            const fetchPlayers = async () => {
-                const { data } = await supabase.from('players').select('*').eq('lobby_code', lobbyCode)
-                if (data) setPlayers(data.sort((a: any, b: any) => b.score - a.score))
-            }
-            fetchPlayers()
-
-            const channel = supabase.channel(`game_players:${lobbyCode}`)
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `lobby_code=eq.${lobbyCode}` }, () => {
-                    fetchPlayers()
-                })
-                .subscribe()
-            return () => { supabase.removeChannel(channel) }
-        }
-    }, [lobbyCode, isLocal])
-
-    // Host Mode: Subscribe to Lobby Status & Buzzer (CRITICAL for syncing side panel and active question)
-    useEffect(() => {
-        if (!isLocal && lobbyCode) {
-            const channel = supabase.channel(`game_lobby:${lobbyCode}`)
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lobbies', filter: `code=eq.${lobbyCode}` }, (payload) => {
-                    const newLobby = payload.new
-                    if (newLobby.status) setStatus(newLobby.status)
-                    if (newLobby.buzzed_player_id !== undefined) setBuzzedPlayerId(newLobby.buzzed_player_id)
-                })
-                .subscribe()
-            return () => { supabase.removeChannel(channel) }
-        }
-    }, [lobbyCode, isLocal])
+    // (Replaced by useRealtimeChannel — postgres_changes handled via onLobbyChange / onPlayerChange)
 
     const closeQuestion = async () => {
         if (!activeQuestion) return
@@ -133,12 +190,14 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
             setRevealedQuestions(newRevealed)
 
             if (!isLocal) {
-                // Persist to lobby settings
-                const newSettings = { ...settings, revealed_questions: newRevealed }
+                // Atomic append to revealed_questions — no read-modify-write race
+                await supabase.rpc('append_revealed_question', {
+                    p_lobby_code: lobbyCode,
+                    p_question_id: activeQuestion.id
+                })
                 await supabase.from('lobbies').update({
                     status: 'LOBBY',
-                    buzzed_player_id: null,
-                    settings: newSettings
+                    buzzed_player_id: null
                 }).eq('code', lobbyCode)
             }
         } else {
@@ -146,6 +205,9 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                 await supabase.from('lobbies').update({ status: 'LOBBY', buzzed_player_id: null }).eq('code', lobbyCode)
             }
         }
+
+        // Broadcast close event for instant phase sync
+        if (!isLocal) broadcast('question:close', { questionId: activeQuestion.id })
 
         // Close logic
         setActiveQuestion(null)
@@ -197,6 +259,8 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
             // Set to READING first, players wait for host to Open Buzzers
             setStatus('READING')
             setBuzzedPlayerId(null)
+            // Broadcast for instant phase sync
+            broadcast('question:open', { questionId: q.id, category: q.category, points: q.points })
             await supabase.from('lobbies').update({ status: 'READING', current_question_id: q.id, buzzed_player_id: null }).eq('code', lobbyCode)
         }
     }
@@ -208,6 +272,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
     const handleOpenBuzzers = async () => {
         setStatus('BUZZING')
         if (!isLocal) {
+            broadcast('phase:change', { phase: 'BUZZING' })
             await supabase.from('lobbies').update({ status: 'BUZZING' }).eq('code', lobbyCode)
         }
     }
@@ -215,6 +280,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
     const handleCloseBuzzers = async () => {
         setStatus('READING')
         if (!isLocal) {
+            broadcast('phase:change', { phase: 'READING' })
             await supabase.from('lobbies').update({ status: 'READING' }).eq('code', lobbyCode)
         }
     }
@@ -223,6 +289,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
         setStatus('BUZZING')
         setBuzzedPlayerId(null)
         if (!isLocal) {
+            broadcast('buzzer:clear', {})
             await supabase.from('lobbies').update({ buzzed_player_id: null, status: 'BUZZING' }).eq('code', lobbyCode)
         }
     }
@@ -247,6 +314,8 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
         }
 
         await supabase.from('players').update({ score: newScore }).eq('id', playerId)
+        // Broadcast score update for instant leaderboard refresh
+        if (!isLocal) broadcast('score:update', { playerId, score: newScore })
     }
 
     const handleManualScoreEdit = async (playerId: string) => {
@@ -260,23 +329,126 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
         await supabase.from('players').update({ score: val }).eq('id', playerId)
     }
 
+    // ── Refs for latest function references (avoids stale closures in keyboard handler) ──
+    const closeQuestionRef = useRef(closeQuestion)
+    const handleOpenBuzzersRef = useRef(handleOpenBuzzers)
+    const handleCloseBuzzersRef = useRef(handleCloseBuzzers)
+    const statusRef = useRef(status)
+    const activeQuestionRef = useRef(activeQuestion)
+    const isAnswerRevealedRef = useRef(isAnswerRevealed)
+    const currentRoundRef = useRef(currentRound)
+
+    // Keep refs in sync with latest function/state values
+    useEffect(() => { closeQuestionRef.current = closeQuestion })
+    useEffect(() => { handleOpenBuzzersRef.current = handleOpenBuzzers })
+    useEffect(() => { handleCloseBuzzersRef.current = handleCloseBuzzers })
+    useEffect(() => { statusRef.current = status })
+    useEffect(() => { activeQuestionRef.current = activeQuestion })
+    useEffect(() => { isAnswerRevealedRef.current = isAnswerRevealed })
+    useEffect(() => { currentRoundRef.current = currentRound })
+
+    // ── Keyboard Shortcuts (always uses latest values via refs) ───────────
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Skip if typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+            const aq = activeQuestionRef.current
+            const revealed = isAnswerRevealedRef.current
+            const st = statusRef.current
+            const cr = currentRoundRef.current
+
+            switch (e.key) {
+                case ' ':
+                case 'Spacebar':
+                    e.preventDefault()
+                    if (aq) {
+                        if (!revealed) {
+                            setIsAnswerRevealed(true)
+                        } else if (st !== 'BUZZING') {
+                            handleOpenBuzzersRef.current()
+                        } else {
+                            handleCloseBuzzersRef.current()
+                        }
+                    }
+                    break
+                case 'Escape':
+                    e.preventDefault()
+                    if (aq) {
+                        closeQuestionRef.current()
+                    }
+                    break
+                case 'ArrowLeft':
+                    if (!aq && cr > 1) {
+                        setCurrentRound(r => r - 1)
+                    }
+                    break
+                case 'ArrowRight':
+                    if (!aq && cr < (settings.rounds || 1)) {
+                        setCurrentRound(r => r + 1)
+                    }
+                    break
+                case 'r':
+                case 'R':
+                    if (!e.ctrlKey && !e.metaKey && aq && !revealed) {
+                        setIsAnswerRevealed(true)
+                    }
+                    break
+                case 'c':
+                case 'C':
+                    if (!e.ctrlKey && !e.metaKey && aq && revealed) {
+                        closeQuestionRef.current()
+                    }
+                    break
+            }
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [settings.rounds])
+
     return (
-        <div className="fixed inset-0 bg-deep-void p-4 flex flex-col gap-4 overflow-hidden">
+        <div className="fixed inset-0 bg-deep-void p-2 md:p-4 flex flex-col gap-2 md:gap-4 overflow-hidden">
+            {/* Reconnection Banner */}
+            {!isLocal && !isConnected && (
+                <div className="shrink-0 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center justify-center gap-3 animate-pulse">
+                    <WifiOff className="w-4 h-4 text-red-500" />
+                    <span className="text-red-400 text-xs font-bold uppercase tracking-widest">
+                        Connection lost — reconnecting...
+                    </span>
+                    <span className="flex gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                </div>
+            )}
             {/* Top Bar: Round & Stats */}
-            <div className="h-12 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-6">
-                    <div className="glass-dark px-4 py-2 rounded-xl border-white/5 flex items-center gap-3">
-                        <Trophy className="w-4 h-4 text-neon-emerald" />
-                        <span className="font-orbitron font-bold text-white tracking-widest uppercase text-xs">
-                            Round {currentRound} / {settings.rounds || 1}
+            <div className="h-10 md:h-12 flex items-center justify-between shrink-0 flex-wrap gap-1">
+                <div className="flex items-center gap-2 md:gap-6 flex-1 min-w-0">
+                    <div className="glass-dark px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl border-white/5 flex items-center gap-1 md:gap-3">
+                        <Trophy className="w-3 h-3 md:w-4 md:h-4 text-neon-emerald" />
+                        <span className="font-orbitron font-bold text-white tracking-widest uppercase text-[9px] md:text-xs">
+                            R{currentRound}/{settings.rounds || 1}
                         </span>
                     </div>
-                    <div className="glass-dark px-4 py-2 rounded-xl border-white/5 flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${status === 'BUZZING' ? 'bg-neon-emerald animate-pulse' : 'bg-red-500'}`} />
-                        <span className="font-orbitron font-bold text-white tracking-widest uppercase text-xs">
-                            STATUS: {status}
+                    <div className="glass-dark px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl border-white/5 flex items-center gap-1 md:gap-3">
+                        <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${status === 'BUZZING' ? 'bg-neon-emerald animate-pulse' : 'bg-red-500'}`} />
+                        <span className="font-orbitron font-bold text-white tracking-widest uppercase text-[9px] md:text-xs hidden sm:inline">
+                            {status}
                         </span>
                     </div>
+                    {!isLocal && (
+                        <div className="glass-dark px-4 py-2 rounded-xl border-white/5 flex items-center gap-2">
+                            {isConnected ? (
+                                <Wifi className="w-4 h-4 text-neon-emerald" />
+                            ) : (
+                                <WifiOff className="w-4 h-4 text-red-500" />
+                            )}
+                            <span className={`font-orbitron font-bold tracking-widest uppercase text-xs ${isConnected ? 'text-neon-emerald' : 'text-red-500'}`}>
+                                {isConnected ? `${onlineCount} online` : 'Reconnecting...'}
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex gap-2">
@@ -288,9 +460,14 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                     )}
                 </div>
 
+                {onReturnToLobby && (
+                    <button onClick={onReturnToLobby} className="px-4 py-2 rounded-lg bg-neon-emerald/10 hover:bg-neon-emerald/20 text-neon-emerald border border-neon-emerald/30 hover:border-neon-emerald/50 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all">
+                        <RotateCcw className="w-4 h-4" /> Back to Lobby
+                    </button>
+                )}
                 {onExit && (
                     <button onClick={onExit} className="ml-2 px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/50 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all">
-                        <LogOut className="w-4 h-4" /> Exit
+                        <LogOut className="w-4 h-4" /> End Game
                     </button>
                 )}
             </div>
@@ -459,7 +636,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                             </div>
                         </div>
                     ) : (
-                        <div className="h-full grid gap-2" style={{ gridTemplateColumns: `repeat(${currentRoundCats.length}, minmax(0, 1fr))` }}>
+                        <div className="h-full grid gap-1 md:gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(currentRoundCats.length, typeof window !== 'undefined' && window.innerWidth >= 1024 ? 6 : 3)}, minmax(0, 1fr))` }}>
                             {currentRoundCats.map((cat: any, colIndex: number) => {
                                 const questions = getQuestionsForCategory(cat);
                                 const theme = CATEGORY_COLORS[colIndex % CATEGORY_COLORS.length]
@@ -519,8 +696,16 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                     )}
                 </div>
 
+                {/* Mobile: Tab toggle for sidebar */}
+                <button
+                    onClick={() => setActiveTab(t => t === 'CONTROLS' ? 'SCORES' : 'CONTROLS')}
+                    className="lg:hidden px-3 py-1.5 rounded-lg bg-white/10 text-white/60 text-[10px] font-bold uppercase tracking-widest"
+                >
+                    {activeTab === 'CONTROLS' ? 'Scores →' : '← Controls'}
+                </button>
+
                 {/* Sidebar (Tabs: Controls vs Scores) */}
-                <div className="w-80 flex flex-col gap-4 shrink-0 transition-all border-l border-white/5 pl-4">
+                <div className="w-full lg:w-80 flex flex-col gap-4 shrink-0 transition-all border-t lg:border-t-0 lg:border-l border-white/5 pt-2 lg:pt-0 lg:pl-4">
                     {/* Tabs */}
                     <div className="flex p-1 bg-white/5 rounded-xl">
                         <button

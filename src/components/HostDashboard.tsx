@@ -12,8 +12,10 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { store } from "../lib/storage";
 import Lobby from "./Lobby";
 import GameBoard from "./GameBoard";
+import GameOver from "./GameOver";
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -23,6 +25,7 @@ export default function HostDashboard() {
   const [gameStarted, setGameStarted] = useState(false);
   const [gameSettings, setGameSettings] = useState<any>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [showGameOver, setShowGameOver] = useState(false);
 
   // Config for Selection
   const [activeRound, setActiveRound] = useState(1);
@@ -105,7 +108,7 @@ export default function HostDashboard() {
   // PERSISTENCE: Restore Lobby on Mount
   useEffect(() => {
     const restoreLobby = async () => {
-      const storedCode = localStorage.getItem("host_lobby_code");
+      const storedCode = store.getHostLobbyCode();
       if (storedCode) {
         setLoading(true);
         const { data, error } = await supabase
@@ -175,7 +178,7 @@ export default function HostDashboard() {
 
       if (data) {
         console.log("[Host] Created new lobby:", data.code);
-        localStorage.setItem("host_lobby_code", data.code);
+        store.setHostLobbyCode(data.code);
         setLobby(data);
         setGameSettings(data.settings);
         setLoading(false);
@@ -195,31 +198,79 @@ export default function HostDashboard() {
     setLoading(false);
   };
 
-  // End Game - Delete lobby and clear session
-  const endGame = async () => {
-    if (
-      !confirm(
-        "Are you sure you want to end this game? All progress will be lost.",
-      )
-    )
-      return;
-
+  // Return to Lobby (Sticky Lobby — continuous play)
+  // Keeps the lobby + players alive, resets game state so host can start next game
+  const returnToLobby = async () => {
     setLoading(true);
     if (lobby?.code) {
-      // Delete lobby (cascade will handle players, questions, etc.)
-      await supabase.from("lobbies").delete().eq("code", lobby.code);
+      // Atomic RPC: resets status + clears question pointers + prunes settings keys
+      // No read-modify-write race — single atomic UPDATE
+      await supabase.rpc("reset_lobby_for_new_game", {
+        p_lobby_code: lobby.code,
+      });
+
+      // Clear questions for the next game
+      await supabase.from("questions").delete().eq("lobby_code", lobby.code);
+
+      // Reset player scores for new game
+      await supabase
+        .from("players")
+        .update({ score: 0 })
+        .eq("lobby_code", lobby.code);
+
+      // Refetch lobby to get fresh state
+      const { data: freshLobby } = await supabase
+        .from("lobbies")
+        .select("*")
+        .eq("code", lobby.code)
+        .single();
+      if (freshLobby) {
+        setLobby(freshLobby);
+        setGameSettings(freshLobby.settings);
+      }
     }
 
-    // Clear localStorage
-    localStorage.removeItem("host_lobby_code");
+    // Reset local state
+    setGameSettings(null);
+    setGameStarted(false);
+    setIsSelecting(false);
+    setSelectedCategories({});
+    setActiveRound(1);
+    setLoading(false);
+  };
 
-    // Reset state
+  // End Game - Fetch players then show GameOver screen (non-destructive preview)
+  const [gameOverPlayers, setGameOverPlayers] = useState<any[]>([]);
+  const endGame = async () => {
+    if (lobby?.code) {
+      const { data: players } = await supabase
+        .from("players")
+        .select("id, name, score")
+        .eq("lobby_code", lobby.code)
+        .order("score", { ascending: false });
+      if (players && players.length > 0) {
+        setGameOverPlayers(players);
+      } else {
+        setGameOverPlayers([{ id: "host", name: "Host", score: 0 }]);
+      }
+    }
+    setShowGameOver(true);
+  };
+
+  // Delete lobby (destructive — called from GameOver "New Game")
+  const deleteLobby = async () => {
+    setLoading(true);
+    if (lobby?.code) {
+      await supabase.from("lobbies").delete().eq("code", lobby.code);
+    }
+    store.clearHostLobbyCode();
     setLobby(null);
     setGameSettings(null);
     setGameStarted(false);
     setIsSelecting(false);
     setSelectedCategories({});
     setActiveRound(1);
+    setShowGameOver(false);
     setLoading(false);
   };
 
@@ -267,12 +318,11 @@ export default function HostDashboard() {
             };
 
             // Update Lobby to notify everyone of next turn
-            const { error } = await supabase
-              .from("lobbies")
-              .update({
-                settings: { ...gameSettings, draft: newDraftState },
-              })
-              .eq("code", lobby.code);
+            // Atomic merge — only mutates settings.draft, preserves all other keys
+            const { error } = await supabase.rpc("merge_lobby_settings", {
+              p_lobby_code: lobby.code,
+              p_merge: { draft: newDraftState },
+            });
 
             if (!error) {
               setGameSettings((prev: any) => ({
@@ -514,6 +564,24 @@ q_type: "MCQ", // All questions are now MCQ only
     setLoading(false);
   };
 
+  if (showGameOver && lobby) {
+    return (
+      <GameOver
+        lobbyCode={lobby.code}
+        players={gameOverPlayers.length > 0 ? gameOverPlayers : [{ id: 'host', name: 'Host', score: 0 }]}
+        onPlayAgain={async () => {
+          setShowGameOver(false);
+          await returnToLobby();
+        }}
+        onNewGame={deleteLobby}
+        onLeave={() => {
+          setShowGameOver(false);
+          navigate("/");
+        }}
+      />
+    );
+  }
+
   if (gameStarted) {
     return (
       <GameBoard
@@ -521,6 +589,7 @@ q_type: "MCQ", // All questions are now MCQ only
         settings={gameSettings}
         initialCategories={selectedCategories}
         onExit={endGame}
+        onReturnToLobby={returnToLobby}
       />
     );
   }

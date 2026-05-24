@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft, Sparkles, Loader2, Save, Settings, BrainCircuit, GraduationCap } from 'lucide-react'
 import { generateQuizQuestions } from '../lib/ai'
 import { supabase } from '../lib/supabase'
+import { store } from '../lib/storage'
 import { SYSTEM_PROMPT_STANDARD, SYSTEM_PROMPT_ARENA } from '../lib/prompts'
 
 interface AIGeneratorViewProps {
@@ -11,7 +12,7 @@ interface AIGeneratorViewProps {
 
 export default function AIGeneratorView({ onBack, isAdmin = false }: AIGeneratorViewProps) {
     // Config State
-    const [provider, setProvider] = useState(localStorage.getItem('qb_ai_provider') || 'gemini')
+    const [provider, setProvider] = useState(store.getAiProvider())
     const [apiKey, setApiKey] = useState('')
     const [status, setStatus] = useState<'idle' | 'generating' | 'success' | 'error'>('idle')
     const [logs, setLogs] = useState<string[]>([])
@@ -57,7 +58,7 @@ export default function AIGeneratorView({ onBack, isAdmin = false }: AIGenerator
 
     // Load saved key on provider change
     useEffect(() => {
-        const savedKeys = JSON.parse(localStorage.getItem('qb_ai_keys') || '{}')
+        const savedKeys = store.getAiKeys()
         setApiKey(savedKeys[provider] || '')
 
         // Default model selection
@@ -70,10 +71,10 @@ export default function AIGeneratorView({ onBack, isAdmin = false }: AIGenerator
 
     const saveKey = (val: string) => {
         setApiKey(val)
-        const savedKeys = JSON.parse(localStorage.getItem('qb_ai_keys') || '{}')
+        const savedKeys = store.getAiKeys()
         savedKeys[provider] = val
-        localStorage.setItem('qb_ai_keys', JSON.stringify(savedKeys))
-        localStorage.setItem('qb_ai_provider', provider)
+        store.setAiKeys(savedKeys)
+        store.setAiProvider(provider)
     }
 
     const log = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])

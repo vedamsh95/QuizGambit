@@ -1,10 +1,12 @@
-import { Trophy, Check, Crown, Zap, HelpCircle, LogOut } from "lucide-react";
+import { Trophy, Check, Crown, Zap, HelpCircle, LogOut, Wifi, WifiOff } from "lucide-react";
 import { useGameSession } from "../hooks/useGameSession";
 import confetti from "canvas-confetti";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import CategoryDraftGrid from "./CategoryDraftGrid";
+import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
+import { store } from "../lib/storage";
 
 interface PlayerViewProps {
   code: string;
@@ -13,30 +15,38 @@ interface PlayerViewProps {
 
 export default function PlayerView({ code, name }: PlayerViewProps) {
   const navigate = useNavigate();
-  const [playerId, setPlayerId] = useState<string>(() => {
-    const saved = localStorage.getItem("qb_pid");
-    if (saved) return saved;
-    const newId = crypto.randomUUID();
-    localStorage.setItem("qb_pid", newId);
-    return newId;
-  });
+  const [playerId, setPlayerId] = useState<string>(() => store.ensurePlayerId());
   const [categories, setCategories] = useState<any[]>([]);
   const [categorySelected, setCategorySelected] = useState<any>(null);
   const [lobby, setLobby] = useState<any>(null);
 
   const { status, buzzedPlayerId, buzz } = useGameSession(code, playerId);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [canPick, setCanPick] = useState(false);
-  const [picksRemaining, setPicksRemaining] = useState(0);
-  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
-  const [draftStatusText, setDraftStatusText] = useState("");
 
-  const isBuzzed = buzzedPlayerId === playerId;
-  const isSomeoneElseBuzzed = buzzedPlayerId && !isBuzzed;
+  // ── Realtime Channel (Broadcast + Presence) ────────────────────────────────
+  const { broadcast, onBroadcast, presences, isConnected } = useRealtimeChannel({
+    channelName: `standard:${code}`,
+    enablePresence: true,
+    presenceData: {
+      playerId,
+      name: name || "Player",
+      status: "connected" as const,
+    },
+    subscribeLobby: code,
+    onLobbyChange: (payload: any) => {
+      const updated = payload.new;
+      if (updated.status === "PLAYING" && lobby?.settings?.draft?.isComplete) {
+        navigate(`/play?code=${code}&mode=arena`);
+      }
+    },
+  });
 
-  const handleBuzz = async () => {
+  // ── Broadcast: buzzer press ────────────────────────────────────────────────
+  const handleBuzzWithBroadcast = async () => {
     const success = await buzz();
     if (success) {
+      // Broadcast instantly for all clients to see
+      broadcast("buzzer:press", { playerId });
       confetti({
         particleCount: 150,
         spread: 70,
@@ -45,6 +55,15 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
       });
     }
   };
+  const [canPick, setCanPick] = useState(false);
+  const [picksRemaining, setPicksRemaining] = useState(0);
+  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
+  const [draftStatusText, setDraftStatusText] = useState("");
+
+  const isBuzzed = buzzedPlayerId === playerId;
+  const isSomeoneElseBuzzed = buzzedPlayerId && !isBuzzed;
+
+  // (replaced by handleBuzzWithBroadcast above)
 
   // REGISTER PLAYER ON MOUNT
   useEffect(() => {
@@ -303,6 +322,20 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
+      {/* Reconnection Banner */}
+      {!isConnected && (
+        <div className="absolute top-0 left-0 right-0 z-50 bg-red-500/10 border-b border-red-500/30 px-4 py-3 flex items-center justify-center gap-3 animate-pulse">
+          <WifiOff className="w-4 h-4 text-red-500" />
+          <span className="text-red-400 text-xs font-bold uppercase tracking-widest">
+            Connection lost — reconnecting...
+          </span>
+          <span className="flex gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+        </div>
+      )}
       {/* Leave Button */}
       <button
         onClick={async () => {
@@ -321,6 +354,18 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
         <LogOut className="w-4 h-4" />
         <span>Leave</span>
       </button>
+
+      {/* Connection Status */}
+      <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-xs">
+        {isConnected ? (
+          <Wifi className="w-3 h-3 text-neon-emerald" />
+        ) : (
+          <WifiOff className="w-3 h-3 text-red-500" />
+        )}
+        <span className={`font-bold uppercase tracking-wider ${isConnected ? "text-neon-emerald" : "text-red-500"}`}>
+          {isConnected ? "Connected" : "Reconnecting..."}
+        </span>
+      </div>
 
       <div className="text-center mb-10">
         <h2 className="text-white/40 font-orbitron text-sm tracking-[0.4em] mb-1">
@@ -342,7 +387,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
 
         <button
           disabled={status !== "BUZZING"}
-          onClick={handleBuzz}
+          onClick={handleBuzzWithBroadcast}
           className={`relative w-full h-full rounded-full flex flex-col items-center justify-center transition-all duration-300 border-8 transform active:scale-95 ${
             status === "BUZZING"
               ? "bg-neon-emerald border-black/20 shadow-[0_0_80px_rgba(16,185,129,0.4)]"
