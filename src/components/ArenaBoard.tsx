@@ -426,9 +426,13 @@ export default function ArenaBoard({
         submitTimeout();
       }
 
-      // Host forces round to close after timer + 2s grace period
-      if (rawRemaining <= -2 && isHost && arenaState.phase === "OPEN") {
-        console.log("[Arena] Host forcing question close due to timeout");
+      // Any client forces round to close after timer + 2s grace period.
+      // Previously only the host did this, but if the host disconnects,
+      // non-host clients would be stuck. force_close_question is idempotent
+      // (checks phase=OPEN first), so duplicate calls are harmless.
+      if (rawRemaining <= -2 && arenaState.phase === "OPEN") {
+        console.log("[Arena] Timer expired, forcing question close");
+        pushDebug("timer:force_close", `remaining:${rawRemaining.toFixed(1)}s host:${isHost}`);
         await supabase.rpc("force_close_question", { p_lobby_code: code });
       }
     }, 500);
@@ -573,9 +577,17 @@ export default function ArenaBoard({
       `points:${data?.points ?? "-"} correct:${data?.correct ?? "-"}`,
     );
 
-    // RPC may trigger phase change to RESULTS if everyone answered
+    // RPC may already have transitioned phase to RESULTS on server.
+    // Now returned as all_answered: true so we can optimistically transition
+    // on the client too — no waiting for postgres_changes round-trip.
     if (data?.all_answered) {
-      console.log("All players answered! Waiting for sync...");
+      console.log("[Arena] All players answered — transitioning locally");
+      pushDebug("answer:all_answered", `answers:${data.answers_received} players:${data.total_players}`);
+      // Optimistic local transition (server already transitioned)
+      setArenaState((prev: any) => ({
+        ...prev,
+        phase: 'RESULTS',
+      }));
     }
   };
 

@@ -72,11 +72,12 @@ export default function ArenaLobby() {
 
   const [settings, setSettings] = useState<ArenaSettings>(DEFAULT_SETTINGS);
 
-  // FIX #1: Use Ref to avoid stale closures in draft engine
+  // FIX #1: Use Ref to avoid stale closures in draft engine.
+  // IMPORTANT: settingsRef is updated SYNCHRONOUSLY in every handler that
+  // calls setSettings. Do NOT add a useEffect to sync it — that creates a
+  // race condition where a stale render stomps the ref before the realtime
+  // subscription can read the draft flag (causes draft-flicker bug).
   const settingsRef = useRef(settings);
-  useEffect(() => {
-    settingsRef.current = settings;
-  }, [settings]);
 
   // Track processed picks to prevent double-processing
   const processedPicks = useRef(new Set<number>());
@@ -128,7 +129,9 @@ export default function ArenaLobby() {
         if (lobbyData && !error && lobbyData.status !== "FINISHED") {
           // Restore Success
           setLobbyCode(lobbyData.code);
-          setSettings(lobbyData.settings || DEFAULT_SETTINGS);
+          const restoredSettings = lobbyData.settings || DEFAULT_SETTINGS;
+          setSettings(restoredSettings);
+          settingsRef.current = restoredSettings;
           setSetupStep("LOBBY");
 
           // FIX #2: Pass filter explicitly to avoid stale state
@@ -493,15 +496,13 @@ export default function ArenaLobby() {
     setSettings(finalSettings);
     settingsRef.current = finalSettings;
 
-    // Write status + settings atomically via separate updates
+    // Atomic write: status + settings in ONE update — prevents the realtime
+    // subscription from receiving a split payload where status="SELECTING"
+    // but settings.draft is still null (root cause of draft-flicker bug).
     await supabase
       .from("lobbies")
-      .update({ status: "SELECTING" })
+      .update({ status: "SELECTING", settings: finalSettings })
       .eq("code", lobbyCode);
-    await supabase.rpc('merge_lobby_settings', {
-      p_lobby_code: lobbyCode,
-      p_merge: finalSettings
-    });
   };
 
   // RENDER: LOADING
