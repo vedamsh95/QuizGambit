@@ -1,222 +1,237 @@
 import { useState, useEffect } from "react";
-import { Routes, Route, useNavigate, useSearchParams } from "react-router-dom";
+import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 import { store } from "./lib/storage";
-import GameBoard from "./components/GameBoard";
-import GameRoom from "./components/GameRoom";
-import Library from "./components/Library";
-import AdminDashboard from "./components/AdminDashboard";
-import HostDashboard from "./components/HostDashboard";
-import HostLobby from "./components/HostLobby";
-import PlayerView from "./components/PlayerView";
-import ArenaLobby from "./components/ArenaLobby";
+import { ThemeProvider } from "./components/ui/ThemeProvider";
+import { ToastProvider } from "./components/ui/ClayToast";
+
+// ── V2 Components ───────────────────────────────────────────────────────
+import HomeScreen from "./components/HomeScreen";
+import GameLobby from "./components/GameLobby";
+import GameResults from "./components/GameResults";
+
+// ── V1 Components (kept for compatibility) ─────────────────────────────
+import GameBoardV2 from "./components/GameBoardV2";
 import ArenaBoard from "./components/ArenaBoard";
+import ArenaLobby from "./components/ArenaLobby";
+import Library from "./components/Library";
 import AIGeneratorView from "./components/AIGeneratorView";
-import Home from "./components/Home";
+import AdminDashboard from "./components/AdminDashboard";
+import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
+import ClayPrototype from "./components/ClayPrototype";
 
-// PlayerRoute: wraps PlayerView/ArenaBoard, handles URL params for /play?code=&mode=
-function PlayerRoute() {
+// ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
+function PlayRoute() {
+  const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const code = searchParams.get("code") || "";
-  const mode = searchParams.get("mode");
-  const storedName = store.getPlayerName();
 
-  // Shared ID Logic
-  const [playerId] = useState(() => store.ensurePlayerId());
+  const [state, setState] = useState<{
+    lobby?: any;
+    loading: boolean;
+    error?: string;
+  }>({ loading: true });
+  const playerId = store.ensurePlayerId();
+  const playerName = store.getPlayerName();
 
-  // Heartbeat: lighter cadence to reduce DB write load under multiplayer concurrency
   useEffect(() => {
-    if (!playerId || !code) return;
+    if (!code) {
+      setState({ loading: false, error: "No game code provided" });
+      return;
+    }
+    supabase
+      .from("lobbies")
+      .select("*")
+      .eq("code", code)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          setState({ loading: false, error: "Game not found" });
+        } else {
+          setState({ loading: false, lobby: data });
+        }
+      });
+  }, [code]);
 
-    const beat = async () => {
-      await supabase
-        .from("players")
-        .update({ last_seen: new Date().toISOString() })
-        .eq("id", playerId);
-    };
-
-    // Initial beat
-    beat();
-
-    const interval = setInterval(beat, 10000);
-    return () => clearInterval(interval);
-  }, [playerId, code]);
-
-  // If no code, show a clear recovery path.
-  if (!code)
+  if (state.loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-white p-10 text-center gap-4">
-        <h1 className="text-3xl font-orbitron font-black">Invalid Game Code</h1>
-        <p className="text-white/40">
-          Please return home and enter a valid Arena or game code.
-        </p>
+      <div className="min-h-screen bg-clay-cream flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-2 border-soft-purple border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (state.error || !state.lobby || !code) {
+    return (
+      <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-8 text-center gap-6">
+        <h1 className="text-2xl font-outfit font-black text-plum">
+          {state.error || "Game Not Found"}
+        </h1>
         <button
           onClick={() => navigate("/")}
-          className="px-6 py-3 rounded-xl bg-neon-emerald text-black font-black uppercase tracking-widest"
+          className="px-6 py-3 rounded-2xl bg-soft-purple text-white font-bold"
         >
           Return Home
         </button>
       </div>
     );
+  }
 
-  if (mode === "arena") {
+  const lobby = state.lobby;
+
+  // Arena mode → ArenaBoard
+  if (lobby.mode === "ARENA") {
     return (
-      <ArenaBoard code={code} playerId={playerId} playerName={storedName} />
+      <ArenaBoard
+        code={code}
+        playerId={playerId}
+        playerName={playerName}
+      />
     );
   }
 
-  return <PlayerView code={code} name={storedName} />;
+  // Standard mode → GameBoard
+  const handleExit = () => {
+    navigate(`/results/${code}`);
+  };
+
+  const handleReturnToLobby = () => {
+    navigate(`/lobby/${code}`);
+  };
+
+  return (
+    <GameBoardV2
+      lobbyCode={code}
+      settings={lobby.settings}
+      onExit={handleExit}
+      onReturnToLobby={handleReturnToLobby}
+    />
+  );
 }
 
+// ── App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
-  const [adminState, setAdminState] = useState<'loading' | 'yes' | 'no'>('loading');
-  const [localSettings, setLocalSettings] = useState<any>(() => store.getLocalGameSettings());
+  const [adminState, setAdminState] = useState<"loading" | "yes" | "no">("loading");
+  const [localSettings, setLocalSettings] = useState<any>(() =>
+    store.getLocalGameSettings(),
+  );
 
+  // Auth + admin check
   useEffect(() => {
-    // Auth Subscription
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
       checkAdmin(session?.user?.id);
     });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       checkAdmin(session?.user?.id);
     });
-
-    return () => subscription.unsubscribe();
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  const checkAdmin = async (userId: string | undefined) => {
-    if (!userId) {
-      setAdminState('no');
-      return;
-    }
+  const checkAdmin = async (userId?: string) => {
+    if (!userId) return setAdminState("no");
     try {
       const { data } = await supabase
         .from("profiles")
         .select("is_admin")
         .eq("id", userId)
         .single();
-      setAdminState(data?.is_admin ? 'yes' : 'no');
-    } catch (err) {
-      console.error("Failed to check admin status:", err);
-      setAdminState('no'); // Fail closed
+      setAdminState(data?.is_admin ? "yes" : "no");
+    } catch {
+      setAdminState("no");
     }
   };
 
-  // Handlers
-  const handleHost = () => navigate("/host");
-  const handleJoin = (code: string, name: string) => {
-    store.setPlayerName(name);
-    navigate(`/play/${code}`);
-  };
-  const handleStartLocal = (settings: any) => {
-    store.setLocalGameSettings(settings);
-    setLocalSettings(settings);
-    navigate("/local");
-  };
-  const handleCreateArena = () => navigate("/arena");
-
   return (
-    <div className="min-h-screen bg-deep-void">
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Home
-              isAdmin={adminState === 'yes'}
-              onHost={handleHost}
-              onCreateArena={handleCreateArena}
-              onJoin={handleJoin}
-              onStartLocal={handleStartLocal}
-              onLibrary={() => navigate("/library")}
-              onAdmin={() => navigate("/admin")}
+    <ThemeProvider>
+      <ToastProvider>
+        <div className="min-h-screen bg-clay-cream">
+          <Routes>
+            {/* ── V2 Core Routes ─────────────────────────────────── */}
+            <Route path="/" element={<HomeScreen />} />
+            <Route path="/lobby/:code" element={<GameLobby />} />
+            <Route path="/play/:code" element={<PlayRoute />} />
+            <Route path="/results/:code" element={<GameResults />} />
+
+            {/* ── Arena ─────────────────────────────────────────── */}
+            <Route path="/arena" element={<ArenaLobby />} />
+
+            {/* ── Library ────────────────────────────────────────── */}
+            <Route
+              path="/library"
+              element={
+                <Library
+                  onBack={() => navigate("/")}
+                  onOpenGenerator={() => navigate("/ai")}
+                />
+              }
             />
-          }
-        />
 
-        <Route path="/host" element={<HostDashboard />} />
-        <Route path="/host/:code" element={<HostLobby />} />
-        <Route path="/arena" element={<ArenaLobby />} />
-        <Route path="/play" element={<PlayerRoute />} />
-        <Route path="/play/:code" element={<GameRoom />} />
-
-        <Route
-          path="/library"
-          element={
-            <Library
-              onBack={() => navigate("/")}
-              onOpenGenerator={() => navigate("/ai")}
+            {/* ── AI Generator ───────────────────────────────────── */}
+            <Route
+              path="/ai"
+              element={
+                <AIGeneratorView onBack={() => navigate("/library")} />
+              }
             />
-          }
-        />
 
-        <Route
-          path="/ai"
-          element={<AIGeneratorView onBack={() => navigate("/library")} />}
-        />
+            {/* ── Admin ──────────────────────────────────────────── */}
+            <Route
+              path="/admin"
+              element={
+                adminState === "loading" ? (
+                  <div className="min-h-screen flex items-center justify-center bg-clay-cream">
+                    <div className="w-10 h-10 rounded-full border-2 border-soft-purple border-t-transparent animate-spin" />
+                  </div>
+                ) : adminState === "yes" ? (
+                  <AdminDashboard onBack={() => navigate("/")} />
+                ) : (
+                  <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-8 text-center gap-4">
+                    <h1 className="text-2xl font-outfit font-black text-plum">
+                      Access Denied
+                    </h1>
+                    <p className="text-plum/40">
+                      You do not have permission to access the admin dashboard.
+                    </p>
+                    <button
+                      onClick={() => navigate("/")}
+                      className="px-6 py-3 rounded-2xl bg-soft-purple text-white font-bold"
+                    >
+                      Return Home
+                    </button>
+                  </div>
+                )
+              }
+            />
 
-        <Route
-          path="/admin"
-          element={
-            adminState === 'loading' ? (
-              <div className="min-h-screen flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-neon-emerald"></div>
-              </div>
-            ) : adminState === 'yes' ? (
-              <AdminDashboard onBack={() => navigate("/")} />
-            ) : (
-              <div className="min-h-screen flex flex-col items-center justify-center text-white p-10 text-center gap-4">
-                <h1 className="text-3xl font-orbitron font-black">
-                  Access Denied
-                </h1>
-                <p className="text-white/40">
-                  You do not have permission to open the admin dashboard.
-                </p>
-                <button
-                  onClick={() => navigate("/")}
-                  className="px-6 py-3 rounded-xl bg-neon-emerald text-black font-black uppercase tracking-widest"
-                >
-                  Return Home
-                </button>
-              </div>
-            )
-          }
-        />
+            {/* ── Local Play ─────────────────────────────────────── */}
+            <Route
+              path="/local"
+              element={
+                localSettings ? (
+                  <GameBoardV2
+                    lobbyCode="LOCAL"
+                    settings={localSettings}
+                    isLocal={true}
+                    initialCategories={localSettings.round_categories}
+                    onExit={() => navigate("/")}
+                  />
+                ) : (
+                  <LocalPlaySetupV2
+                    onStart={(settings: any) => {
+                      store.setLocalGameSettings(settings);
+                      setLocalSettings(settings);
+                      navigate("/local");
+                    }}
+                  />
+                )
+              }
+            />
 
-        <Route
-          path="/local"
-          element={
-            localSettings ? (
-              <GameBoard
-                lobbyCode="LOCAL"
-                settings={localSettings}
-                isLocal={true}
-                initialCategories={localSettings.round_categories}
-                onExit={() => navigate("/")}
-              />
-            ) : (
-              <div className="text-white text-center mt-20">
-                No active local game.{" "}
-                <button
-                  onClick={() => navigate("/")}
-                  className="underline text-neon-emerald"
-                >
-                  Return Home
-                </button>
-              </div>
-            )
-          }
-        />
-      </Routes>
-
-      {/* Admin Quick Link moved to Home */}
-    </div>
+            {/* ── Prototype (dev only) ───────────────────────────── */}
+            <Route path="/prototype" element={<ClayPrototype />} />
+          </Routes>
+        </div>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

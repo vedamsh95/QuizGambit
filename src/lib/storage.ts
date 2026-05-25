@@ -31,6 +31,14 @@ export const store = {
     localStorage.setItem("qb_player_name", name);
   },
 
+  // Player Avatar (persistent — auto-selects on return)
+  getPlayerAvatar(): string {
+    return localStorage.getItem("qb_player_avatar") || "brain";
+  },
+  setPlayerAvatar(avatar: string): void {
+    localStorage.setItem("qb_player_avatar", avatar);
+  },
+
   // ── Host Lobby Persistence ──────────────────────────────────────────────
 
   getHostLobbyCode(): string | null {

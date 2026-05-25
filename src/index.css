@@ -1,87 +1,434 @@
 @import "tailwindcss";
 
-@theme {
-    --color-deep-void: #050505;
-    --color-neon-emerald: #10B981;
-    --font-orbitron: "Orbitron", sans-serif;
-    --font-inter: "Inter", sans-serif;
-}
+/* ═══════════════════════════════════════════════════════════════════════════
+   V2 Clay Pop — Themable Design Tokens
+   Themes: light (default) | dark | multi (candy pop)
+   Switch via: document.documentElement.classList.add("theme-dark") / "theme-multi"
+   ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Outfit font via @fontsource ─────────────────────────────────────── */
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+@import "@fontsource/outfit/800.css";
+@import "@fontsource/outfit/900.css";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME: Light (default, no class needed)
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-    color-scheme: dark;
+    color-scheme: light;
+
+    /* ── Surface & Background ──────────────────────────────────────── */
+    --clay-bg:              #F5F0EB;
+    --clay-text:            #2D2B32;
+    --clay-muted:           #8E8C95;
+    --clay-surface:         #FFFFFF;
+    --clay-border-divider:  #E8E4DF;
+
+    /* ── Shadow RGB channels (for opacity injection) ────────────────── */
+    --clay-shadow-rgb:          139, 92, 246;
+    --clay-highlight-rgb:       255, 255, 255;
+    --clay-inner-shadow-rgb:    255, 107, 138;
+    --clay-border-rgb:          255, 255, 255;
+
+    /* ── Input Specific ─────────────────────────────────────────────── */
+    --clay-input-border:    rgba(166, 157, 145, 0.25);
+    --clay-focus-ring:      #7C5CFC;
+
+    /* ── Accent Colors ──────────────────────────────────────────────── */
+    --accent-purple:        #7C5CFC;
+    --accent-purple-light:  #EDE9FE;
+    --accent-peach:         #FF6B8A;
+    --accent-peach-light:   #FFE5EB;
+    --accent-mint:          #34D399;
+    --accent-mint-light:    #D1FAE5;
+    --accent-butter:        #FBBF24;
+    --accent-butter-light:  #FEF3C7;
+    --accent-sky:           #60A5FA;
+    --accent-sky-light:     #DBEAFE;
+    --accent-lavender:      #A78BFA;
+    --accent-lavender-light:#EDE9FE;
+    --accent-gray:          #9CA3AF;
+    --accent-gray-light:    #F3F4F6;
+
+    /* ── Skeleton Loader ────────────────────────────────────────────── */
+    --clay-skeleton-base:   #EDE8E2;
+    --clay-skeleton-mid:    #F5F0EB;
+
+    /* ── Background Radial Glows (opacity-driven) ───────────────────── */
+    --clay-bg-glow-purple:  rgba(124, 92, 252, 0.04);
+    --clay-bg-glow-peach:   rgba(255, 107, 138, 0.04);
+    --clay-bg-glow-sky:     rgba(96, 165, 250, 0.03);
+
+    /* ── Responsive font scaling ────────────────────────────────────── */
+    --text-body:  clamp(1rem, 2.5vw, 1.125rem);
+    --text-h1:    clamp(1.75rem, 5vw, 2.5rem);
+    --text-h2:    clamp(1.5rem, 4vw, 2rem);
+    --text-h3:    clamp(1.25rem, 3vw, 1.5rem);
+    --text-code:  clamp(1.75rem, 4vw, 2.25rem);
+    --text-buzzer:clamp(1.25rem, 3vw, 1.75rem);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME: Dark — "Velvet Night"
+   Surface plum floats on deep void. Shadows = pure black. Accents brightened.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root.theme-dark {
+    color-scheme: dark;
+
+    --clay-bg:              #13111A;
+    --clay-text:            #F0EDF5;
+    --clay-muted:           #A8A4B8;
+    --clay-surface:         #3B364C;
+    --clay-border-divider:  #4A455E;
+
+    --clay-shadow-rgb:          139, 92, 246;
+    --clay-highlight-rgb:       255, 255, 255;
+    --clay-inner-shadow-rgb:    255, 107, 138;
+    --clay-border-rgb:          255, 255, 255;
+
+    --clay-input-border:    rgba(255, 255, 255, 0.18);
+    --clay-focus-ring:      #9B83FF;
+
+    --accent-purple:        #9B83FF;
+    --accent-purple-light:  #473280;
+    --accent-peach:         #FF8DA8;
+    --accent-peach-light:   #732A40;
+    --accent-mint:          #4EE892;
+    --accent-mint-light:    #1D573F;
+    --accent-butter:        #FDD660;
+    --accent-butter-light:  #755B1E;
+    --accent-sky:           #74BDFF;
+    --accent-sky-light:     #25527A;
+    --accent-lavender:      #BDA5FF;
+    --accent-lavender-light:#543880;
+    --accent-gray:          #787B86;
+    --accent-gray-light:    #3C404E;
+
+    --clay-skeleton-base:   #3B364C;
+    --clay-skeleton-mid:    #4A455E;
+
+    --clay-bg-glow-purple:  rgba(155, 131, 255, 0.04);
+    --clay-bg-glow-peach:   rgba(255, 141, 168, 0.03);
+    --clay-bg-glow-sky:     rgba(116, 189, 255, 0.03);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME: Multi — "Candy Pop"
+   White surfaces, saturated colorful shadows. Purple/pink 3D depth casts.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root.theme-multi {
+    color-scheme: light;
+
+    --clay-bg:              #FDFBFF;
+    --clay-text:            #1E1B4B;
+    --clay-muted:           #8C8A94;
+    --clay-surface:         #FFFFFF;
+    --clay-border-divider:  #EFEAE5;
+
+    --clay-shadow-rgb:          139, 92, 246;
+    --clay-highlight-rgb:       255, 255, 255;
+    --clay-inner-shadow-rgb:    255, 107, 138;
+    --clay-border-rgb:          255, 255, 255;
+
+    --clay-input-border:    rgba(139, 92, 246, 0.2);
+    --clay-focus-ring:      #8B5CF6;
+
+    --accent-purple:        #8B5CF6;
+    --accent-purple-light:  #EDE9FE;
+    --accent-peach:         #F43F5E;
+    --accent-peach-light:   #FFE5EB;
+    --accent-mint:          #10B981;
+    --accent-mint-light:    #D1FAE5;
+    --accent-butter:        #F59E0B;
+    --accent-butter-light:  #FEF3C7;
+    --accent-sky:           #3B82F6;
+    --accent-sky-light:     #DBEAFE;
+    --accent-lavender:      #A855F7;
+    --accent-lavender-light:#F3E8FF;
+    --accent-gray:          #9CA3AF;
+    --accent-gray-light:    #F3F4F6;
+
+    --clay-skeleton-base:   #F0ECF8;
+    --clay-skeleton-mid:    #FDFBFF;
+
+    --clay-bg-glow-purple:  rgba(6, 182, 212, 0.06);
+    --clay-bg-glow-peach:   rgba(236, 72, 153, 0.06);
+    --clay-bg-glow-sky:     rgba(250, 204, 21, 0.05);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tailwind @theme — maps to CSS variables so utility classes track the theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+@theme {
+    --color-cream:              var(--clay-bg);
+    --color-plum:               var(--clay-text);
+    --color-warm-gray:          var(--clay-muted);
+    --color-clay-border:        var(--clay-border-divider);
+    --color-clay-shadow:        rgb(var(--clay-shadow-rgb));
+
+    --color-soft-purple:        var(--accent-purple);
+    --color-soft-purple-light:  var(--accent-purple-light);
+    --color-peach:              var(--accent-peach);
+    --color-peach-light:        var(--accent-peach-light);
+    --color-mint:               var(--accent-mint);
+    --color-mint-light:         var(--accent-mint-light);
+    --color-butter:             var(--accent-butter);
+    --color-butter-light:       var(--accent-butter-light);
+    --color-sky:                var(--accent-sky);
+    --color-sky-light:          var(--accent-sky-light);
+    --color-lavender:           var(--accent-lavender);
+    --color-lavender-light:     var(--accent-lavender-light);
+    --color-gray:               var(--accent-gray);
+    --color-gray-light:         var(--accent-gray-light);
+
+    --font-outfit: "Outfit", sans-serif;
+    --font-inter:  "Inter", sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Base Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
 body {
     margin: 0;
     min-height: 100vh;
-    background-color: #050505;
+    background-color: var(--clay-bg);
+    color: var(--clay-text);
     overflow-x: hidden;
+    font-family: 'Inter', sans-serif;
+    font-size: var(--text-body);
+    -webkit-overflow-scrolling: touch;
+    -webkit-tap-highlight-color: transparent;
 }
 
-@layer base {
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-}
+h1 { font-family: 'Outfit', sans-serif; font-size: var(--text-h1); }
+h2 { font-family: 'Outfit', sans-serif; font-size: var(--text-h2); }
+h3 { font-family: 'Outfit', sans-serif; font-size: var(--text-h3); }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Clay Component Classes (all use CSS variables for theming)
+   ═══════════════════════════════════════════════════════════════════════════ */
 @layer components {
-    .glass {
-        @apply bg-zinc-900/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.8)];
+    /* ── Clay Card ─────────────────────────────────────────────────── */
+    .clay {
+        background: var(--clay-surface);
+        border-radius: 24px;
+        box-shadow:
+            6px 6px 20px rgba(var(--clay-shadow-rgb), 0.22),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.9),
+            inset -1px -1px 0px rgba(var(--clay-inner-shadow-rgb), 0.12);
+        border: 1.5px solid rgba(var(--clay-border-rgb), 0.7);
     }
 
-    .glass-dark {
-        @apply bg-black/60 backdrop-blur-3xl border border-white/5 shadow-2xl;
+    .clay-elevated {
+        background: var(--clay-surface);
+        border-radius: 24px;
+        box-shadow:
+            10px 10px 30px rgba(var(--clay-shadow-rgb), 0.28),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.95),
+            inset -2px -2px 0px rgba(var(--clay-inner-shadow-rgb), 0.12);
+        border: 1.5px solid rgba(var(--clay-border-rgb), 0.7);
     }
 
-    .emerald-glow {
-        box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+    .clay-pressed {
+        background: var(--clay-surface);
+        border-radius: 24px;
+        box-shadow:
+            2px 2px 6px rgba(var(--clay-shadow-rgb), 0.25),
+            inset 2px 2px 6px rgba(var(--clay-inner-shadow-rgb), 0.15),
+            inset -1px -1px 0px rgba(var(--clay-highlight-rgb), 0.6);
+        border: 1.5px solid rgba(var(--clay-border-rgb), 0.5);
     }
 
-    .text-glow {
-        text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    /* ── Clay Button ───────────────────────────────────────────────── */
+    .clay-btn {
+        background: var(--clay-surface);
+        border-radius: 16px;
+        box-shadow:
+            4px 4px 12px rgba(var(--clay-shadow-rgb), 0.2),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.9),
+            inset -1px -1px 0px rgba(var(--clay-inner-shadow-rgb), 0.1);
+        border: 1.5px solid rgba(var(--clay-border-rgb), 0.7);
+        transition: all 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        cursor: pointer;
+    }
+    .clay-btn:hover {
+        transform: translateY(-2px);
+        box-shadow:
+            6px 8px 18px rgba(var(--clay-shadow-rgb), 0.28),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.95),
+            inset -1px -1px 0px rgba(var(--clay-inner-shadow-rgb), 0.1);
+    }
+    .clay-btn:active {
+        transform: scale(0.97);
+        box-shadow:
+            2px 2px 6px rgba(var(--clay-shadow-rgb), 0.25),
+            inset 2px 2px 6px rgba(var(--clay-inner-shadow-rgb), 0.15),
+            inset -1px -1px 0px rgba(var(--clay-highlight-rgb), 0.5);
+    }
+    .clay-btn-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
     }
 
-    .animate-shake {
-        animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both;
+    /* ── Clay Input ────────────────────────────────────────────────── */
+    .clay-input {
+        background: var(--clay-surface);
+        border-radius: 14px;
+        box-shadow:
+            inset 2px 2px 6px rgba(var(--clay-inner-shadow-rgb), 0.18),
+            inset -1px -1px 0px rgba(var(--clay-highlight-rgb), 0.9);
+        border: 1.5px solid var(--clay-input-border);
+        padding: 10px 16px;
+        font-size: var(--text-body);
+        color: var(--clay-text);
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .clay-input:focus {
+        border-color: var(--clay-focus-ring);
+        box-shadow:
+            inset 2px 2px 6px rgba(var(--clay-inner-shadow-rgb), 0.18),
+            inset -1px -1px 0px rgba(var(--clay-highlight-rgb), 0.9),
+            0 0 0 3px color-mix(in srgb, var(--clay-focus-ring) 15%, transparent);
+    }
+
+    /* ── Clay Badge ────────────────────────────────────────────────── */
+    .clay-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        box-shadow:
+            2px 2px 6px rgba(var(--clay-shadow-rgb), 0.18),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.7);
+        border: 1px solid rgba(var(--clay-border-rgb), 0.6);
+    }
+
+    /* ── Clay Avatar ───────────────────────────────────────────────── */
+    .clay-avatar {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        color: #FFFFFF;
+        box-shadow:
+            3px 3px 8px rgba(var(--clay-shadow-rgb), 0.2),
+            inset 1px 1px 0px rgba(var(--clay-highlight-rgb), 0.3);
+    }
+
+    /* ── Background with subtle radial noise ────────────────────────── */
+    .bg-clay-cream {
+        background-color: var(--clay-bg);
+        background-image:
+            radial-gradient(ellipse at 20% 50%, var(--clay-bg-glow-purple) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, var(--clay-bg-glow-peach) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 80%, var(--clay-bg-glow-sky) 0%, transparent 50%);
+    }
+
+    /* ── Skeleton loader ────────────────────────────────────────────── */
+    .clay-skeleton {
+        background: linear-gradient(
+            90deg,
+            var(--clay-skeleton-base) 25%,
+            var(--clay-skeleton-mid) 50%,
+            var(--clay-skeleton-base) 75%
+        );
+        background-size: 200% 100%;
+        animation: clay-shimmer 1.5s ease-in-out infinite;
     }
 }
 
-@keyframes shake {
+/* ═══════════════════════════════════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes clay-float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
+}
 
-    10%,
-    90% {
-        transform: translate3d(-1px, 0, 0);
-    }
+@keyframes clay-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
 
-    20%,
-    80% {
-        transform: translate3d(2px, 0, 0);
-    }
-
-    30%,
-    50%,
-    70% {
-        transform: translate3d(-4px, 0, 0);
-    }
-
-    40%,
-    60% {
-        transform: translate3d(4px, 0, 0);
-    }
+@keyframes clay-pop-in {
+    0% { transform: scale(0.9); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 @keyframes pulse-slow {
-
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.5;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
-.animate-pulse-slow {
-    animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+@keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+@keyframes toast-slide-in {
+    0% { transform: translateY(-20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes toast-slide-out {
+    0% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-20px); opacity: 0; }
+}
+
+@keyframes buzzer-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--clay-focus-ring) 40%, transparent); }
+    50% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--clay-focus-ring) 0%, transparent); }
+}
+
+/* ── Utility Animation Classes ───────────────────────────────────────── */
+.animate-float        { animation: clay-float 3s ease-in-out infinite; }
+.animate-clay-pop     { animation: clay-pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.animate-pulse-slow   { animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-shake        { animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both; }
+.animate-toast-in     { animation: toast-slide-in 0.3s ease-out both; }
+.animate-toast-out    { animation: toast-slide-out 0.2s ease-in both; }
+.animate-buzzer-pulse { animation: buzzer-pulse 1.5s ease-in-out infinite; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mobile-First Utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Safe area padding for notched devices */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 16px); }
+.pl-safe { padding-left: env(safe-area-inset-left, 16px); }
+.pr-safe { padding-right: env(safe-area-inset-right, 16px); }
+
+/* Prevent overscroll bounce on fixed elements */
+.no-overscroll {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+}
+
+/* Smooth momentum scroll for content areas */
+.smooth-scroll {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+}
+
+/* Hide scrollbar but keep scroll functionality */
+.hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
 }
