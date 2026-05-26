@@ -175,7 +175,8 @@ export default function BuzzerPlayerView() {
       });
   }, [code, phase, playerId]);
 
-  // ── Broadcast listeners ─────────────────────────────────────────────────
+  // Track whether game has started (set by game:start broadcast)
+  const [gameStarted, setGameStarted] = useState(false);
 
   useEffect(() => {
     if (phase !== "PLAY") return;
@@ -257,9 +258,10 @@ export default function BuzzerPlayerView() {
       })
     );
 
+    // game:start — player stays on BuzzerPlayerView; flag marks game as live
     unsubs.push(
       onBroadcast("game:start", () => {
-        navigate(`/play/${code}`);
+        setGameStarted(true);
       })
     );
 
@@ -445,6 +447,7 @@ export default function BuzzerPlayerView() {
   // ── Derived ─────────────────────────────────────────────────────────────
 
   const getStatusLabel = (s: string): string => {
+    if (s === "LOBBY" && gameStarted) return "Game live — waiting for question";
     switch (s) {
       case "LOBBY":
         return "Waiting for host...";
@@ -563,8 +566,7 @@ export default function BuzzerPlayerView() {
 
       {/* ── Game Screen ─────────────────────────────────────────────────── */}
       {phase === "PLAY" && (
-        <div className="flex-1 flex flex-col p-4 sm:p-6 max-w-lg mx-auto w-full gap-6">
-          {/* Draft Phase UI */}
+        <div className="flex-1 flex flex-col p-4 sm:p-6 max-w-lg mx-auto w-full gap-6">              {/* Draft Phase UI */}
           {draftPhase === "in_progress" && (
             <div className="space-y-4 animate-clay-pop">
               <div className="text-center">
@@ -572,6 +574,9 @@ export default function BuzzerPlayerView() {
                   <BookOpen className="w-3.5 h-3.5" />
                   Category Draft
                 </div>
+                <p className="text-[10px] font-medium text-warm-gray/50 mt-2 max-w-xs mx-auto">
+                  🎮 <strong>Buzzer mode</strong> — after the draft, stay on this screen and use the big buzz button when the host opens the round.
+                </p>
               </div>
 
               {isMyDraftTurn ? (
@@ -669,6 +674,9 @@ export default function BuzzerPlayerView() {
 
               <p className="text-center text-[10px] font-medium text-warm-gray/40">
                 Waiting for host to {hostSetupProgress >= hostTotalSlots ? "start the game" : "finish setup"}...
+              </p>
+              <p className="text-center text-[9px] font-medium text-mint/60 mt-1">
+                🎮 <strong>This is a buzzer game</strong> — after setup, the host will show questions on their screen. You just press the big buzz button below when it lights up!
               </p>
             </div>
           )}

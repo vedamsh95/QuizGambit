@@ -224,28 +224,36 @@ export default function GameBoardV2({
   // ── Derived: categories for current round ──────────────────────────────
 
   const currentRoundCats = useMemo(() => {
+    // Assign unique _uid to every question so revealedQuestions tracking works
+    // across categories (question.id may not be unique across different category groups)
+    const annotate = (cats: any[]) =>
+      cats.map((cat: any, ci: number) => ({
+        ...cat,
+        data: [...(cat.data || [])]
+          .sort((a: any, b: any) => (a.points || 0) - (b.points || 0))
+          .map((q: any, qi: number) => ({
+            ...q,
+            // Composite key guaranteed unique across all categories (q.id alone may duplicate across cat groups)
+            _uid: `${cat.id || cat.name || `cat-${ci}`}_${q.id || qi}`,
+          })),
+      }));
+
     // Local play: categories provided via initialCategories prop
     if (initialCategories && initialCategories[currentRound]) {
-      return initialCategories[currentRound].map((cat: any) => ({
-        ...cat,
-        data: [...(cat.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
-      }));
+      return annotate(initialCategories[currentRound]);
     }
     // Multiplayer: check settings.round_categories (category objects with embedded questions)
     const roundCats = settings?.round_categories?.[currentRound];
     if (roundCats && Array.isArray(roundCats) && roundCats.length > 0) {
       // round_categories stores full category objects: { id, name, data: [questions] }
-      return roundCats.map((cat: any) => ({
+      return annotate(roundCats.map((cat: any) => ({
         id: cat.id || cat.name,
         name: cat.name || "Category",
-        data: [...(cat.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
-      }));
+        data: cat.data || [],
+      })));
     }
     // Fallback: legacy questions table (remoteCategories)
-    return remoteCategories.map((c) => ({
-      ...c,
-      data: [...(c.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
-    }));
+    return annotate(remoteCategories);
   }, [initialCategories, currentRound, remoteCategories, settings]);
 
   const onlineCount = useMemo(() => {
@@ -287,7 +295,7 @@ export default function GameBoardV2({
     if (!activeQuestion) return;
 
     if (isAnswerRevealed) {
-      setRevealedQuestions((prev) => [...prev, activeQuestion.id]);
+      setRevealedQuestions((prev) => [...prev, activeQuestion._uid || activeQuestion.id]);
     }
 
     setActiveQuestion(null);
@@ -330,6 +338,26 @@ export default function GameBoardV2({
       await supabase.from("lobbies").update({ buzzed_player_id: null, status: "BUZZING" }).eq("code", lobbyCode);
     }
   }, [isLocal, lobbyCode, broadcast]);
+
+  // ── Host buzz (host is also a player in buzzer mode) ───────────────────
+
+  const handleHostBuzz = useCallback(async () => {
+    if (!lobbyCode || lobbyCode === "LOCAL" || status !== "BUZZING") return;
+    if (buzzedPlayerId) return; // Someone already buzzed
+
+    const hostId = store.ensurePlayerId();
+
+    // Call RPC first, then update state on success (avoids flash on failure)
+    const { data, error } = await supabase.rpc("buzz_in", {
+      p_lobby_code: lobbyCode,
+      p_player_id: hostId,
+    });
+
+    if (error || !data) return; // Someone beat us — lobby change will sync state
+
+    setBuzzedPlayerId(hostId);
+    broadcast("buzzer:press", { playerId: hostId });
+  }, [lobbyCode, status, buzzedPlayerId, broadcast]);
 
   const handleAdjustTimer = useCallback((delta: number) => {
     setTimer((t: number) => Math.max(0, t + delta));
@@ -424,6 +452,12 @@ export default function GameBoardV2({
   useEffect(() => { activeQRef.current = activeQuestion; });
   useEffect(() => { revealedRef.current = isAnswerRevealed; });
   useEffect(() => { roundRef.current = currentRound; });
+
+  // ── Reset revealed questions when round changes ───────────────────────
+
+  useEffect(() => {
+    setRevealedQuestions([]);
+  }, [currentRound]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────
 
@@ -574,6 +608,7 @@ export default function GameBoardV2({
               onToggleTimer={() => setIsTimerRunning((r) => !r)}
               onAdjustTimer={handleAdjustTimer}
               onResetTimer={handleResetTimer}
+              onHostBuzz={handleHostBuzz}
             />
           ) : currentRoundCats.length === 0 ? (
             <div className="h-full flex items-center justify-center text-center">
@@ -674,11 +709,12 @@ function QuestionGrid({
 
             {/* Question tiles — stacked vertically */}
             <div className="flex-1 flex flex-col gap-1 sm:gap-2">
-              {questions.slice(0, 5).map((q: any, idx: number) => {
-                const isRevealed = revealedQuestions.includes(q.id);
+              {questions.slice(0, 5).map((q: any) => {
+                const qid = q._uid || q.id;
+                const isRevealed = revealedQuestions.includes(qid);
                 return (
                   <ClayTile
-                    key={q.id || idx}
+                    key={qid}
                     state={isRevealed ? "revealed" : "unrevealed"}
                     color={color}
                     points={q.points || 100}
@@ -718,6 +754,7 @@ function QuestionOverlay({
   onToggleTimer,
   onAdjustTimer,
   onResetTimer,
+  onHostBuzz,
 }: {
   question: any;
   isAnswerRevealed: boolean;
@@ -738,6 +775,7 @@ function QuestionOverlay({
   onToggleTimer: () => void;
   onAdjustTimer: (delta: number) => void;
   onResetTimer: () => void;
+  onHostBuzz?: () => void;
 }) {
   const formatTime = (s: number) => `0:${String(s).padStart(2, "0")}`;
   const displayName = getCategoryDisplayName(question.category || "");
@@ -871,6 +909,44 @@ function QuestionOverlay({
           </div>
         )}
 
+        {/* Host Buzz Button — host participates as a player */}
+        {!isLocal && lobbyCode !== "LOCAL" && status === "BUZZING" && onHostBuzz && (
+          <div className="flex flex-col items-center justify-center">
+            <button
+              onClick={onHostBuzz}
+              disabled={!!buzzedPlayerId}
+              className={`relative w-28 h-28 rounded-full transition-all duration-200 ${
+                buzzedPlayerId
+                  ? "bg-warm-gray/20 opacity-40 cursor-not-allowed"
+                  : "bg-gradient-to-br from-mint to-emerald-400 shadow-[0_0_30px_rgba(168,217,204,0.5)] animate-buzz-pulse active:scale-90 cursor-pointer"
+              }`}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <Zap className="w-8 h-8 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]" />
+                <span className="font-outfit font-black text-white text-sm tracking-wider drop-shadow-md">
+                  BUZZ!
+                </span>
+              </div>
+            </button>
+            {!buzzedPlayerId && (
+              <p className="text-[9px] font-bold text-mint/70 mt-2 text-center">
+                Host buzz — you're a player too!
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* buzz-pulse keyframes (also used in BuzzerPlayerView) */}
+        <style>{`
+          @keyframes buzz-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.06); }
+          }
+          .animate-buzz-pulse {
+            animation: buzz-pulse 1.2s ease-in-out infinite;
+          }
+        `}</style>
+
         {/* Buzzed player indicator */}
         {buzzedPlayerId && (
           <div className="bg-mint-light border border-mint/30 p-4 rounded-xl text-center animate-pulse max-w-sm mx-auto">
@@ -945,6 +1021,17 @@ function QuestionOverlay({
           </ClayButton>
         )}
       </ClayCard>
+
+      {/* buzz-pulse keyframes (also used in BuzzerPlayerView) */}
+      <style>{`
+        @keyframes buzz-pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.06); }
+        }
+        .animate-buzz-pulse {
+          animation: buzz-pulse 1.2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }
