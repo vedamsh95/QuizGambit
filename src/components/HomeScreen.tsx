@@ -43,6 +43,8 @@ export default function HomeScreen() {
   const [showSolo, setShowSolo] = useState(false);
   const [showHostModal, setShowHostModal] = useState(false);
   const [isHosting, setIsHosting] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinStatus, setJoinStatus] = useState("");
 
   // Solo setup state
   const [categories, setCategories] = useState<Category[]>([]);
@@ -219,30 +221,78 @@ export default function HomeScreen() {
         return;
       }
 
+      // Insert host as a player so they can buzz and participate in drafts
+      const hostPlayerId = store.ensurePlayerId();
+      await supabase.from("players").upsert(
+        {
+          id: hostPlayerId,
+          lobby_code: code,
+          name: playerName.trim(),
+          score: 0,
+          joined_at: new Date().toISOString(),
+          metadata: { avatar, is_host: true },
+        },
+        { onConflict: "id" },
+      );
+
+      store.setHostLobbyCode(code);
       navigate(`/lobby-buzzer/${code}`);
     } catch (err) {
       console.error("Buzzer host error:", err);
     } finally {
       setIsHosting(false);
     }
-  }, [playerName, navigate]);
+  }, [playerName, avatar, navigate]);
 
   // ── Join ────────────────────────────────────────────────────────────
-  const handleJoin = useCallback(() => {
+  const handleJoin = useCallback(async () => {
     const cleanCode = joinCode
       .toUpperCase()
-      .replace(/[O0]/g, "Q")
-      .replace(/[I1]/g, "L")
-      .replace(/[^A-Z]/g, "");
+      .replace(/O/g, "Q")
+      .replace(/0/g, "Q")
+      .replace(/I/g, "L")
+      .replace(/1/g, "L")
+      .replace(/[^A-Z0-9]/g, "");
     if (cleanCode.length !== 6) return;
     if (!playerName.trim()) return;
 
+    setIsJoining(true);
+    setJoinStatus("Looking up game...");
     store.setPlayerName(playerName.trim());
     store.ensurePlayerId();
-    navigate(`/lobby/${cleanCode}`);
+
+    try {
+      // Check the lobby mode to route to the correct page
+      const { data: lobby, error } = await supabase
+        .from("lobbies")
+        .select("mode, code")
+        .eq("code", cleanCode)
+        .single();
+
+      if (error || !lobby) {
+        // Navigate anyway — GameLobby will show a "not found" error with a back button
+        navigate(`/lobby/${cleanCode}`);
+        return;
+      }
+
+      // Route based on lobby mode
+      if (lobby.mode === "LOCAL_BUZZER") {
+        navigate(`/buzzer/${cleanCode}`);
+      } else if (lobby.mode === "ARENA") {
+        navigate(`/arena`);
+      } else {
+        // STANDARD or any other mode
+        navigate(`/lobby/${cleanCode}`);
+      }
+    } catch {
+      navigate(`/lobby/${cleanCode}`);
+    } finally {
+      setIsJoining(false);
+      setJoinStatus("");
+    }
   }, [joinCode, playerName, navigate]);
 
-  const joinValid = joinCode.replace(/[^A-Z]/g, "").length === 6;
+  const joinValid = joinCode.replace(/[^A-Z0-9]/g, "").length === 6;
 
   // ── Solo Start ──────────────────────────────────────────────────────
   const handleSoloStart = useCallback(async () => {
@@ -541,13 +591,19 @@ export default function HomeScreen() {
             <ClayButton
               variant="primary"
               size="sm"
-              disabled={!joinValid || !nameValid}
+              disabled={!joinValid || !nameValid || isJoining}
+              loading={isJoining}
               onClick={handleJoin}
               className="flex-1"
             >
               Join
             </ClayButton>
           </div>
+          {joinStatus && (
+            <p className="text-center text-[10px] font-bold text-soft-purple animate-pulse">
+              {joinStatus}
+            </p>
+          )}
         </div>
       )}
 

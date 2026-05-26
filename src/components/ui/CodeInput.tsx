@@ -10,7 +10,7 @@ export interface CodeInputProps {
 }
 
 /** Valid characters for room codes (no O/I/0/1 for readability) */
-const VALID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const VALID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export default function CodeInput({
   value,

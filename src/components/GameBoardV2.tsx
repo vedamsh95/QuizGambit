@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import {
   XCircle, Zap, Unlock, Lock, RotateCcw, Trophy, Timer,
@@ -125,7 +126,7 @@ export default function GameBoardV2({
     channelName: `standard:${lobbyCode}`,
     enablePresence: !isLocal && !!lobbyCode && lobbyCode !== "LOCAL",
     presenceData: !isLocal && lobbyCode !== "LOCAL"
-      ? { playerId: "host", name: "Host", status: "connected" as const }
+      ? { playerId: store.ensurePlayerId(), name: store.getPlayerName(), status: "connected" as const }
       : undefined,
     subscribeLobby: !isLocal && lobbyCode !== "LOCAL" ? lobbyCode : undefined,
     subscribePlayers: !isLocal && lobbyCode !== "LOCAL" ? lobbyCode : undefined,

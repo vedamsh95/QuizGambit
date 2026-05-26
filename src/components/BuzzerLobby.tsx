@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { store } from "../lib/storage";
 import { smartSelectQuestions } from "../lib/smartSelection";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import ClayButton from "./ui/ClayButton";
@@ -40,6 +41,11 @@ interface Category {
 export default function BuzzerLobby() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
+
+  // ── Host identity (host is also a player) ────────────────────────────
+
+  const [hostPlayerId] = useState(() => store.ensurePlayerId());
+  const hostPlayerName = store.getPlayerName();
 
   // ── Settings state ─────────────────────────────────────────────────────
 
@@ -150,7 +156,7 @@ export default function BuzzerLobby() {
   const { broadcast, onBroadcast, isConnected } = useRealtimeChannel({
     channelName: `standard:${code}`,
     enablePresence: true,
-    presenceData: { playerId: "host", name: "Host", status: "connected" as const },
+    presenceData: { playerId: hostPlayerId, name: hostPlayerName, status: "connected" as const },
     subscribeLobby: code,
     subscribePlayers: code,
     onLobbyChange: (payload: any) => {
@@ -454,6 +460,8 @@ export default function BuzzerLobby() {
 
   const handleHostPick = useCallback(async (cat: DraftCategory) => {
     if (!code || draftPhase !== "in_progress") return;
+    // Host only picks on their own turn (host is now a regular player)
+    if (!currentPicker || currentPicker.id !== hostPlayerId) return;
     // Use ref for atomic duplicate check (prevents double-click race)
     if (pickedCategoryIdsRef.current.has(cat.id)) return;
     pickedCategoryIdsRef.current.add(cat.id);
@@ -463,7 +471,7 @@ export default function BuzzerLobby() {
     const slotIndex = nextSlot % catsPerRound;
 
     const pick: DraftPick = {
-      playerId: "host", playerName: "Host",
+      playerId: hostPlayerId, playerName: hostPlayerName,
       categoryId: cat.id, categoryName: cat.name,
       round, slotIndex,
     };
@@ -494,7 +502,7 @@ export default function BuzzerLobby() {
       pickedCategoryIdsRef.current.delete(cat.id);
       console.error("Host pick failed:", err);
     }
-  }, [code, draftPhase, draftPicks, draftTurnIndex, players, totalSlots, catsPerRound, updateLobbySetting, broadcast]);
+  }, [code, draftPhase, draftPicks, draftTurnIndex, players, totalSlots, catsPerRound, currentPicker, hostPlayerId, hostPlayerName, updateLobbySetting, broadcast]);
 
   // ── Start Game ──────────────────────────────────────────────────────
 
@@ -1167,25 +1175,24 @@ export default function BuzzerLobby() {
 
               {draftPhase === "in_progress" && (
                 <>
-                  {currentPicker && currentPicker.id !== "host" && (
-                    <div className="text-center text-[10px] font-medium text-warm-gray/40">
-                      💡 Host: you can click a category to skip {currentPicker.name}'s turn
-                    </div>
-                  )}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[250px] overflow-y-auto">
-                    {availableDraftCategories.map((cat) => (
+                    {availableDraftCategories.map((cat) => {
+                      const isHostTurn = currentPicker && currentPicker.id === hostPlayerId;
+                      return (
                       <button
                         key={cat.id}
                         onClick={() => handleHostPick(cat)}
+                        disabled={!isHostTurn}
                         className={`p-3 rounded-xl border transition-all text-left ${
-                          currentPicker && currentPicker.id !== "host"
-                            ? "bg-warm-white border-warm-gray/10 hover:border-peach/30 hover:-translate-y-0.5 opacity-70 hover:opacity-100"
-                            : "bg-warm-white border-warm-gray/15 hover:border-soft-purple/30 hover:-translate-y-0.5"
+                          isHostTurn
+                            ? "bg-warm-white border-warm-gray/15 hover:border-soft-purple/30 hover:-translate-y-0.5 cursor-pointer"
+                            : "bg-warm-white border-warm-gray/10 opacity-50 cursor-not-allowed"
                         }`}
                       >
                         <div className="font-outfit font-bold text-sm text-plum">{cat.name}</div>
                       </button>
-                    ))}
+                      );
+                    })}
                     {availableDraftCategories.length === 0 && (
                       <div className="col-span-full text-center py-4 text-warm-gray/30 text-xs">All categories picked</div>
                     )}
