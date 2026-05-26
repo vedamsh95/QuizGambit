@@ -71,7 +71,7 @@ begin
         and udt_name = 'uuid'
     ) then
       update public.lobbies
-      set host_id = uuid_generate_v4()
+      set host_id = gen_random_uuid()
       where host_id is null;
 
       alter table public.lobbies
