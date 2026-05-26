@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { smartSelectQuestions } from "../lib/smartSelection";
 import ClayButton from "./ui/ClayButton";
-import { Gamepad2, Sliders, Users, BookOpen, Search, Plus, Trash2, X, ChevronRight, ChevronLeft, Zap, CheckCircle2, ArrowLeft } from "lucide-react";
+import { Gamepad2, Sliders, Users, BookOpen, Search, Plus, Trash2, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowLeft } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -13,22 +13,10 @@ interface Config {
   rounds: number;
   categoriesPerRound: number;
   timer: number;
-  hasBuzzer: boolean;
 }
 
 interface LocalPlaySetupV2Props {
   onStart: (settings: any) => void;
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function generateRoomCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -44,7 +32,6 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
     rounds: 3,
     categoriesPerRound: 5,
     timer: 15,
-    hasBuzzer: false,
   });
 
   // Categories
@@ -201,72 +188,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
         processedCategories[parseInt(roundStr)] = processedCats;
       }
 
-      // ── Buzzer Mode: create Supabase lobby + store questions + navigate to /play ──
-      if (config.hasBuzzer) {
-        const roomCode = generateRoomCode();
-        const playerRows = players.map((name) => ({
-          id: crypto.randomUUID(),
-          name,
-          score: 0,
-        }));
-
-        // Collect category names per round for settings
-        const roundCategoryNames: Record<number, string[]> = {};
-        const allQuestions: any[] = [];
-        for (const [roundStr, cats] of Object.entries(processedCategories)) {
-          const rn = parseInt(roundStr);
-          roundCategoryNames[rn] = cats.map((c: any) => c.name);
-          for (const cat of cats) {
-            for (const q of cat.data || []) {
-              allQuestions.push({
-                lobby_code: roomCode,
-                category: cat.name,
-                question_text: q.question_text,
-                answer_text: q.answer_text,
-                points: q.points || 100,
-                q_type: q.q_type || "SA",
-                options: q.options || null,
-                round: rn,
-              });
-            }
-          }
-        }
-
-        // 1. Create lobby
-        const { error: lobbyErr } = await supabase.from("lobbies").insert({
-          code: roomCode,
-          status: "LOBBY",
-          mode: "LOCAL_BUZZER",
-          settings: {
-            rounds: config.rounds,
-            categoriesPerRound: config.categoriesPerRound,
-            timer: config.timer,
-            hasBuzzer: true,
-            round_categories: roundCategoryNames,
-          },
-        });
-        if (lobbyErr) throw lobbyErr;
-
-        // 2. Insert questions
-        if (allQuestions.length > 0) {
-          const { error: qErr } = await supabase.from("questions").insert(allQuestions);
-          if (qErr) console.warn("Question insert warning:", qErr.message);
-        }
-
-        // 3. Insert players
-        if (playerRows.length > 0) {
-          const { error: pErr } = await supabase
-            .from("players")
-            .insert(playerRows.map((p) => ({ ...p, lobby_code: roomCode })));
-          if (pErr) throw pErr;
-        }
-
-        // 4. Navigate to game board
-        navigate(`/play/${roomCode}`);
-        return;
-      }
-
-      // ── Non-buzzer local: original flow ──
+      // ── Non-buzzer local: standard flow ──
       const settings: any = {
         rounds: config.rounds,
         categoriesPerRound: config.categoriesPerRound,
@@ -298,10 +220,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
       (cats) => cats.length === config.categoriesPerRound,
     );
 
-  const canAdvanceFromPlayers = config.hasBuzzer ? players.length >= 2 : true;
-  const canStart = !config.hasBuzzer
-    ? allRoundsFilled
-    : allRoundsFilled && players.length >= 2;
+  const canStart = allRoundsFilled;
 
   const displayName = (name: string) => name.replace(" (Arena)", "").trim();
 
@@ -352,20 +271,18 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
             {phase === "PLAYERS" && <Users className="w-3 h-3" />}
             {phase === "CATEGORIES" && <BookOpen className="w-3 h-3" />}
             {phase === "CONFIG" && "Game Setup"}
-            {phase === "PLAYERS" && (config.hasBuzzer ? "Player Registration" : "Add Players")}
+            {phase === "PLAYERS" && "Add Players"}
             {phase === "CATEGORIES" && "Category Selection"}
           </div>
           <h2 className="text-3xl font-outfit font-black text-plum">
             {phase === "CONFIG" && "Configure Your Game"}
-            {phase === "PLAYERS" && (config.hasBuzzer ? "Who's Playing?" : "Add Players")}
+            {phase === "PLAYERS" && "Add Players"}
             {phase === "CATEGORIES" && "Pick Your Categories"}
           </h2>
           <p className="text-warm-gray text-sm font-medium max-w-md mx-auto">
             {phase === "CONFIG" &&
               "Set the rules, then choose how you want to play."}
-            {phase === "PLAYERS" && (config.hasBuzzer
-              ? "Add at least 2 players for buzzer mode. Each player takes turns answering."
-              : "Add player names for scoring. You can skip this step.")}
+            {phase === "PLAYERS" && "Add player names for scoring. You can skip this step."}
             {phase === "CATEGORIES" && 
               `Click categories to add them to each round. ${config.categoriesPerRound} per round required.`}
           </p>
@@ -462,49 +379,6 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
               </div>
             </div>
 
-            {/* Buzzer Toggle */}
-            <div className="clay p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
-                      config.hasBuzzer
-                        ? "bg-mint-light text-mint"
-                        : "bg-warm-gray/10 text-warm-gray"
-                    }`}
-                  >
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-outfit font-black text-plum text-sm">
-                      Buzzer Mode
-                    </h3>
-                    <p className="text-xs text-warm-gray font-medium">
-                      {config.hasBuzzer
-                        ? "Players buzz in to answer. Multiplayer on one device."
-                        : "Host selects and grades. Simple quiz format."}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() =>
-                    setConfig((c) => ({ ...c, hasBuzzer: !c.hasBuzzer }))
-                  }
-                  className={`relative w-14 h-8 rounded-full transition-all duration-200 ${
-                    config.hasBuzzer ? "bg-mint" : "bg-warm-gray/30"
-                  }`}
-                  role="switch"
-                  aria-checked={config.hasBuzzer}
-                >
-                  <span
-                    className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-[2px_2px_4px_rgba(166,157,145,0.3)] transition-all duration-200 ${
-                      config.hasBuzzer ? "left-7" : "left-1"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
             {/* Next / Skip Button */}
             <div className="flex justify-center">
               <ClayButton
@@ -591,16 +465,10 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                 </div>
                 <div>
                   <h3 className="font-outfit font-black text-plum text-lg">
-                    {config.hasBuzzer
-                      ? players.length >= 2 ? "Ready!" : "Add Players"
-                      : players.length > 0 ? `${players.length} Added` : "Optional"}
+                    {players.length > 0 ? `${players.length} Added` : "Optional"}
                   </h3>
                   <p className="text-xs text-warm-gray font-medium mt-1">
-                    {config.hasBuzzer
-                      ? players.length >= 2
-                        ? `${players.length} players registered`
-                        : "Minimum 2 players required"
-                      : players.length > 0
+                    {players.length > 0
                         ? "Players will appear on the scoreboard"
                         : "Add names for scoring, or skip"}
                   </p>
@@ -634,10 +502,9 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                 variant="primary"
                 size="lg"
                 onClick={goToNext}
-                disabled={!canAdvanceFromPlayers}
                 icon={<ChevronRight className="w-5 h-5" />}
               >
-                {config.hasBuzzer || players.length > 0 ? "Next: Pick Categories" : "Skip: Pick Categories"}
+                {players.length > 0 ? "Next: Pick Categories" : "Skip: Pick Categories"}
               </ClayButton>
             </div>
           </div>

@@ -33,6 +33,11 @@ export interface BroadcastEvents {
   'heartbeat': { playerId: string }
   'score:update': { playerId: string; score: number }
   'settings:update': Record<string, any>
+  'draft:pick': { playerId: string; playerName: string; categoryId: string; categoryName: string }
+  'draft:start': { turnIndex: number; totalSlots: number }
+  'draft:turn': { turnIndex: number }
+  'draft:complete': { picks: any[] }
+  'game:start': Record<string, never>
 }
 
 export type BroadcastEventName = keyof BroadcastEvents

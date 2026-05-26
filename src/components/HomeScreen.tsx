@@ -17,6 +17,7 @@ import {
   Swords,
   Monitor,
   Globe,
+  Zap,
   Check,
   X,
 } from "lucide-react";
@@ -167,6 +168,65 @@ export default function HomeScreen() {
     navigate("/local");
   }, [playerName, navigate]);
 
+  // ── Host → Buzzer Game ──────────────────────────────────────────────
+  const handleHostBuzzer = useCallback(async () => {
+    if (!playerName.trim()) return;
+    setIsHosting(true);
+    setShowHostModal(false);
+    store.setPlayerName(playerName.trim());
+    store.ensurePlayerId();
+
+    try {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let code = "";
+      let success = false;
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        code = "";
+        for (let i = 0; i < 6; i++) {
+          code += chars[Math.floor(Math.random() * chars.length)];
+        }
+
+        const { error } = await supabase.from("lobbies").insert({
+          code,
+          status: "LOBBY",
+          mode: "LOCAL_BUZZER",
+          settings: {
+            rounds: 3,
+            categoriesPerRound: 5,
+            timer: 15,
+            selectionMode: "HOST_PICK",
+            draftPhase: "pending",
+            draftPicks: [],
+            draftTurnIndex: 0,
+            roundCategories: {},
+            selectedCategoryIds: [],
+          },
+        });
+
+        if (!error) {
+          success = true;
+          break;
+        }
+        if (error.code !== "23505") {
+          console.error("Failed to create buzzer lobby:", error);
+          return;
+        }
+      }
+
+      if (!success) {
+        console.error("Failed to generate unique room code after 5 attempts");
+        return;
+      }
+
+      navigate(`/lobby-buzzer/${code}`);
+    } catch (err) {
+      console.error("Buzzer host error:", err);
+    } finally {
+      setIsHosting(false);
+    }
+  }, [playerName, navigate]);
+
   // ── Join ────────────────────────────────────────────────────────────
   const handleJoin = useCallback(() => {
     const cleanCode = joinCode
@@ -281,7 +341,7 @@ export default function HomeScreen() {
           disabled={!nameValid || isHosting}
           className="clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all disabled:opacity-40 disabled:cursor-not-allowed
-                     animate-clay-pop"
+                     animate-clay-pop bg-gradient-to-br from-soft-purple-light/40 to-transparent"
           style={{ animationDelay: "0ms" }}
         >
           <div className="w-11 h-11 rounded-xl bg-soft-purple flex items-center justify-center">
@@ -306,6 +366,7 @@ export default function HomeScreen() {
           }}
           className={`clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all animate-clay-pop
+                     bg-gradient-to-br from-sky-light/40 to-transparent
                      ${showJoin ? "ring-2 ring-sky shadow-lg shadow-sky/20" : ""}`}
           style={{ animationDelay: "50ms" }}
         >
@@ -323,6 +384,7 @@ export default function HomeScreen() {
           onClick={openSolo}
           className={`clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all animate-clay-pop
+                     bg-gradient-to-br from-mint-light/40 to-transparent
                      ${showSolo ? "ring-2 ring-mint shadow-lg shadow-mint/20" : ""}`}
           style={{ animationDelay: "100ms" }}
         >
@@ -339,7 +401,8 @@ export default function HomeScreen() {
         <button
           onClick={() => navigate("/ai")}
           className="clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
-                     hover:-translate-y-1 transition-all animate-clay-pop"
+                     hover:-translate-y-1 transition-all animate-clay-pop
+                     bg-gradient-to-br from-butter-light/40 to-transparent"
           style={{ animationDelay: "150ms" }}
         >
           <div className="w-11 h-11 rounded-xl bg-butter flex items-center justify-center">
@@ -389,6 +452,31 @@ export default function HomeScreen() {
                 <h4 className="font-outfit font-black text-sm text-plum">Local</h4>
                 <p className="text-[10px] text-plum/40 font-medium leading-tight mt-0.5">
                   Play on this device with friends around you
+                </p>
+              </div>
+            </button>
+
+            {/* Buzzer Option */}
+            <button
+              onClick={handleHostBuzzer}
+              disabled={isHosting}
+              className="clay p-4 flex items-center gap-4 text-left cursor-pointer
+                         hover:-translate-y-0.5 transition-all group w-full
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         bg-gradient-to-r from-mint-light/50 to-transparent"
+            >
+              <div className="w-12 h-12 rounded-xl bg-mint flex items-center justify-center flex-shrink-0
+                              group-hover:scale-105 transition-transform">
+                {isHosting ? (
+                  <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                ) : (
+                  <Zap className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div className="flex-1">
+                <h4 className="font-outfit font-black text-sm text-plum">Buzzer Game</h4>
+                <p className="text-[10px] text-plum/40 font-medium leading-tight mt-0.5">
+                  Players buzz in from their phones. Setup together in the lobby.
                 </p>
               </div>
             </button>
