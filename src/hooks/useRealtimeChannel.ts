@@ -37,7 +37,9 @@ export interface BroadcastEvents {
   'draft:start': { turnIndex: number; totalSlots: number }
   'draft:turn': { turnIndex: number }
   'draft:complete': { picks: any[] }
+  'draft:sync': { picks: any[]; turnIndex: number; phase: string }
   'game:start': Record<string, never>
+  'game:end': Record<string, never>
 }
 
 export type BroadcastEventName = keyof BroadcastEvents

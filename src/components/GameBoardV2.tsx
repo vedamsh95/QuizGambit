@@ -224,22 +224,24 @@ export default function GameBoardV2({
   // ── Derived: categories for current round ──────────────────────────────
 
   const currentRoundCats = useMemo(() => {
+    // Local play: categories provided via initialCategories prop
     if (initialCategories && initialCategories[currentRound]) {
       return initialCategories[currentRound].map((cat: any) => ({
         ...cat,
         data: [...(cat.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
       }));
     }
-    // Multiplayer: check settings.round_categories
-    const mapping = settings?.round_categories?.[currentRound];
-    if (mapping && Array.isArray(mapping)) {
-      return remoteCategories
-        .filter((c) => mapping.includes(c.name))
-        .map((c) => ({
-          ...c,
-          data: [...(c.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
-        }));
+    // Multiplayer: check settings.round_categories (category objects with embedded questions)
+    const roundCats = settings?.round_categories?.[currentRound];
+    if (roundCats && Array.isArray(roundCats) && roundCats.length > 0) {
+      // round_categories stores full category objects: { id, name, data: [questions] }
+      return roundCats.map((cat: any) => ({
+        id: cat.id || cat.name,
+        name: cat.name || "Category",
+        data: [...(cat.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
+      }));
     }
+    // Fallback: legacy questions table (remoteCategories)
     return remoteCategories.map((c) => ({
       ...c,
       data: [...(c.data || [])].sort((a: any, b: any) => (a.points || 0) - (b.points || 0)),
@@ -252,6 +254,13 @@ export default function GameBoardV2({
   }, [presences, players.length, isLocal]);
 
   // ── Handlers ───────────────────────────────────────────────────────────
+
+  const handleReturnToLobby = useCallback(() => {
+    if (!isLocal && lobbyCode !== "LOCAL") {
+      broadcast("game:end", {});
+    }
+    onReturnToLobby?.();
+  }, [isLocal, lobbyCode, broadcast, onReturnToLobby]);
 
   const handleRevealQuestion = useCallback(
     async (q: any) => {
@@ -506,7 +515,7 @@ export default function GameBoardV2({
 
           {onReturnToLobby && (
             <button
-              onClick={onReturnToLobby}
+              onClick={handleReturnToLobby}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-mint-light text-mint font-bold text-xs hover:bg-mint/20 transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />

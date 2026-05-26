@@ -49,7 +49,7 @@ export default function BuzzerLobby() {
 
   // ── Settings state ─────────────────────────────────────────────────────
 
-  const [rounds, setRounds] = useState(3);
+  const [rounds, setRounds] = useState(1);
   const [timer, setTimer] = useState(15);
   const [catsPerRound, setCatsPerRound] = useState(5);
 
@@ -195,6 +195,12 @@ export default function BuzzerLobby() {
     supabase.from("lobbies").select("*").eq("code", code).single().then(({ data }) => {
       if (data) {
         setLobbyStatus(data.status);
+        // Reset lobby status to LOBBY on re-entry (after game ends)
+        if (data.status !== "LOBBY" && data.status !== "IN_PROGRESS") {
+          supabase.from("lobbies").update({ status: "LOBBY", buzzed_player_id: null }).eq("code", code).then(() => {
+            setLobbyStatus("LOBBY");
+          });
+        }
         if (data.settings) {
           const s = data.settings;
           if (s.rounds) setRounds(s.rounds);
@@ -260,8 +266,10 @@ export default function BuzzerLobby() {
         draftPhaseRef.current = "complete";
         updateLobbySetting("draftPhase", "complete");
         broadcast("draft:complete", { picks: newPicks });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
       } else {
         broadcast("draft:turn", { turnIndex: nextTurn });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
       }
     }));
     return () => unsubs.forEach((fn) => fn());
@@ -407,40 +415,83 @@ export default function BuzzerLobby() {
 
   // ── Configure handler ──────────────────────────────────────────────
 
+  const poolEverTouchedRef = useRef(false);
+
   const handleConfigure = useCallback(async () => {
-    const step = selectionMode === "PLAYER_DRAFT" ? "draft_pool" : "configuring";
-    setSetupStep(step);
-    setupStepRef.current = step;
-    await updateLobbySetting("setupStep", step);
-    broadcast("settings:update", { setupStep: step });
-  }, [selectionMode, updateLobbySetting, broadcast]);
+    if (selectionMode === "PLAYER_DRAFT") {
+      // Auto-populate draft pool from all categories only if never touched by host
+      if (!poolEverTouchedRef.current && allCategories.length > 0) {
+        const allCatIds = allCategories.map((c) => c.id);
+        const poolSet = new Set(allCatIds);
+        setDraftPoolIds(poolSet);
+        draftPoolIdsRef.current = poolSet;
+        await updateLobbySetting("draftPoolIds", allCatIds);
+        broadcast("settings:update", { draftPoolIds: allCatIds });
+      }
+      poolEverTouchedRef.current = true;
+      const step = "draft_pool";
+      setSetupStep(step);
+      setupStepRef.current = step;
+      await updateLobbySetting("setupStep", step);
+      broadcast("settings:update", { setupStep: step });
+    } else {
+      const step = "configuring";
+      setSetupStep(step);
+      setupStepRef.current = step;
+      await updateLobbySetting("setupStep", step);
+      broadcast("settings:update", { setupStep: step });
+    }
+  }, [selectionMode, allCategories, updateLobbySetting, broadcast]);
 
   // ── Draft handlers ──────────────────────────────────────────────────
 
   const handleToggleMode = useCallback(async (mode: "HOST_PICK" | "PLAYER_DRAFT") => {
     setSelectionMode(mode);
-    setSetupStep("waiting");
-    setupStepRef.current = "waiting";
     // Clear previous selections when switching modes
     setSelectedCategories({});
-    setDraftPoolIds(new Set());
     setDraftPhase("pending");
     draftPhaseRef.current = "pending";
     setDraftPicks([]);
     draftPicksRef.current = [];
     setDraftTurnIndex(0);
     draftTurnIndexRef.current = 0;
-    await Promise.all([
-      updateLobbySetting("selectionMode", mode),
-      updateLobbySetting("setupStep", "waiting"),
-      updateLobbySetting("selectedCategories", {}),
-      updateLobbySetting("draftPoolIds", []),
-      updateLobbySetting("draftPicks", []),
-      updateLobbySetting("draftTurnIndex", 0),
-      updateLobbySetting("draftPhase", "pending"),
-    ]);
-    broadcast("settings:update", { selectionMode: mode, setupStep: "waiting", selectedCategories: {}, draftPoolIds: [], draftPhase: "pending" });
-  }, [updateLobbySetting, broadcast]);
+    poolEverTouchedRef.current = false;  // Reset on mode switch
+
+    if (mode === "PLAYER_DRAFT" && allCategories.length > 0) {
+      // Auto-populate draft pool with ALL categories, skip waiting step
+      const allCatIds = allCategories.map((c) => c.id);
+      const poolSet = new Set(allCatIds);
+      setDraftPoolIds(poolSet);
+      draftPoolIdsRef.current = poolSet;
+      setSetupStep("draft_pool");
+      setupStepRef.current = "draft_pool";
+      await Promise.all([
+        updateLobbySetting("selectionMode", mode),
+        updateLobbySetting("setupStep", "draft_pool"),
+        updateLobbySetting("selectedCategories", {}),
+        updateLobbySetting("draftPoolIds", allCatIds),
+        updateLobbySetting("draftPicks", []),
+        updateLobbySetting("draftTurnIndex", 0),
+        updateLobbySetting("draftPhase", "pending"),
+      ]);
+      broadcast("settings:update", { selectionMode: mode, setupStep: "draft_pool", selectedCategories: {}, draftPoolIds: allCatIds, draftPhase: "pending" });
+    } else {
+      setDraftPoolIds(new Set());
+      draftPoolIdsRef.current = new Set();
+      setSetupStep("waiting");
+      setupStepRef.current = "waiting";
+      await Promise.all([
+        updateLobbySetting("selectionMode", mode),
+        updateLobbySetting("setupStep", "waiting"),
+        updateLobbySetting("selectedCategories", {}),
+        updateLobbySetting("draftPoolIds", []),
+        updateLobbySetting("draftPicks", []),
+        updateLobbySetting("draftTurnIndex", 0),
+        updateLobbySetting("draftPhase", "pending"),
+      ]);
+      broadcast("settings:update", { selectionMode: mode, setupStep: "waiting", selectedCategories: {}, draftPoolIds: [], draftPhase: "pending" });
+    }
+  }, [updateLobbySetting, broadcast, allCategories]);
 
   const handleStartDraft = useCallback(async () => {
     if (!code) return;
@@ -456,6 +507,7 @@ export default function BuzzerLobby() {
     await updateLobbySetting("draftTurnIndex", 0);
     await updateLobbySetting("draftPool", pool);
     broadcast("draft:start", { turnIndex: 0, totalSlots, pool });
+    broadcast("draft:sync", { picks: [], turnIndex: 0, phase: "in_progress" });
   }, [code, totalSlots, allCategories, draftPoolIds, updateLobbySetting, broadcast]);
 
   const handleHostPick = useCallback(async (cat: DraftCategory) => {
@@ -493,9 +545,11 @@ export default function BuzzerLobby() {
         draftPhaseRef.current = "complete";
         await updateLobbySetting("draftPhase", "complete");
         broadcast("draft:complete", { picks: newPicks });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
       } else {
         broadcast("draft:pick", pick);
         broadcast("draft:turn", { turnIndex: nextTurn });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
       }
     } catch (err) {
       // Rollback: remove from ref so it's retryable
@@ -797,7 +851,7 @@ export default function BuzzerLobby() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => handleToggleMode("HOST_PICK")}
-                disabled={!canConfigure || draftPhase !== "pending"}
+                disabled={!canConfigure || draftPhase !== "pending" || catsLoading}
                 className={`p-4 rounded-xl border-2 text-left transition-all ${
                   selectionMode === "HOST_PICK"
                     ? "bg-soft-purple-light border-soft-purple/40 shadow-[2px_2px_0px_rgba(168,152,204,0.3)]"
@@ -809,7 +863,7 @@ export default function BuzzerLobby() {
               </button>
               <button
                 onClick={() => handleToggleMode("PLAYER_DRAFT")}
-                disabled={!canConfigure || draftPhase !== "pending"}
+                disabled={!canConfigure || draftPhase !== "pending" || catsLoading}
                 className={`p-4 rounded-xl border-2 text-left transition-all ${
                   selectionMode === "PLAYER_DRAFT"
                     ? "bg-mint-light border-mint/40 shadow-[2px_2px_0px_rgba(158,217,204,0.4)]"
@@ -840,7 +894,7 @@ export default function BuzzerLobby() {
                 } active:scale-[0.98] disabled:opacity-30 disabled:active:scale-100`}
               >
                 <Plus className="w-5 h-5" />
-                {selectionMode === "HOST_PICK" ? "Pick Categories" : "Build Draft Pool"}
+                {selectionMode === "HOST_PICK" ? "Pick Categories" : draftPoolIds.size > 0 ? "Customize Pool" : "Build Draft Pool"}
                 <ChevronRight className="w-5 h-5" />
               </button>
               {!canConfigure && (

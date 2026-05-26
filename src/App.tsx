@@ -97,7 +97,11 @@ function PlayRoute() {
   };
 
   const handleReturnToLobby = () => {
-    navigate(`/lobby/${code}`);
+    if (lobby.mode === "LOCAL_BUZZER") {
+      navigate(`/lobby-buzzer/${code}`);
+    } else {
+      navigate(`/lobby/${code}`);
+    }
   };
 
   return (

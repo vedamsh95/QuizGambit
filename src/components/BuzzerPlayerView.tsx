@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { Zap, Users, Trophy, Wifi, WifiOff, ArrowRight, LogIn, Circle, BookOpen, Sliders, Clock, Hash } from "lucide-react";
@@ -13,6 +13,7 @@ type BuzzState = "idle" | "buzzing-open" | "buzzed-success" | "buzzed-too-slow" 
 
 export default function BuzzerPlayerView() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
 
   // ── Join state ──────────────────────────────────────────────────────────
 
@@ -222,12 +223,15 @@ export default function BuzzerPlayerView() {
       })
     );
 
+    // Full state sync from authority (BuzzerLobby) — avoids echo issues
     unsubs.push(
-      onBroadcast("draft:pick", (payload: any) => {
-        setDraftPicks((prev) => {
-          if (prev.some((p) => p.categoryId === payload.categoryId)) return prev;
-          return [...prev, payload];
-        });
+      onBroadcast("draft:sync", (payload: any) => {
+        if (payload.picks) setDraftPicks(payload.picks);
+        if (payload.turnIndex !== undefined) setDraftTurnIndex(payload.turnIndex);
+        if (payload.phase) setDraftPhase(payload.phase);
+        // Reset drafting flag when turn passes away from this player
+        const myIdx = players.findIndex((p) => p.id === playerId);
+        if (myIdx !== payload.turnIndex) setIsDrafting(false);
       })
     );
 
@@ -255,14 +259,18 @@ export default function BuzzerPlayerView() {
 
     unsubs.push(
       onBroadcast("game:start", () => {
-        setDraftPhase("complete");
-        setGameStatus("LOBBY");
-        setBuzzState("idle");
+        navigate(`/play/${code}`);
+      })
+    );
+
+    unsubs.push(
+      onBroadcast("game:end", () => {
+        navigate(`/buzzer/${code}`);
       })
     );
 
     return () => unsubs.forEach((fn) => fn());
-  }, [onBroadcast, phase, playerId]);
+  }, [onBroadcast, phase, playerId, code]);
 
   // ── Check if already in lobby (re-join) ─────────────────────────────────
 
@@ -401,8 +409,11 @@ export default function BuzzerPlayerView() {
     broadcast("buzzer:press", { playerId });
   }, [code, playerId, gameStatus, buzzedPlayerId, broadcast]);
 
+  const [isDrafting, setIsDrafting] = useState(false);
+
   const handleDraftPick = useCallback((cat: { id: string; name: string }) => {
     if (!code || !playerId || draftPhase !== "in_progress") return;
+    if (isDrafting) return;  // Prevent double-clicks
 
     // Check if it's our turn
     const playerIndex = players.findIndex((p) => p.id === playerId);
@@ -411,23 +422,16 @@ export default function BuzzerPlayerView() {
     // Check if category already picked
     if (draftPicks.some((p) => p.categoryId === cat.id)) return;
 
-    // Calculate round/slotIndex for optimistic update
-    const nextSlot = draftPicks.length;
-    const round = Math.floor(nextSlot / hostCatsPerRound) + 1;
-    const slotIndex = nextSlot % hostCatsPerRound;
+    setIsDrafting(true);
 
+    // Broadcast the pick — BuzzerLobby is the authority and will sync back
     broadcast("draft:pick", {
       playerId,
       playerName,
       categoryId: cat.id,
       categoryName: cat.name,
     });
-
-    // Optimistic local update (includes round/slotIndex for consistent UI)
-    setDraftPicks((prev) => [...prev, {
-      playerId, playerName, categoryId: cat.id, categoryName: cat.name, round, slotIndex
-    }]);
-  }, [code, playerId, playerName, draftPhase, draftTurnIndex, draftPicks, players, hostCatsPerRound, broadcast]);
+  }, [code, playerId, playerName, draftPhase, draftTurnIndex, draftPicks, players, isDrafting, broadcast]);
 
   const handleLeave = useCallback(() => {
     if (code) {
