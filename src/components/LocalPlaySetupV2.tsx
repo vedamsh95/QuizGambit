@@ -20,6 +20,17 @@ interface LocalPlaySetupV2Props {
   onStart: (settings: any) => void;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
@@ -190,11 +201,77 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
         processedCategories[parseInt(roundStr)] = processedCats;
       }
 
+      // ── Buzzer Mode: create Supabase lobby + store questions + navigate to /play ──
+      if (config.hasBuzzer) {
+        const roomCode = generateRoomCode();
+        const playerRows = players.map((name) => ({
+          id: crypto.randomUUID(),
+          name,
+          score: 0,
+        }));
+
+        // Collect category names per round for settings
+        const roundCategoryNames: Record<number, string[]> = {};
+        const allQuestions: any[] = [];
+        for (const [roundStr, cats] of Object.entries(processedCategories)) {
+          const rn = parseInt(roundStr);
+          roundCategoryNames[rn] = cats.map((c: any) => c.name);
+          for (const cat of cats) {
+            for (const q of cat.data || []) {
+              allQuestions.push({
+                lobby_code: roomCode,
+                category: cat.name,
+                question_text: q.question_text,
+                answer_text: q.answer_text,
+                points: q.points || 100,
+                q_type: q.q_type || "SA",
+                options: q.options || null,
+                round: rn,
+              });
+            }
+          }
+        }
+
+        // 1. Create lobby
+        const { error: lobbyErr } = await supabase.from("lobbies").insert({
+          code: roomCode,
+          status: "LOBBY",
+          mode: "LOCAL_BUZZER",
+          settings: {
+            rounds: config.rounds,
+            categoriesPerRound: config.categoriesPerRound,
+            timer: config.timer,
+            hasBuzzer: true,
+            round_categories: roundCategoryNames,
+          },
+        });
+        if (lobbyErr) throw lobbyErr;
+
+        // 2. Insert questions
+        if (allQuestions.length > 0) {
+          const { error: qErr } = await supabase.from("questions").insert(allQuestions);
+          if (qErr) console.warn("Question insert warning:", qErr.message);
+        }
+
+        // 3. Insert players
+        if (playerRows.length > 0) {
+          const { error: pErr } = await supabase
+            .from("players")
+            .insert(playerRows.map((p) => ({ ...p, lobby_code: roomCode })));
+          if (pErr) throw pErr;
+        }
+
+        // 4. Navigate to game board
+        navigate(`/play/${roomCode}`);
+        return;
+      }
+
+      // ── Non-buzzer local: original flow ──
       const settings: any = {
         rounds: config.rounds,
         categoriesPerRound: config.categoriesPerRound,
         timer: config.timer,
-        hasBuzzer: config.hasBuzzer,
+        hasBuzzer: false,
         round_categories: processedCategories,
       };
 
@@ -210,7 +287,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
     } finally {
       setIsStarting(false);
     }
-  }, [config, selectedCategories, players, onStart]);
+  }, [config, selectedCategories, players, onStart, navigate]);
 
   // ── Derived State ────────────────────────────────────────────────────────
 

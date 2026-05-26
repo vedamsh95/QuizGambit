@@ -19,6 +19,7 @@ import AIGeneratorView from "./components/AIGeneratorView";
 import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
+import BuzzerPlayerView from "./components/BuzzerPlayerView";
 
 // ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
 function PlayRoute() {
@@ -226,6 +227,9 @@ export default function App() {
                 )
               }
             />
+
+            {/* ── Buzzer Player View ────────────────────────────── */}
+            <Route path="/buzzer/:code" element={<BuzzerPlayerView />} />
 
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />

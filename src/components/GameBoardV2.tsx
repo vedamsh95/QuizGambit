@@ -20,7 +20,7 @@ interface GameBoardV2Props {
   onReturnToLobby?: () => void;
 }
 
-type GamePhase = "LOBBY" | "READING" | "BUZZING";
+type GamePhase = "LOBBY" | "READING" | "BUZZING" | "ANSWERING";
 
 // ── Category colors ─────────────────────────────────────────────────────────
 
