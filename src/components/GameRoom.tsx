@@ -6,6 +6,7 @@ import ArenaBoard from "./ArenaBoard";
 import GameBoard from "./GameBoard";
 import PlayerView from "./PlayerView";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
+import { GameHeaderButton } from "./ui";
 
 /**
  * GameRoom — Unified entry point for all players (Standard & Arena).
@@ -219,7 +220,7 @@ export default function GameRoom() {
       <div className="min-h-screen bg-deep-void flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-neon-emerald"></div>
-          <p className="text-white/40 text-sm font-mono">Connecting to {code}...</p>
+          <p className="text-white/60 text-sm font-mono">Connecting to {code}...</p>
         </div>
       </div>
     );
@@ -230,7 +231,7 @@ export default function GameRoom() {
     return (
       <div className="min-h-screen bg-deep-void flex flex-col items-center justify-center text-white p-10 text-center gap-4">
         <h1 className="text-3xl font-orbitron font-black">Room Not Found</h1>
-        <p className="text-white/40 max-w-md">{errorMessage}</p>
+        <p className="text-white/60 max-w-md">{errorMessage}</p>
         <button
           onClick={() => navigate("/")}
           className="px-6 py-3 rounded-xl bg-neon-emerald text-black font-black uppercase tracking-widest"
@@ -269,10 +270,10 @@ export default function GameRoom() {
             <h2 className="text-2xl font-orbitron font-black text-white mb-2">
               JOIN GAME
             </h2>
-            <p className="text-white/40 text-sm">
+            <p className="text-white/60 text-sm">
               Room: <span className="text-neon-emerald font-mono font-bold">{code}</span>
             </p>
-            <p className="text-white/20 text-xs mt-1">
+            <p className="text-white/40 text-xs mt-1">
               {mode === "ARENA" ? "Arena PVP Mode" : "Standard Mode"}
             </p>
           </div>
@@ -309,7 +310,7 @@ export default function GameRoom() {
 
           <button
             onClick={() => navigate("/")}
-            className="text-white/30 hover:text-white/60 text-xs uppercase tracking-widest transition-colors"
+            className="text-white/50 hover:text-white/70 text-xs uppercase tracking-widest transition-colors"
           >
             Back to Home
           </button>
@@ -330,24 +331,24 @@ export default function GameRoom() {
           <h2 className="text-2xl font-orbitron font-black text-white">
             YOU'RE IN!
           </h2>
-          <p className="text-white/40 text-sm">
+          <p className="text-white/60 text-sm">
             Room <span className="font-mono text-neon-emerald font-bold">{code}</span>{" "}
             is waiting for the host to start the next game.
           </p>
 
-          <div className="flex items-center justify-center gap-2 text-white/30 text-xs">
+          <div className="flex items-center justify-center gap-2 text-white/50 text-xs">
             <div
               className={`w-2 h-2 rounded-full ${isConnected ? "bg-neon-emerald" : "bg-red-500"}`}
             />
             {isConnected ? "Connected" : "Reconnecting..."}
           </div>
 
-          <button
+          <GameHeaderButton
+            variant="danger"
             onClick={handleLeave}
-            className="px-6 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-widest transition-all"
           >
             Leave Room
-          </button>
+          </GameHeaderButton>
         </div>
       </div>
     );
@@ -365,7 +366,7 @@ export default function GameRoom() {
 
   // Fallback (shouldn't reach here)
   return (
-    <div className="min-h-screen bg-deep-void flex items-center justify-center text-white/40">
+    <div className="min-h-screen bg-deep-void flex items-center justify-center text-white/60">
       Loading...
     </div>
   );

@@ -568,7 +568,7 @@ export default function BuzzerPlayerView() {
       case "ANSWERING":
         return "bg-soft-purple-light text-soft-purple border-soft-purple/30";
       default:
-        return "bg-warm-gray/10 text-warm-gray/50 border-warm-gray/20";
+        return "bg-warm-gray/10 text-warm-gray/70 border-warm-gray/20";
     }
   };
 
@@ -608,9 +608,9 @@ export default function BuzzerPlayerView() {
           ) : (
             <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
           )}
-          <span className="text-[10px] font-bold text-warm-gray/40">{code}</span>
+          <span className="text-[10px] font-bold text-warm-gray/60">{code}</span>
           {phase === "PLAY" && (
-            <button onClick={handleLeave} className="text-[10px] font-bold text-warm-gray/40 hover:text-peach transition-colors">
+            <button onClick={handleLeave} className="text-[10px] font-bold text-warm-gray/60 hover:text-peach transition-colors">
               Leave
             </button>
           )}
@@ -671,7 +671,7 @@ export default function BuzzerPlayerView() {
                   <BookOpen className="w-3.5 h-3.5" />
                   Category Draft
                 </div>
-                <p className="text-[10px] font-medium text-warm-gray/50 mt-2 max-w-xs mx-auto">
+                <p className="text-[10px] font-medium text-warm-gray/70 mt-2 max-w-xs mx-auto">
                   🎮 <strong>Buzzer mode</strong> — after the draft, stay on this screen and use the big buzz button when the host opens the round.
                 </p>
               </div>
@@ -698,18 +698,18 @@ export default function BuzzerPlayerView() {
               ) : (
                 <div className="text-center space-y-2 p-6 bg-warm-white rounded-2xl border border-warm-gray/10">
                   <div className="w-12 h-12 mx-auto rounded-full bg-warm-gray/10 flex items-center justify-center">
-                    <BookOpen className="w-5 h-5 text-warm-gray/30" />
+                    <BookOpen className="w-5 h-5 text-warm-gray/60" />
                   </div>
                   <p className="font-outfit font-bold text-plum text-sm">
                     {players[draftTurnIndex]?.name || "Someone"} is picking...
                   </p>
-                  <p className="text-xs text-warm-gray/50">Wait for your turn</p>
+                  <p className="text-xs text-warm-gray/70">Wait for your turn</p>
                 </div>
               )}
 
               {/* Draft progress */}
               <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-bold text-warm-gray/50">
+                <div className="flex justify-between text-[10px] font-bold text-warm-gray/70">
                   <span>Draft progress</span>
                   <span>{draftPicks.length} picked</span>
                 </div>
@@ -734,26 +734,26 @@ export default function BuzzerPlayerView() {
               {/* Settings summary */}
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-                  <div className="text-[9px] font-black text-warm-gray/40 uppercase">Rounds</div>
+                  <div className="text-[10px] font-black text-warm-gray/60 uppercase">Rounds</div>
                   <div className="font-outfit font-black text-lg text-soft-purple">{hostRounds}</div>
                 </div>
                 <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-                  <div className="text-[9px] font-black text-warm-gray/40 uppercase">Cats/Rd</div>
+                  <div className="text-[10px] font-black text-warm-gray/60 uppercase">Cats/Rd</div>
                   <div className="font-outfit font-black text-lg text-soft-purple">{hostCatsPerRound}</div>
                 </div>
                 <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-                  <div className="text-[9px] font-black text-warm-gray/40 uppercase">Timer</div>
+                  <div className="text-[10px] font-black text-warm-gray/60 uppercase">Timer</div>
                   <div className="font-outfit font-black text-lg text-soft-purple">{hostTimer}s</div>
                 </div>
                 <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-                  <div className="text-[9px] font-black text-warm-gray/40 uppercase">Mode</div>
+                  <div className="text-[10px] font-black text-warm-gray/60 uppercase">Mode</div>
                   <div className="font-outfit font-black text-[10px] text-soft-purple mt-0.5">{hostSelectionMode === "HOST_PICK" ? "Host Pick" : "Draft"}</div>
                 </div>
               </div>
 
               {/* Category progress */}
               <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-bold text-warm-gray/50">
+                <div className="flex justify-between text-[10px] font-bold text-warm-gray/70">
                   <span>{isDraftPoolMode ? "Draft pool" : "Categories selected"}</span>
                   <span>{hostSetupProgress} / {hostTotalSlots} slots</span>
                 </div>
@@ -763,13 +763,13 @@ export default function BuzzerPlayerView() {
                     style={{ width: `${hostTotalSlots > 0 ? (hostSetupProgress / hostTotalSlots) * 100 : 0}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-[9px] font-bold text-warm-gray/30">
+                <div className="flex justify-between text-[10px] font-bold text-warm-gray/70">
                   <span>{isDraftPoolMode ? `${hostDraftPoolSize} categories in pool` : `${hostRoundsFilled} of ${hostRounds} rounds configured`}</span>
                   <span>{isDraftPoolMode ? "Draft after setup" : "Starting when ready"}</span>
                 </div>
               </div>
 
-              <p className="text-center text-[10px] font-medium text-warm-gray/40">
+              <p className="text-center text-[10px] font-medium text-warm-gray/60">
                 Waiting for host to {hostSetupProgress >= hostTotalSlots ? "start the game" : "finish setup"}...
               </p>
               <p className="text-center text-[9px] font-medium text-mint/60 mt-1">
@@ -839,20 +839,20 @@ export default function BuzzerPlayerView() {
               <p className="font-outfit font-bold text-peach text-sm">
                 {players.find((p) => p.id === buzzedPlayerId)?.name || "Someone"} was faster!
               </p>
-              <p className="text-[10px] text-warm-gray/40 font-medium">Wait for the next buzzer round</p>
+              <p className="text-[10px] text-warm-gray/60 font-medium">Wait for the next buzzer round</p>
             </div>
           )}
 
           {/* Score display */}
           <div className="flex items-center justify-center gap-4 px-6 py-4 bg-warm-white rounded-2xl border border-warm-gray/10 shadow-sm">
             <div className="text-center">
-              <div className="text-[10px] font-black text-warm-gray/40 uppercase tracking-wider">Score</div>
+              <div className="text-[10px] font-black text-warm-gray/60 uppercase tracking-wider">Score</div>
               <div className="font-mono font-black text-3xl text-plum">{playerScore}</div>
             </div>
             {myRank > 0 && <div className="w-px h-10 bg-warm-gray/10" />}
             {myRank > 0 && (
               <div className="text-center">
-                <div className="text-[10px] font-black text-warm-gray/40 uppercase tracking-wider">Rank</div>
+                <div className="text-[10px] font-black text-warm-gray/60 uppercase tracking-wider">Rank</div>
                 <div className="font-mono font-black text-3xl text-plum">#{myRank}</div>
               </div>
             )}
@@ -862,7 +862,7 @@ export default function BuzzerPlayerView() {
         <div>
           <button
             onClick={() => setShowLeaderboard((o) => !o)}
-            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-warm-gray/50 hover:text-plum transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-warm-gray/70 hover:text-plum transition-colors"
           >
             <Trophy className="w-3.5 h-3.5" />
             {showLeaderboard ? "Hide Leaderboard" : `Leaderboard (${players.length})`}
@@ -870,7 +870,7 @@ export default function BuzzerPlayerView() {
 
           {showLeaderboard && (
             <div className="mt-2 space-y-1.5 max-h-[300px] overflow-y-auto animate-clay-pop">
-              <div className="text-[9px] font-black text-warm-gray/40 uppercase tracking-wider px-1 mb-1">
+              <div className="text-[10px] font-black text-warm-gray/60 uppercase tracking-wider px-1 mb-1">
                 Leaderboard
               </div>
               {[...players].sort((a: any, b: any) => (b.score || 0) - (a.score || 0)).map((p, i) => {
@@ -883,7 +883,7 @@ export default function BuzzerPlayerView() {
                     }`}
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="font-outfit font-black text-xs text-warm-gray/50 w-6 text-center flex-shrink-0">
+                      <span className="font-outfit font-black text-xs text-warm-gray/70 w-6 text-center flex-shrink-0">
                         {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
                       </span>
                       <div className="flex flex-col min-w-0">
@@ -892,7 +892,7 @@ export default function BuzzerPlayerView() {
                           {p.id === playerId && <span className="ml-1 text-[10px] text-soft-purple">(you)</span>}
                         </span>
                         {bt && (
-                          <span className="text-[9px] font-mono text-mint/70 tabular-nums">
+                          <span className="text-[9px] font-mono text-mint/80 tabular-nums">
                             ⚡ {new Date(bt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
                         )}
@@ -903,7 +903,7 @@ export default function BuzzerPlayerView() {
                   );
                 })}
                 {players.length === 0 && (
-                  <div className="text-center py-4 text-warm-gray/30 text-xs">No players yet</div>
+                  <div className="text-center py-4 text-warm-gray/70 text-xs">No players yet</div>
                 )}
               </div>
             )}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, ArrowRight, Trophy, Sparkles, GripVertical, Check, Search, BookOpen, Users, Plus, Trash2, Play } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Trophy, Sparkles, GripVertical, Check, Search, BookOpen, Users, Plus, Trash2, Play, X } from 'lucide-react'
+import { AVATARS, getAvatar } from '../assets/avatars'
 
 interface LocalPlaySetupProps {
     onStart: (settings: any) => void
@@ -20,17 +21,26 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
     const [search, setSearch] = useState('')
 
     // Players State
-    const [players, setPlayers] = useState<string[]>([])
+    const [players, setPlayers] = useState<{ name: string; avatar: string }[]>([])
     const [playerInput, setPlayerInput] = useState('')
+
+    // Avatar modal state
+    const [avatarModalIndex, setAvatarModalIndex] = useState<number | null>(null)
 
     const addPlayer = () => {
         if (!playerInput.trim()) return
-        setPlayers(prev => [...prev, playerInput.trim().toUpperCase()])
+        const randomAvatar = AVATARS[Math.floor(Math.random() * AVATARS.length)].key
+        setPlayers(prev => [...prev, { name: playerInput.trim().toUpperCase(), avatar: randomAvatar }])
         setPlayerInput('')
     }
 
     const removePlayer = (index: number) => {
         setPlayers(prev => prev.filter((_, i) => i !== index))
+    }
+
+    const changeAvatar = (index: number, avatar: string) => {
+        setPlayers(prev => prev.map((p, i) => i === index ? { ...p, avatar } : p))
+        setAvatarModalIndex(null)
     }
 
     useEffect(() => {
@@ -292,6 +302,56 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                 </>
             )}
 
+            {/* ── Avatar Selection Modal ──────────────────────────────────── */}
+            {avatarModalIndex !== null && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+                    onClick={(e) => { if (e.target === e.currentTarget) setAvatarModalIndex(null); }}
+                >
+                    <div className="glass-dark rounded-[2rem] border border-white/10 p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-white font-orbitron font-black text-sm uppercase tracking-widest">
+                                Choose Avatar for {players[avatarModalIndex]?.name}
+                            </h3>
+                            <button
+                                onClick={() => setAvatarModalIndex(null)}
+                                className="p-2 text-white/30 hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                            {AVATARS.map((a) => {
+                                const isSelected = a.key === players[avatarModalIndex]?.avatar
+                                return (
+                                    <button
+                                        key={a.key}
+                                        onClick={() => changeAvatar(avatarModalIndex!, a.key)}
+                                        title={a.label}
+                                        className={`p-3 rounded-2xl flex flex-col items-center gap-1.5 transition-all border-2 ${
+                                            isSelected
+                                                ? 'bg-neon-emerald/20 border-neon-emerald scale-105'
+                                                : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                                        }`}
+                                    >
+                                        <div className="w-12 h-12 rounded-full bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden">
+                                            <img
+                                                src={a.src}
+                                                alt={a.label}
+                                                className="w-9 h-9 object-contain"
+                                            />
+                                        </div>
+                                        <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">
+                                            {a.label}
+                                        </span>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Step 3: Player Registration */}
             {step === 3 && (
                 <div className="max-w-4xl mx-auto space-y-12 py-12">
@@ -323,13 +383,23 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                             </div>
 
                             <div className="space-y-2">
-                                {players.map((p, i) => (
+                                {players.map((p, i) => {
+                                    const avatarMeta = getAvatar(p.avatar)
+                                    return (
                                     <div key={i} className="flex items-center justify-between bg-white/5 p-4 rounded-xl border border-white/5 group">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-emerald to-emerald-800 flex items-center justify-center text-black font-black text-xs">
-                                                {p.substring(0, 2).toUpperCase()}
-                                            </div>
-                                            <span className="font-bold text-white uppercase tracking-wider">{p}</span>
+                                            <button
+                                                onClick={() => setAvatarModalIndex(i)}
+                                                className="w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden hover:border-neon-emerald/50 hover:scale-110 transition-all cursor-pointer"
+                                                title="Change avatar"
+                                            >
+                                                <img
+                                                    src={avatarMeta.src}
+                                                    alt={avatarMeta.label}
+                                                    className="w-7 h-7 object-contain"
+                                                />
+                                            </button>
+                                            <span className="font-bold text-white uppercase tracking-wider">{p.name}</span>
                                         </div>
                                         <button
                                             onClick={() => removePlayer(i)}
@@ -338,7 +408,8 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
-                                ))}
+                                    )
+                                })}
                                 {players.length === 0 && (
                                     <div className="text-center text-white/20 py-8 text-xs font-mono uppercase border-2 border-dashed border-white/5 rounded-xl">
                                         No agents registered
@@ -392,10 +463,11 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                                     processedCategories[parseInt(roundStr)] = processedCats
                                 }
 
-                                const playerObjects = players.map(name => ({
+                                const playerObjects = players.map(({ name, avatar }) => ({
                                     id: crypto.randomUUID(),
                                     name,
-                                    score: 0
+                                    score: 0,
+                                    metadata: { avatar }
                                 }))
                                 onStart({ ...config, players: playerObjects, round_categories: processedCategories })
                             }}

@@ -258,7 +258,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
         {/* ── Back to Home ──────────────────────────────────────────── */}
         <button
           onClick={() => navigate("/")}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-warm-gray/40 hover:text-plum transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors mb-4"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           Back to Home
@@ -441,14 +441,14 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                       </div>
                       <button
                         onClick={() => removePlayer(i)}
-                        className="p-1.5 text-warm-gray/40 hover:text-peach rounded-lg hover:bg-peach-light transition-colors"
+                        className="p-1.5 text-warm-gray/60 hover:text-peach rounded-lg hover:bg-peach-light transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
                   {players.length === 0 && (
-                    <div className="text-center py-8 text-warm-gray/30 text-sm font-medium">
+                    <div className="text-center py-8 text-warm-gray/50 text-sm font-medium">
                       No players added yet
                     </div>
                   )}
@@ -542,7 +542,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
 
             {/* Search */}
             <div className="relative max-w-md mx-auto">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-gray/40" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-gray/60" />
               <input
                 value={categorySearch}
                 onChange={(e) => setCategorySearch(e.target.value)}
@@ -583,7 +583,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                     ))}
                   </div>
                 ) : Object.keys(groupedCategories).length === 0 ? (
-                  <p className="text-center text-warm-gray/40 text-sm py-8">
+                  <p className="text-center text-warm-gray/50 text-sm py-8">
                     No categories found
                   </p>
                 ) : (
@@ -592,10 +592,10 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                       <div key={mainCat} className="space-y-2">
                         <div className="flex items-center gap-2 px-2">
                           <div className="w-1.5 h-1.5 rounded-full bg-soft-purple" />
-                          <span className="text-[10px] font-black text-warm-gray/50 uppercase tracking-[0.15em]">
+                          <span className="text-[10px] font-black text-warm-gray/70 uppercase tracking-[0.15em]">
                             {mainCat}
                           </span>
-                          <span className="text-[9px] text-warm-gray/30">
+                          <span className="text-[10px] text-warm-gray/50">
                             ({subCats.length})
                           </span>
                         </div>
@@ -646,16 +646,16 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                                   {isArena && (
-                                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-peach-light text-peach rounded uppercase tracking-wider">
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 bg-peach-light text-peach rounded uppercase tracking-wider">
                                       Arena
                                     </span>
                                   )}
                                   {cat.is_global && (
-                                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-sky-light text-sky rounded uppercase tracking-wider">
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 bg-sky-light text-sky rounded uppercase tracking-wider">
                                       Global
                                     </span>
                                   )}
-                                  <span className="text-[8px] font-bold px-1.5 py-0.5 bg-warm-gray/10 text-warm-gray rounded">
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 bg-warm-gray/10 text-warm-gray rounded">
                                     {cat.data?.length || 0} Qs
                                   </span>
                                 </div>
@@ -673,14 +673,14 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
               <div className="clay p-4 max-h-[500px] overflow-y-auto space-y-4">
                 <h3 className="font-outfit font-black text-plum text-sm sticky top-0 bg-warm-white pb-2">
                   Round {activeRound} — Selected Categories
-                  <span className="ml-2 text-[10px] font-bold text-warm-gray/50">
+                  <span className="ml-2 text-[10px] font-bold text-warm-gray/70">
                     ({(selectedCategories[activeRound] || []).length}/
                     {config.categoriesPerRound})
                   </span>
                 </h3>
 
                 {(selectedCategories[activeRound] || []).length === 0 ? (
-                  <div className="text-center py-12 text-warm-gray/30 space-y-2">
+                  <div className="text-center py-12 text-warm-gray/50 space-y-2">
                     <BookOpen className="w-8 h-8 mx-auto opacity-30" />
                     <p className="text-sm font-medium">
                       Click categories from the library to add them here
@@ -704,14 +704,14 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                               {displayName(cat.name)}
                             </span>
                             <div className="flex gap-1.5 mt-1">
-                              <span className="text-[8px] font-bold text-warm-gray/50">
+                              <span className="text-[9px] font-bold text-warm-gray/70">
                                 {cat.data?.length || 0} questions
                               </span>
                             </div>
                           </div>
                           <button
                             onClick={() => removeCategory(activeRound, cat.id)}
-                            className="p-1.5 text-warm-gray/40 hover:text-peach rounded-lg hover:bg-peach-light transition-colors"
+                            className="p-1.5 text-warm-gray/60 hover:text-peach rounded-lg hover:bg-peach-light transition-colors"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -723,11 +723,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                       length:
                         config.categoriesPerRound -
                         (selectedCategories[activeRound] || []).length,
-                    }).map((_, i) => (
-                      <div
-                        key={`empty-${i}`}
-                        className="p-3 rounded-xl border-2 border-dashed border-warm-gray/15 flex items-center justify-center text-[10px] font-bold text-warm-gray/20 uppercase tracking-wider"
-                      >
+                    }).map((_, i) => (<div key={`empty-${i}`} className="p-3 rounded-xl border-2 border-dashed border-warm-gray/15 flex items-center justify-center text-[10px] font-bold text-warm-gray/60 uppercase tracking-wider">
                         Empty slot
                       </div>
                     ))}
@@ -752,7 +748,7 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
                     }}
                   />
                 </div>
-                <span className="text-[10px] font-bold text-warm-gray/50">
+                <span className="text-[10px] font-bold text-warm-gray/70">
                   {totalRoundsFilled}/{config.rounds} rounds filled
                 </span>
               </div>

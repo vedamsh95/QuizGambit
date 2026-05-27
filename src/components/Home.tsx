@@ -85,7 +85,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                         <h1 className="text-2xl font-orbitron font-black text-white tracking-tighter italic">
                             QUIZGAMBIT
                         </h1>
-                        <p className="text-[9px] font-black text-white/30 tracking-[0.4em] uppercase">Emerald Abyss</p>
+                        <p className="text-[9px] font-black text-white/50 tracking-[0.4em] uppercase">Emerald Abyss</p>
                     </div>
                 </div>
 
@@ -101,7 +101,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
 
                     {user ? (
                         <div className="flex items-center gap-4">
-                            <span className="text-white/40 text-xs font-bold tracking-widest uppercase truncate max-w-[150px]">
+                            <span className="text-white/60 text-xs font-bold tracking-widest uppercase truncate max-w-[150px]">
                                 {user.email}
                             </span>
                             <button
@@ -180,7 +180,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
 
                             <div>
                                 <h2 className="text-3xl font-orbitron font-black text-white tracking-widest mb-2">JOIN GAME</h2>
-                                <p className="text-white/40 text-[10px] font-black tracking-[0.3em] uppercase">Enter your room code to join</p>
+                                <p className="text-white/60 text-[10px] font-black tracking-[0.3em] uppercase">Enter your room code to join</p>
                             </div>
 
                             <div className="space-y-4">
@@ -193,7 +193,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                                     onKeyDown={e => e.key === 'Enter' && code && onJoin(code, name || 'Player')}
                                 />
                                 {name && (
-                                    <p className="text-white/40 text-xs">
+                                    <p className="text-white/60 text-xs">
                                         Playing as <span className="text-neon-emerald font-bold">{name}</span>
                                     </p>
                                 )}
@@ -207,7 +207,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                                 Enter Room
                             </button>
 
-                            <p className="text-white/20 text-[10px] tracking-widest uppercase">
+                            <p className="text-white/40 text-[10px] tracking-widest uppercase">
                                 Need a code? Ask your host.
                             </p>
                         </div>
@@ -228,7 +228,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
 
                         <div className="mb-8">
                             <h3 className="text-2xl font-orbitron font-bold text-white mb-2">AI ENGINE</h3>
-                            <p className="text-white/40 text-xs tracking-widest uppercase">Select your intelligence provider</p>
+                            <p className="text-white/60 text-xs tracking-widest uppercase">Select your intelligence provider</p>
                         </div>
 
                         <div className="space-y-8">

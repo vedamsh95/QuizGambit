@@ -4,12 +4,13 @@ import { supabase } from "../lib/supabase";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import {
   Users, Settings2, Play, Crown, Clock, Hash, Zap,
-  ChevronRight, Share2, LogOut, Wifi, WifiOff, ArrowLeft,
+  ChevronRight, Share2, LogOut, ArrowLeft,
   RotateCcw, Loader2,
 } from "lucide-react";
 import Lobby from "./Lobby";
 import ArenaLobby from "./ArenaLobby";
 import { store } from "../lib/storage";
+import { GameHeaderButton, GameConnectionBadge } from "./ui";
 
 /**
  * HostLobby — Unified host entry point for Standard & Arena modes.
@@ -143,7 +144,7 @@ export default function HostLobby() {
       <div className="min-h-screen bg-deep-void flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-neon-emerald"></div>
-          <p className="text-white/40 text-sm font-mono">Loading lobby...</p>
+          <p className="text-white/70 text-sm font-mono">Loading lobby...</p>
         </div>
       </div>
     );
@@ -154,7 +155,7 @@ export default function HostLobby() {
     return (
       <div className="min-h-screen bg-deep-void flex flex-col items-center justify-center text-white p-10 text-center gap-4">
         <h1 className="text-3xl font-orbitron font-black">Lobby Not Found</h1>
-        <p className="text-white/40 max-w-md">{error}</p>
+        <p className="text-white/70 max-w-md">{error}</p>
         <button
           onClick={() => navigate("/")}
           className="px-6 py-3 rounded-xl bg-neon-emerald text-black font-black uppercase tracking-widest"
@@ -171,31 +172,23 @@ export default function HostLobby() {
       <div className="min-h-screen bg-deep-void relative">
         {/* Shared Header */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm z-40 relative">
-          <button
+          <GameHeaderButton
+            variant="ghost"
+            icon={<ArrowLeft className="w-3 h-3" />}
             onClick={() => navigate("/")}
-            className="text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
           >
-            <ArrowLeft className="w-3 h-3" /> Home
-          </button>
+            Home
+          </GameHeaderButton>
 
           <div className="flex items-center gap-4">
             {/* Connection Status */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-xs">
-              {isConnected ? (
-                <Wifi className="w-3 h-3 text-neon-emerald" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-red-500" />
-              )}
-              <span className={`font-bold uppercase tracking-wider ${isConnected ? "text-neon-emerald" : "text-red-500"}`}>
-                {isConnected ? `${onlineCount} online` : "Reconnecting..."}
-              </span>
-            </div>
+            <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
 
             {/* Mode Toggle */}
             <div className="flex p-1 bg-white/5 rounded-xl">
               <button
                 onClick={() => handleSwitchMode("STANDARD")}
-                className="px-4 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all text-white/40 hover:text-white"
+                className="px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all text-white/60 hover:text-white"
               >
                 Standard
               </button>
@@ -207,12 +200,13 @@ export default function HostLobby() {
               </button>
             </div>
 
-            <button
+            <GameHeaderButton
+              variant="danger"
+              icon={<LogOut className="w-3 h-3" />}
               onClick={handleEndGame}
-              className="px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-all"
             >
-              <LogOut className="w-4 h-4" /> End Game
-            </button>
+              End Game
+            </GameHeaderButton>
           </div>
         </header>
 
@@ -227,25 +221,17 @@ export default function HostLobby() {
     <div className="min-h-screen bg-deep-void relative">
       {/* Shared Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm z-40 relative">
-        <button
+        <GameHeaderButton
+          variant="ghost"
+          icon={<ArrowLeft className="w-3 h-3" />}
           onClick={() => navigate("/")}
-          className="text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
         >
-          <ArrowLeft className="w-3 h-3" /> Home
-        </button>
+          Home
+        </GameHeaderButton>
 
         <div className="flex items-center gap-4">
           {/* Connection Status */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-xs">
-            {isConnected ? (
-              <Wifi className="w-3 h-3 text-neon-emerald" />
-            ) : (
-              <WifiOff className="w-3 h-3 text-red-500" />
-            )}
-            <span className={`font-bold uppercase tracking-wider ${isConnected ? "text-neon-emerald" : "text-red-500"}`}>
-              {isConnected ? `${onlineCount} online` : "Reconnecting..."}
-            </span>
-          </div>
+          <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
 
           {/* Mode Toggle */}
           <div className="flex p-1 bg-white/5 rounded-xl">
@@ -256,18 +242,19 @@ export default function HostLobby() {
             </button>
             <button
               onClick={() => handleSwitchMode("ARENA")}
-              className="px-4 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all text-white/40 hover:text-white"
+              className="px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all text-white/60 hover:text-white"
             >
               Arena
             </button>
           </div>
 
-          <button
+          <GameHeaderButton
+            variant="danger"
+            icon={<LogOut className="w-3 h-3" />}
             onClick={handleEndGame}
-            className="px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-all"
           >
-            <LogOut className="w-4 h-4" /> End Game
-          </button>
+            End Game
+          </GameHeaderButton>
         </div>
       </header>
 

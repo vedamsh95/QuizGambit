@@ -1,4 +1,4 @@
-import { Trophy, Check, Crown, Zap, HelpCircle, LogOut, Wifi, WifiOff } from "lucide-react";
+import { Trophy, Check, Crown, Zap, HelpCircle, LogOut, WifiOff } from "lucide-react";
 import { useGameSession } from "../hooks/useGameSession";
 import confetti from "canvas-confetti";
 import { useEffect, useState } from "react";
@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import CategoryDraftGrid from "./CategoryDraftGrid";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { store } from "../lib/storage";
+import { GameHeaderButton, GameConnectionBadge } from "./ui";
 
 interface PlayerViewProps {
   code: string;
@@ -273,12 +274,12 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
         <h1 className="text-2xl font-orbitron font-bold text-white mb-2">
           SELECTION LOCKED
         </h1>
-        <p className="text-white/40 text-sm">{draftStatusText}</p>
+        <p className="text-white/70 text-sm">{draftStatusText}</p>
         <div className="mt-8 p-4 bg-neon-emerald/10 border border-neon-emerald/30 rounded-xl">
           <div className="text-neon-emerald font-bold">
             {categorySelected.name}
           </div>
-          <div className="text-white/40 text-xs">
+          <div className="text-white/70 text-xs">
             {categorySelected.description}
           </div>
         </div>
@@ -312,7 +313,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="animate-pulse text-white/40 text-center">
+            <div className="animate-pulse text-white/70 text-center">
               <div className="w-16 h-16 rounded-full bg-white/10 mx-auto mb-4 flex items-center justify-center">
                 <HelpCircle className="w-8 h-8 text-white/40" />
               </div>
@@ -342,7 +343,9 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
         </div>
       )}
       {/* Leave Button */}
-      <button
+      <GameHeaderButton
+        variant="danger"
+        icon={<LogOut className="w-3 h-3" />}
         onClick={async () => {
           if (confirm("Are you sure you want to leave the game?")) {
             broadcast("player:leave", { playerId });
@@ -354,27 +357,16 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
             navigate("/");
           }
         }}
-        className="absolute top-4 right-4 p-2 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 transition-all flex items-center gap-1 text-xs"
-        title="Leave Game"
+        className="absolute top-4 right-4"
       >
-        <LogOut className="w-4 h-4" />
-        <span>Leave</span>
-      </button>
+        Leave
+      </GameHeaderButton>
 
       {/* Connection Status */}
-      <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-xs">
-        {isConnected ? (
-          <Wifi className="w-3 h-3 text-neon-emerald" />
-        ) : (
-          <WifiOff className="w-3 h-3 text-red-500" />
-        )}
-        <span className={`font-bold uppercase tracking-wider ${isConnected ? "text-neon-emerald" : "text-red-500"}`}>
-          {isConnected ? "Connected" : "Reconnecting..."}
-        </span>
-      </div>
+      <GameConnectionBadge isConnected={isConnected} className="absolute top-4 left-4" />
 
       <div className="text-center mb-10">
-        <h2 className="text-white/40 font-orbitron text-sm tracking-[0.4em] mb-1">
+        <h2 className="text-white/70 font-orbitron text-sm tracking-[0.4em] mb-1">
           PLAYER: {name}
         </h2>
         <h1 className="text-white font-bold text-3xl">ROOM: {code}</h1>
@@ -420,33 +412,33 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
           )}
 
           {isSomeoneElseBuzzed && (
-            <span className="text-white/40 font-medium">LOCKED BY OTHERS</span>
+            <span className="text-white/70 font-medium">LOCKED BY OTHERS</span>
           )}
 
           {status === "READING" && (
             <div className="flex flex-col items-center animate-pulse">
               <div className="w-4 h-4 rounded-full bg-white/40 mb-2"></div>
-              <span className="text-white/40 uppercase tracking-widest text-xs">
+              <span className="text-white/70 uppercase tracking-widest text-xs">
                 Waiting for Open...
               </span>
             </div>
           )}
 
           {status === "LOBBY" && (
-            <span className="text-white/20 uppercase tracking-[0.2em] font-orbitron text-center px-8">
+            <span className="text-white/60 uppercase tracking-[0.2em] font-orbitron text-center px-8">
               Host is setting up the board
             </span>
           )}
 
           {!["BUZZING", "READING", "LOBBY", "SELECTING"].includes(status) && (
-            <span className="text-white/20 uppercase tracking-[0.2em] font-orbitron">
+            <span className="text-white/60 uppercase tracking-[0.2em] font-orbitron">
               {status}
             </span>
           )}
         </button>
       </div>
 
-      <div className="mt-12 text-center text-white/40 font-medium">
+      <div className="mt-12 text-center text-white/70 font-medium">
         Keep this window open and wait for the host's signal.
       </div>
     </div>

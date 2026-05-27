@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { store } from "../lib/storage";
-import { Trophy, Zap, XCircle, Eye, Clock, LogOut, Wifi, WifiOff } from "lucide-react";
+import { Trophy, Zap, XCircle, Eye, Clock, LogOut, WifiOff } from "lucide-react";
 import GameOver from "./GameOver";
+import { GameHeaderButton, GameConnectionBadge } from "./ui";
 
 interface ArenaBoardProps {
   code: string;
@@ -711,15 +712,12 @@ export default function ArenaBoard({
           <span className="text-neon-emerald font-orbitron font-black text-2xl">
             ARENA
           </span>
-          <span className="text-white/20 font-mono text-sm">{code}</span>
+          <span className="text-white/50 font-mono text-sm">{code}</span>
           {/* Connection indicator */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-neon-emerald animate-pulse" : "bg-red-500"}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">
-              {isConnected ? `${Object.keys(presences).length} online` : "Reconnecting..."}
-            </span>
-          </div>
-          <button
+          <GameConnectionBadge isConnected={isConnected} onlineCount={Object.keys(presences).length} />
+          <GameHeaderButton
+            variant="danger"
+            icon={<LogOut className="w-3 h-3" />}
             onClick={async () => {
               if (confirm("Are you sure you want to leave the game?")) {
                 broadcast("player:leave", { playerId });
@@ -744,21 +742,19 @@ export default function ArenaBoard({
                 navigate("/");
               }
             }}
-            className="ml-2 p-2 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 transition-all flex items-center gap-1 text-xs"
-            title="Leave Game"
+            className="ml-2"
           >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden md:inline">Leave</span>
-          </button>
+            Leave
+          </GameHeaderButton>
           {isHost && (
-            <button
+            <GameHeaderButton
+              variant={showDebug ? "primary" : "subtle"}
+              icon={<Eye className="w-3 h-3" />}
               onClick={() => setShowDebug((v) => !v)}
-              className={`ml-1 p-2 rounded-lg transition-all flex items-center gap-1 text-xs border ${showDebug ? "bg-neon-emerald/20 text-neon-emerald border-neon-emerald/40" : "bg-white/5 text-white/50 border-white/10 hover:text-white"}`}
-              title="Toggle Arena Debug"
+              className="ml-1"
             >
-              <Eye className="w-4 h-4" />
-              <span className="hidden md:inline">Debug</span>
-            </button>
+              Debug
+            </GameHeaderButton>
           )}
         </div>
 
@@ -791,14 +787,14 @@ export default function ArenaBoard({
             </div>
             <button
               onClick={() => setDebugEvents([])}
-              className="text-[10px] text-white/50 hover:text-white underline"
+              className="text-xs text-white/60 hover:text-white underline"
             >
               Clear
             </button>
           </div>
           <div className="max-h-36 overflow-y-auto font-mono text-[10px] text-white/70 space-y-1">
             {debugEvents.length === 0 ? (
-              <div className="text-white/30">No events yet...</div>
+              <div className="text-white/60">No events yet...</div>
             ) : (
               debugEvents.map((evt, idx) => (
                 <div key={`dbg-${idx}`} className="break-all">
@@ -1008,7 +1004,7 @@ export default function ArenaBoard({
                     <div
                       className={`h-16 md:h-20 glass rounded-lg flex items-center justify-center text-center p-2 border relative group overflow-hidden ${theme.border} bg-gradient-to-b ${theme.gradient} to-transparent`}
                     >
-                      <span className="text-white font-black text-[9px] md:text-[10px] uppercase tracking-widest leading-relaxed line-clamp-3 relative z-10 drop-shadow-md">
+                      <span className="text-white font-black text-[10px] md:text-xs uppercase tracking-widest leading-relaxed line-clamp-3 relative z-10 drop-shadow-md">
                         {cat.name}
                       </span>
                     </div>
@@ -1086,7 +1082,7 @@ export default function ArenaBoard({
         <div className="w-full lg:w-72 bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 flex flex-col gap-4 overflow-hidden max-h-48 lg:max-h-none shrink-0">
           {/* Top Half: Standings */}
           <div className="flex-1 min-h-0">
-            <h3 className="text-white/40 text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-2">
+            <h3 className="text-white/80 text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-2">
               <Trophy className="w-4 h-4" /> Standings
             </h3>
             <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -1116,7 +1112,7 @@ export default function ArenaBoard({
 
           {/* Bottom Half: Round Results */}
           <div className="flex-1 min-h-0 border-t border-white/10 pt-3">
-            <h3 className="text-white/40 text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-2">
+            <h3 className="text-white/80 text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-2">
               <Clock className="w-4 h-4" /> This Round
             </h3>
             <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -1167,7 +1163,7 @@ export default function ArenaBoard({
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-white/50 font-mono text-[10px]">
+                        <span className="text-white/70 font-mono text-xs">
                           {(a.answer_time_ms / 1000).toFixed(1)}s
                         </span>
                         <span
@@ -1181,7 +1177,7 @@ export default function ArenaBoard({
                   ))}
                 </>
               ) : (
-                <div className="text-white/30 text-xs text-center py-4">
+                <div className="text-white/70 text-xs text-center py-4">
                   Waiting for answers...
                 </div>
               )}

@@ -23,6 +23,10 @@ export { default as ThemeSwitcher } from "./ThemeSwitcher";
 export { default as AvatarPicker } from "./AvatarPicker";
 export { default as CodeInput } from "./CodeInput";
 
+// ── Dark-theme Game Screen Components ───────────────────────────────────────
+export { default as GameHeaderButton } from "./GameHeaderButton";
+export { default as GameConnectionBadge } from "./GameConnectionBadge";
+
 // ── Re-export types for consumers ───────────────────────────────────────────
 export type { ClayButtonProps } from "./ClayButton";
 export type { ClayCardProps } from "./ClayCard";
@@ -36,3 +40,5 @@ export type { LanguageSwitcherProps } from "./LanguageSwitcher";
 export type { ThemeSwitcherProps } from "./ThemeSwitcher";
 export type { AvatarPickerProps } from "./AvatarPicker";
 export type { CodeInputProps } from "./CodeInput";
+export type { GameHeaderButtonProps } from "./GameHeaderButton";
+export type { GameConnectionBadgeProps } from "./GameConnectionBadge";

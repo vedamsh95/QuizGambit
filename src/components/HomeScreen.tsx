@@ -7,6 +7,7 @@ import AvatarPicker from "./ui/AvatarPicker";
 import CodeInput from "./ui/CodeInput";
 import ClayButton from "./ui/ClayButton";
 import ThemeSwitcher from "./ui/ThemeSwitcher";
+import { AVATARS, getAvatar } from "../assets/avatars";
 import {
   Play,
   Users,
@@ -33,7 +34,16 @@ export default function HomeScreen() {
   const navigate = useNavigate();
 
   // ── State ──────────────────────────────────────────────────────────
-  const [avatar, setAvatar] = useState(() => store.getPlayerAvatar());
+  const [avatar, setAvatar] = useState(() => {
+    const stored = store.getPlayerAvatar();
+    // On first visit (no stored avatar or still "brain" default), assign random
+    if (!stored || stored === "brain") {
+      const rand = AVATARS[Math.floor(Math.random() * AVATARS.length)];
+      store.setPlayerAvatar(rand.key);
+      return rand.key;
+    }
+    return stored;
+  });
   const [playerName, setPlayerName] = useState(() => store.getPlayerName());
   const [joinCode, setJoinCode] = useState("");
   const [showJoin, setShowJoin] = useState(false);
@@ -49,6 +59,7 @@ export default function HomeScreen() {
   const [soloRounds, setSoloRounds] = useState(3);
   const [soloTimer, setSoloTimer] = useState(15);
   const [isStartingSolo, setIsStartingSolo] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
 
   // ── Fetch categories when solo panel opens ──────────────────────────
   const openSolo = useCallback(async () => {
@@ -264,23 +275,38 @@ export default function HomeScreen() {
         <h1 className="font-outfit font-black text-3xl sm:text-4xl text-plum tracking-tight">
           QUIZGAMBIT
         </h1>
-        <p className="text-xs text-plum/40 font-medium">Challenge your knowledge</p>
+        <p className="text-xs text-plum/60 font-medium">Challenge your knowledge</p>
       </div>
 
-      {/* ── Avatar + Name ──────────────────────────────────────────── */}
-      <div className="flex flex-col items-center gap-4 w-full max-w-md">
-        <AvatarPicker selected={avatar} onSelect={handleAvatarSelect} />
-        <div className="w-full flex flex-col gap-1">
-          <input
-            type="text"
-            value={playerName}
-            onChange={handleNameChange}
-            placeholder="Enter your name..."
-            maxLength={24}
-            className="clay-input text-center text-base font-bold font-outfit"
-            autoComplete="off"
-          />
-        </div>
+      {/* ── Name Input with Avatar Beside ─────────────────────────── */}
+      <div className="w-full max-w-md flex items-center gap-3">
+        {/* Avatar button — themed gradient bg, white SVG circle, purple border */}
+        <button
+          onClick={() => setShowAvatarModal(true)}
+          className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 ring-2 ring-soft-purple ring-offset-2 ring-offset-clay-cream transition-all hover:scale-110 hover:shadow-xl hover:ring-soft-purple/80 active:scale-95 group"
+          style={{
+            background: "linear-gradient(135deg, #7C5CFC 0%, #A78BFA 100%)",
+          }}
+          title="Change avatar"
+        >
+          {/* White circle behind the SVG icon for contrast */}
+          <span className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-inner">
+            <img
+              src={getAvatar(avatar).src}
+              alt={getAvatar(avatar).label}
+              className="w-9 h-9 transition-transform group-hover:rotate-12"
+            />
+          </span>
+        </button>
+        <input
+          type="text"
+          value={playerName}
+          onChange={handleNameChange}
+          placeholder="Enter your name..."
+          maxLength={24}
+          className="clay-input text-base font-bold font-outfit flex-1"
+          autoComplete="off"
+        />
       </div>
 
       {/* ── Game Mode Grid (2x2) ────────────────────────────────────── */}
@@ -306,7 +332,7 @@ export default function HomeScreen() {
             )}
           </div>
           <h3 className="font-outfit font-black text-sm text-plum">Host</h3>
-          <p className="text-[10px] text-plum/40 font-medium leading-tight">
+          <p className="text-xs text-plum/60 font-medium leading-tight">
             Create a room &amp; invite friends
           </p>
         </button>
@@ -327,7 +353,7 @@ export default function HomeScreen() {
             <LogIn className="w-5 h-5 text-white" />
           </div>
           <h3 className="font-outfit font-black text-sm text-plum">Join</h3>
-          <p className="text-[10px] text-plum/40 font-medium leading-tight">
+          <p className="text-xs text-plum/60 font-medium leading-tight">
             Enter a code to join
           </p>
         </button>
@@ -345,7 +371,7 @@ export default function HomeScreen() {
             <User className="w-5 h-5 text-white" />
           </div>
           <h3 className="font-outfit font-black text-sm text-plum">Play Solo</h3>
-          <p className="text-[10px] text-plum/40 font-medium leading-tight">
+          <p className="text-xs text-plum/60 font-medium leading-tight">
             Practice by yourself
           </p>
         </button>
@@ -362,7 +388,7 @@ export default function HomeScreen() {
             <Sparkles className="w-5 h-5 text-white" />
           </div>
           <h3 className="font-outfit font-black text-sm text-plum">AI Gen</h3>
-          <p className="text-[10px] text-plum/40 font-medium leading-tight">
+          <p className="text-xs text-plum/60 font-medium leading-tight">
             Generate quiz questions
           </p>
         </button>
@@ -380,7 +406,7 @@ export default function HomeScreen() {
                 setShowJoin(false);
                 setJoinCode("");
               }}
-              className="p-1 text-plum/30 hover:text-plum transition-colors"
+              className="p-1 text-plum/50 hover:text-plum transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -430,7 +456,7 @@ export default function HomeScreen() {
                 setShowSolo(false);
                 setSelectedCats(new Set());
               }}
-              className="p-1 text-plum/30 hover:text-plum transition-colors"
+              className="p-1 text-plum/50 hover:text-plum transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -439,7 +465,7 @@ export default function HomeScreen() {
           {/* Settings sliders */}
           <div className="flex gap-4">
             <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-wider text-plum/40">
+              <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
                 Rounds: {soloRounds}
               </label>
               <input
@@ -452,7 +478,7 @@ export default function HomeScreen() {
               />
             </div>
             <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-wider text-plum/40">
+              <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
                 Timer: {soloTimer}s
               </label>
               <input
@@ -469,7 +495,7 @@ export default function HomeScreen() {
 
           {/* Category grid */}
           <div>
-            <p className="text-[9px] font-black uppercase tracking-wider text-plum/40 mb-2">
+            <p className="text-[10px] font-black uppercase tracking-wider text-plum/60 mb-2">
               Pick categories ({selectedCats.size} selected)
             </p>
             {fetchingCats ? (
@@ -519,10 +545,42 @@ export default function HomeScreen() {
         </div>
       )}
 
+      {/* ── Avatar Selection Modal ─────────────────────────────────── */}
+      {showAvatarModal && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-plum/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAvatarModal(false); }}
+        >
+          <div className="clay-elevated p-6 rounded-[2.5rem] max-w-lg w-full animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="font-outfit font-black text-lg text-plum">Choose Avatar</h3>
+                <p className="text-xs text-plum/60 font-medium">
+                  {getAvatar(avatar).label} · {getAvatar(avatar).theme}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAvatarModal(false)}
+                className="p-2 rounded-xl text-plum/50 hover:text-plum hover:bg-cream transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <AvatarPicker
+              selected={avatar}
+              onSelect={(key) => {
+                handleAvatarSelect(key);
+                setShowAvatarModal(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ── Divider ──────────────────────────────────────────────────── */}
       <div className="w-full max-w-md flex items-center gap-3">
         <div className="flex-1 h-px bg-clay-border" />
-        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-plum/20">
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-plum/40">
           More
         </span>
         <div className="flex-1 h-px bg-clay-border" />
@@ -532,7 +590,7 @@ export default function HomeScreen() {
       <div className="flex items-center gap-3 w-full max-w-md justify-center">
         <button
           onClick={() => navigate("/library")}
-          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/50
+          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/70
                      hover:text-plum transition-all"
         >
           <BookOpen className="w-3.5 h-3.5" />
@@ -541,7 +599,7 @@ export default function HomeScreen() {
 
         <button
           onClick={() => navigate("/arena")}
-          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/50
+          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/70
                      hover:text-plum transition-all"
         >
           <Swords className="w-3.5 h-3.5" />

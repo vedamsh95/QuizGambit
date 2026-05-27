@@ -595,7 +595,7 @@ export default function GameBoardV2({
                   className={`px-3 py-1.5 rounded-lg font-outfit font-black text-xs transition-all ${
                     currentRound === rn
                       ? "bg-soft-purple text-white shadow-[2px_2px_0px_rgba(166,157,145,0.3)]"
-                      : "bg-warm-gray/5 text-warm-gray/50 hover:bg-warm-gray/10"
+                      : "bg-warm-gray/5 text-warm-gray/70 hover:bg-warm-gray/10"
                   } ${activeQuestion ? "opacity-50" : ""}`}
                 >
                   R{rn}
@@ -670,7 +670,7 @@ export default function GameBoardV2({
           ) : currentRoundCats.length === 0 ? (
             <div className="h-full flex items-center justify-center text-center">
               <div className="space-y-3">
-                <Trophy className="w-12 h-12 mx-auto text-warm-gray/30" />
+                <Trophy className="w-12 h-12 mx-auto text-warm-gray/50" />
                 <p className="text-warm-gray/60 font-medium text-sm">
                   {isLocal
                     ? "No categories selected for this round"
@@ -866,7 +866,7 @@ function QuestionOverlay({
           <button
             onClick={() => onAdjustTimer(-1)}
             disabled={timer <= 0 || isTimerRunning}
-            className="p-1.5 text-warm-gray/50 hover:text-plum disabled:opacity-20"
+            className="p-1.5 text-warm-gray/70 hover:text-plum disabled:opacity-20"
             title="-1 second"
           >
             <Minus className="w-3.5 h-3.5" />
@@ -876,15 +876,15 @@ function QuestionOverlay({
           <button
             onClick={() => onAdjustTimer(1)}
             disabled={isTimerRunning}
-            className="p-1.5 text-warm-gray/50 hover:text-plum disabled:opacity-20"
+            className="p-1.5 text-warm-gray/70 hover:text-plum disabled:opacity-20"
             title="+1 second"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
-          <button onClick={onToggleTimer} className="ml-1 text-warm-gray/50 hover:text-plum">
+          <button onClick={onToggleTimer} className="ml-1 text-warm-gray/70 hover:text-plum">
             {isTimerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           </button>
-          <button onClick={onResetTimer} className="text-warm-gray/50 hover:text-plum" title="Reset">
+          <button onClick={onResetTimer} className="text-warm-gray/70 hover:text-plum" title="Reset">
             <RotateCcw className="w-3 h-3" />
           </button>
         </div>
@@ -987,7 +987,7 @@ function QuestionOverlay({
               </div>
             </button>
             {!buzzedPlayerId && (
-              <p className="text-[9px] font-bold text-mint/70 mt-2 text-center">
+              <p className="text-[9px] font-bold text-mint/80 mt-2 text-center">
                 Host buzz — you're a player too!
               </p>
             )}
@@ -1006,7 +1006,7 @@ function QuestionOverlay({
         {/* Grading panel — toggleable: click to correct↔wrong↔ungrade */}
         {isAnswerRevealed && players.length > 0 && (
           <div className="space-y-3 max-w-sm mx-auto">
-            <div className="text-[10px] font-black text-warm-gray/50 uppercase tracking-widest text-center">
+            <div className="text-[10px] font-black text-warm-gray/70 uppercase tracking-widest text-center">
               Quick Scoring · click to toggle or undo
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1151,7 +1151,7 @@ function ScoreSidebar({
       {/* Buzzer controls (multiplayer) — hidden on mobile to save space */}
       {!isLocal && lobbyCode !== "LOCAL" && (
         <div className="space-y-1.5 hidden sm:block">
-          <h4 className="text-[10px] font-black text-warm-gray/50 uppercase tracking-wider flex items-center gap-1.5">
+          <h4 className="text-[10px] font-black text-warm-gray/70 uppercase tracking-wider flex items-center gap-1.5">
             <Zap className="w-3 h-3" /> Buzzer
           </h4>
           <div className="grid grid-cols-2 gap-1.5">
@@ -1201,12 +1201,12 @@ function ScoreSidebar({
 
       {/* Scores — compact on mobile, edit on click */}
       <div className="space-y-1 sm:space-y-2">
-        <h4 className="text-[10px] font-black text-warm-gray/50 uppercase tracking-wider flex items-center gap-1.5">
-          <Trophy className="w-3 h-3" /> Leaderboard <span className="text-warm-gray/30 font-normal normal-case tracking-normal ml-auto text-[9px]">tap score to edit</span>
+        <h4 className="text-[10px] font-black text-warm-gray/70 uppercase tracking-wider flex items-center gap-1.5">
+          <Trophy className="w-3 h-3" /> Leaderboard <span className="text-warm-gray/50 font-normal normal-case tracking-normal ml-auto text-[10px]">tap score to edit</span>
         </h4>
 
         {players.length === 0 ? (
-          <p className="text-center text-warm-gray/30 text-[10px] py-6">No players</p>
+          <p className="text-center text-warm-gray/50 text-[10px] py-6">No players</p>
         ) : (
           players.map((p, i) => {
             const isEditing = editingPlayer === p.id;
@@ -1226,7 +1226,7 @@ function ScoreSidebar({
                   <div className="flex flex-col min-w-0">
                     <span className="font-outfit font-bold text-xs sm:text-sm text-plum truncate max-w-[60px] sm:max-w-[80px]">{p.name}</span>
                     {bt && (
-                      <span className="text-[8px] sm:text-[9px] font-mono text-mint/70 tabular-nums">
+                      <span className="text-[9px] sm:text-[10px] font-mono text-mint/80 tabular-nums">
                         ⚡ {new Date(bt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
                     )}

@@ -16,6 +16,7 @@ import { store } from "../lib/storage";
 import Lobby from "./Lobby";
 import GameBoard from "./GameBoard";
 import GameOver from "./GameOver";
+import { GameHeaderButton } from "./ui";
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -608,12 +609,14 @@ q_type: "MCQ", // All questions are now MCQ only
 
       return (
         <div className="min-h-screen bg-deep-void p-8 flex flex-col items-center justify-center gap-8 text-center relative">
-          <button
+          <GameHeaderButton
+            variant="ghost"
+            icon={<ArrowLeft className="w-3 h-3" />}
             onClick={() => navigate("/")}
-            className="absolute top-6 left-6 text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
+            className="absolute top-6 left-6"
           >
-            <ArrowLeft className="w-3 h-3" /> Home
-          </button>
+            Home
+          </GameHeaderButton>
           <div className="space-y-4">
             <div className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-black tracking-[0.3em] uppercase animate-pulse">
               <Users className="w-4 h-4" /> Drafting Phase
@@ -621,7 +624,7 @@ q_type: "MCQ", // All questions are now MCQ only
             <h1 className="text-4xl md:text-6xl font-orbitron font-black text-white uppercase tracking-tighter">
               Players Are Choosing
             </h1>
-            <p className="text-white/40 text-sm tracking-widest uppercase max-w-lg mx-auto">
+            <p className="text-white/70 text-sm tracking-widest uppercase max-w-lg mx-auto">
               Waiting for{" "}
               <span className="text-neon-emerald font-bold">
                 {activePlayerName}
@@ -632,9 +635,9 @@ q_type: "MCQ", // All questions are now MCQ only
             <div className="flex flex-col items-center gap-2 mt-8">
               <div className="text-5xl font-black text-neon-emerald font-orbitron">
                 {currentPickCount}{" "}
-                <span className="text-white/20 text-3xl">/ {targetCount}</span>
+                <span className="text-white/40 text-3xl">/ {targetCount}</span>
               </div>
-              <p className="text-[10px] uppercase tracking-[0.4em] text-white/40">
+              <p className="text-xs uppercase tracking-[0.4em] text-white/70">
                 Categories Selected
               </p>
             </div>
@@ -669,18 +672,20 @@ q_type: "MCQ", // All questions are now MCQ only
     const isRoundFull = currentRoundCats.length >= catsPerRound;
     return (
       <div className="min-h-screen bg-deep-void p-4 md:p-8 flex flex-col gap-6">
-        <button
+        <GameHeaderButton
+          variant="ghost"
+          icon={<ArrowLeft className="w-3 h-3" />}
           onClick={() => navigate("/")}
-          className="self-start text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
+          className="self-start"
         >
-          <ArrowLeft className="w-3 h-3" /> Home
-        </button>
+          Home
+        </GameHeaderButton>
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-orbitron font-black text-white">
               MISSION PARAMETERS
             </h1>
-            <p className="text-white/40 text-xs font-bold tracking-widest uppercase">
+            <p className="text-white/70 text-xs font-bold tracking-widest uppercase">
               Configure Round {activeRound} / {roundCount}
             </p>
           </div>
@@ -700,7 +705,7 @@ q_type: "MCQ", // All questions are now MCQ only
                     ? "bg-neon-emerald text-black border-neon-emerald scale-105 shadow-neon-emerald/20 shadow-lg"
                     : isComplete
                       ? "bg-neon-emerald/10 text-neon-emerald border-neon-emerald/30"
-                      : "bg-white/5 text-white/40 border-white/5 hover:bg-white/10"
+                      : "bg-white/5 text-white/60 border-white/5 hover:bg-white/10"
                 }`}
               >
                 <span className="text-[10px] font-black uppercase tracking-widest">
@@ -796,7 +801,7 @@ q_type: "MCQ", // All questions are now MCQ only
                                     Global
                                   </span>
                                 )}
-                                <span className="text-[8px] font-black px-1.5 py-0.5 bg-white/5 text-white/30 border border-white/10 rounded uppercase tracking-wider">
+                                <span className="text-[9px] font-black px-1.5 py-0.5 bg-white/5 text-white/60 border border-white/10 rounded uppercase tracking-wider">
                                   {cat.data?.length || 0} Qs
                                 </span>
                               </div>
@@ -823,12 +828,14 @@ q_type: "MCQ", // All questions are now MCQ only
   if (lobby) {
     return (
       <div className="min-h-screen bg-deep-void">
-        <button
+        <GameHeaderButton
+          variant="ghost"
+          icon={<ArrowLeft className="w-3 h-3" />}
           onClick={() => navigate("/")}
-          className="fixed top-4 left-4 z-50 text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-black/40 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
+          className="fixed top-4 left-4 z-50 bg-black/40"
         >
-          <ArrowLeft className="w-3 h-3" /> Home
-        </button>
+          Home
+        </GameHeaderButton>
         <Lobby
           lobbyCode={lobby.code}
           onStartGame={handleHostStart}
@@ -840,12 +847,14 @@ q_type: "MCQ", // All questions are now MCQ only
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-deep-void p-4 relative">
-      <button
+      <GameHeaderButton
+        variant="ghost"
+        icon={<ArrowLeft className="w-3 h-3" />}
         onClick={() => navigate("/")}
-        className="absolute top-6 left-6 text-white/40 hover:text-neon-emerald text-xs uppercase font-bold tracking-widest transition-colors flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-neon-emerald/30"
+        className="absolute top-6 left-6"
       >
-        <ArrowLeft className="w-3 h-3" /> Home
-      </button>
+        Home
+      </GameHeaderButton>
       <button
         onClick={createLobby}
         className="group relative px-12 py-6 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all hover:scale-105 active:scale-95"
@@ -858,7 +867,7 @@ q_type: "MCQ", // All questions are now MCQ only
             <span className="block text-2xl font-orbitron font-black text-white mb-2">
               CREATE LOBBY
             </span>
-            <span className="text-xs text-white/40 tracking-[0.2em] uppercase group-hover:text-neon-emerald transition-colors">
+            <span className="text-xs text-white/60 tracking-[0.2em] uppercase group-hover:text-neon-emerald transition-colors">
               Host a new game session
             </span>
           </div>

@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { Users, Settings2, Play, Crown, Clock, Hash, Zap, ChevronRight, Share2, LogOut, Wifi, WifiOff } from 'lucide-react'
+import { Users, Settings2, Play, Crown, Clock, Hash, Zap, ChevronRight, Share2, LogOut } from 'lucide-react'
 import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
+import { getAvatar } from '../assets/avatars'
+import { GameHeaderButton, GameConnectionBadge } from './ui'
 
 interface LobbyProps {
     lobbyCode: string
@@ -127,18 +129,19 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                             <Share2 className="w-5 h-5 text-white/40" />
                         </button>
                     </div>
-                    <p className="mt-4 text-white/30 text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
+                    <p className="mt-4 text-white/70 text-xs font-bold tracking-widest uppercase flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />
                         Waiting for players...
                     </p>
                     {onEndGame && (
-                        <button
+                        <GameHeaderButton
+                            variant="danger"
+                            icon={<LogOut className="w-3 h-3" />}
                             onClick={onEndGame}
-                            className="mt-4 w-full p-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                            className="w-full justify-center"
                         >
-                            <LogOut className="w-4 h-4" />
                             End Game
-                        </button>
+                        </GameHeaderButton>
                     )}
                 </div>
 
@@ -153,7 +156,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                     <div className="space-y-6 flex-1">
                         {/* Rounds */}
                         <div className="space-y-3">
-                            <div className="flex justify-between items-center text-[10px] font-bold tracking-widest text-white/40 uppercase">
+                            <div className="flex justify-between items-center text-xs font-bold tracking-widest text-white/70 uppercase">
                                 <div className="flex items-center gap-2"><Hash className="w-3 h-3" /> Rounds</div>
                                 <span>{settings.rounds}</span>
                             </div>
@@ -167,7 +170,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
 
                         {/* Categories */}
                         <div className="space-y-3">
-                            <div className="flex justify-between items-center text-[10px] font-bold tracking-widest text-white/40 uppercase">
+                            <div className="flex justify-between items-center text-xs font-bold tracking-widest text-white/70 uppercase">
                                 <div className="flex items-center gap-2"><Settings2 className="w-3 h-3" /> Categories</div>
                                 <span>{settings.categories}</span>
                             </div>
@@ -181,7 +184,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
 
                         {/* Timer */}
                         <div className="space-y-3">
-                            <div className="flex justify-between items-center text-[10px] font-bold tracking-widest text-white/40 uppercase">
+                            <div className="flex justify-between items-center text-xs font-bold tracking-widest text-white/70 uppercase">
                                 <div className="flex items-center gap-2"><Clock className="w-3 h-3" /> Timer (sec)</div>
                                 <span>{settings.timer}s</span>
                             </div>
@@ -210,7 +213,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
 
                         {/* Selection Mode Toggle */}
                         <div className="space-y-3 pt-4 border-t border-white/5">
-                            <label className="text-[10px] font-bold tracking-widest text-white/40 uppercase block">Category Selection</label>
+                            <label className="text-xs font-bold tracking-widest text-white/70 uppercase block">Category Selection</label>
                             <div className="grid grid-cols-2 gap-2">
                                 <button
                                     onClick={() => updateSetting('selectionMode', 'HOST')}
@@ -236,7 +239,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                         {/* Category Source Toggle (visible only for Player Draft) */}
                         {settings.selectionMode === 'PLAYER' && (
                             <div className="space-y-3 pt-4 border-t border-white/5">
-                                <label className="text-[10px] font-bold tracking-widest text-white/40 uppercase block">Category Pool</label>
+                                <label className="text-xs font-bold tracking-widest text-white/70 uppercase block">Category Pool</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     <button
                                         onClick={() => updateSetting('categorySource', 'global')}
@@ -284,8 +287,7 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
             {/* Main Area: Player Grid */}
             <div className="flex-1 space-y-8">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-orbitron font-bold text-white tracking-widest uppercase">Manifest</h2>
-                    <div className="flex items-center gap-4">
+                    <h2 className="text-2xl font-orbitron font-bold text-white tracking-widest uppercase">Manifest</h2>                        <div className="flex items-center gap-4">
                         <button
                             onClick={() => {
                                 const fetchPlayers = async () => {
@@ -297,18 +299,12 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                                 }
                                 fetchPlayers()
                             }}
-                            className="p-2 rounded-full hover:bg-white/10 text-white/40 hover:text-white transition-all"
+                            className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-all"
                             title="Force Refresh"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6" /><path d="M2.5 22v-6h6" /><path d="M2 11.5a10 10 0 0 1 18.8-4.3" /><path d="M22 12.5a10 10 0 0 1-18.8 4.2" /></svg>
                         </button>
-                        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
-                            {isConnected ? (
-                                <Wifi className="w-4 h-4 text-neon-emerald" />
-                            ) : (
-                                <WifiOff className="w-4 h-4 text-red-500" />
-                            )}
-                        </div>
+                        <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
                         <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
                             <Users className="w-4 h-4 text-neon-emerald" />
                             <span className="text-sm font-bold text-white/60">{onlineCount} Online</span>
@@ -322,20 +318,30 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                             <Users className="w-10 h-10 text-white/10" />
                         </div>
                         <div className="space-y-2">
-                            <h3 className="text-xl font-orbitron font-bold text-white/20 uppercase tracking-widest">Awaiting Connections</h3>
-                            <p className="text-white/10 text-sm max-w-xs font-medium uppercase tracking-[0.2em]">Share the lobby code to recruit your challengers</p>
+                            <h3 className="text-xl font-orbitron font-bold text-white/60 uppercase tracking-widest">Awaiting Connections</h3>
+                            <p className="text-white/60 text-sm max-w-xs font-medium uppercase tracking-[0.2em]">Share the lobby code to recruit your challengers</p>
                         </div>
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
                         {players.map((p, i) => (
                             <div key={p.id} className="glass group hover:border-neon-emerald/30 p-6 rounded-[2rem] transition-all flex items-center gap-4 animate-in zoom-in-95 duration-500">
-                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-neon-emerald/20 to-black flex items-center justify-center border border-white/10 font-orbitron font-bold text-neon-emerald">
-                                    {p.name.charAt(0).toUpperCase()}
+                                <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 overflow-hidden">
+                                    {p.metadata?.avatar ? (
+                                        <img
+                                            src={getAvatar(p.metadata.avatar).src}
+                                            alt={getAvatar(p.metadata.avatar).label}
+                                            className="w-10 h-10 object-contain"
+                                        />
+                                    ) : (
+                                        <span className="font-orbitron font-bold text-neon-emerald text-lg">
+                                            {p.name.charAt(0).toUpperCase()}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="flex-1">
                                     <h4 className="font-bold text-white tracking-wider uppercase text-sm truncate">{p.name}</h4>
-                                    <p className="text-[10px] text-white/20 font-black tracking-widest uppercase">In Lobby</p>
+                                    <p className="text-xs text-white/60 font-black tracking-widest uppercase">In Lobby</p>
                                 </div>
                                 <div className="w-2 h-2 rounded-full bg-neon-emerald shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                             </div>

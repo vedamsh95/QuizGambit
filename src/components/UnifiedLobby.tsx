@@ -13,6 +13,7 @@ import {
   Users, ArrowLeft, Crown, Wifi, WifiOff, LogOut,
   Play, UserPlus, Share2,
 } from "lucide-react";
+import { getAvatar } from "../assets/avatars";
 
 // ── Backward compat: legacy mode strings from old lobbies ───────────────────
 
@@ -545,7 +546,7 @@ export default function UnifiedLobby() {
       <div className="min-h-screen bg-clay-cream flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-soft-purple border-t-transparent animate-spin" />
-          <p className="text-sm text-plum/40 font-medium">Loading lobby...</p>
+          <p className="text-sm text-plum/60 font-medium">Loading lobby...</p>
         </div>
       </div>
     );
@@ -558,7 +559,7 @@ export default function UnifiedLobby() {
       <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-8 text-center gap-6">
         <div className="text-6xl">🔍</div>
         <h1 className="text-2xl font-outfit font-black text-plum">Lobby Not Found</h1>
-        <p className="text-plum/40 max-w-sm">{error}</p>
+        <p className="text-plum/60 max-w-sm">{error}</p>
         <ClayButton variant="primary" onClick={() => navigate("/")}>
           Return Home
         </ClayButton>
@@ -603,7 +604,7 @@ export default function UnifiedLobby() {
 
         <div className="flex items-center gap-3">
           {/* Phase badge */}
-          <span className="text-[9px] font-black uppercase tracking-wider text-warm-gray/40">
+          <span className="text-[10px] font-black uppercase tracking-wider text-warm-gray/60">
             {phase === "MODE_SELECTION" ? "Choose Mode" : modeLabel}
           </span>
 
@@ -621,7 +622,7 @@ export default function UnifiedLobby() {
 
           <button
             onClick={handleLeave}
-            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-plum/30 hover:text-peach transition-colors"
+            className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-plum/50 hover:text-peach transition-colors"
           >
             <LogOut className="w-3 h-3" />
             Leave
@@ -643,7 +644,7 @@ export default function UnifiedLobby() {
               <div className="text-4xl sm:text-5xl font-outfit font-black text-plum tracking-[0.15em] group-hover:text-soft-purple transition-colors">
                 {formattedCode}
               </div>
-              <div className="text-[10px] font-bold text-warm-gray/40 mt-1">
+              <div className="text-xs font-bold text-warm-gray/60 mt-1">
                 {copied ? "Copied!" : "Tap to copy"}
               </div>
             </div>
@@ -660,16 +661,16 @@ export default function UnifiedLobby() {
           {/* Players card */}
           <ClayCard padding="md">
             <div className="flex items-center gap-2 mb-3">
-              <Users className="w-4 h-4 text-plum/30" />
-              <h3 className="text-xs font-black uppercase tracking-widest text-plum/40">
+              <Users className="w-4 h-4 text-plum/50" />
+              <h3 className="text-xs font-black uppercase tracking-widest text-plum/60">
                 Players ({players.length})
               </h3>
             </div>
 
             {players.length === 0 ? (
               <div className="text-center py-6 space-y-2">
-                <UserPlus className="w-8 h-8 mx-auto text-warm-gray/20" />
-                <p className="text-xs text-warm-gray/40 font-medium">
+                <UserPlus className="w-8 h-8 mx-auto text-warm-gray/40" />
+                <p className="text-xs text-warm-gray/60 font-medium">
                   Waiting for players...
                 </p>
               </div>
@@ -680,18 +681,25 @@ export default function UnifiedLobby() {
                     <span className="font-outfit font-black text-xs text-warm-gray/60 w-6 text-center">
                       {getMedal(i + 1)}
                     </span>
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-black"
+                    <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-clay-cream"
                       style={{
-                        background:
-                          p.id === playerId
-                            ? "linear-gradient(135deg, #7C5CFC, #A78BFA)"
-                            : i === 0
-                              ? "linear-gradient(135deg, #FBBF24, #F59E0B)"
-                              : "linear-gradient(135deg, #9CA3AF, #6B7280)",
+                        border: `2px solid ${p.id === playerId ? "#A78BFA" : i === 0 ? "#FBBF24" : "#D1D5DB"}`,
+                        boxShadow: `0 0 0 1px #F5F0EB`,
                       }}
                     >
-                      {p.name?.[0]?.toUpperCase() || "?"}
+                      {p.metadata?.avatar ? (
+                        <img
+                          src={getAvatar(p.metadata.avatar).src}
+                          alt={getAvatar(p.metadata.avatar).label}
+                          className="w-7 h-7 object-contain"
+                        />
+                      ) : (
+                        <span className="text-sm font-black" style={{
+                          color: p.id === playerId ? "#7C5CFC" : i === 0 ? "#D97706" : "#6B7280"
+                        }}>
+                          {p.name?.[0]?.toUpperCase() || "?"}
+                        </span>
+                      )}
                     </div>
                     <span className="text-sm font-bold text-plum flex-1 truncate">
                       {p.name}
@@ -735,11 +743,11 @@ export default function UnifiedLobby() {
                   ⚡ Buzzer Game
                 </div>
                 {isHost ? (
-                  <span className="text-xs text-warm-gray/50 font-medium">
+                  <span className="text-xs text-warm-gray/70 font-medium">
                     Configure categories and start when ready
                   </span>
                 ) : (
-                  <span className="text-xs text-warm-gray/50 font-medium">
+                  <span className="text-xs text-warm-gray/70 font-medium">
                     Host is setting up the game...
                   </span>
                 )}
@@ -772,11 +780,11 @@ export default function UnifiedLobby() {
                   <div className="clay p-5 text-center">
                     <div className="animate-pulse flex items-center justify-center gap-2 mb-3">
                       <span className="w-2 h-2 rounded-full bg-butter" />
-                      <span className="text-sm font-bold text-warm-gray/50">
+                      <span className="text-sm font-bold text-warm-gray/70">
                         Waiting for host to start the game...
                       </span>
                     </div>
-                    <p className="text-xs text-warm-gray/40">
+                    <p className="text-xs text-warm-gray/60">
                       When the game starts, you'll use the buzz button on your phone.
                     </p>
                   </div>
@@ -792,7 +800,7 @@ export default function UnifiedLobby() {
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-soft-purple-light text-soft-purple text-[10px] font-black tracking-[0.2em] uppercase">
                   🌐 Multiplayer
                 </div>
-                <span className="text-xs text-warm-gray/50 font-medium">
+                <span className="text-xs text-warm-gray/70 font-medium">
                   Standard quiz game
                 </span>
               </div>
@@ -802,7 +810,7 @@ export default function UnifiedLobby() {
                   <h2 className="font-outfit font-black text-xl text-plum">
                     Ready to Start
                   </h2>
-                  <p className="text-sm text-warm-gray/50 max-w-md mx-auto">
+                  <p className="text-sm text-warm-gray/70 max-w-md mx-auto">
                     {players.length} player{players.length !== 1 ? "s" : ""} connected. Categories will be selected on the game board.
                   </p>
 
@@ -825,7 +833,7 @@ export default function UnifiedLobby() {
                   </ClayButton>
 
                   {players.length < 1 && (
-                    <p className="text-xs text-warm-gray/40">
+                    <p className="text-xs text-warm-gray/60">
                       Waiting for players to join...
                     </p>
                   )}
@@ -835,10 +843,10 @@ export default function UnifiedLobby() {
                   <div className="w-16 h-16 mx-auto rounded-2xl bg-soft-purple-light flex items-center justify-center">
                     <Play className="w-8 h-8 text-soft-purple" />
                   </div>
-                  <p className="text-sm font-bold text-warm-gray/50">
+                  <p className="text-sm font-bold text-warm-gray/70">
                     Waiting for host to start...
                   </p>
-                  <p className="text-xs text-warm-gray/40">
+                  <p className="text-xs text-warm-gray/60">
                     {players.length} player{players.length !== 1 ? "s" : ""} in lobby
                   </p>
                 </div>
@@ -853,7 +861,7 @@ export default function UnifiedLobby() {
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-peach-light text-peach text-[10px] font-black tracking-[0.2em] uppercase">
                   🖥️ Local
                 </div>
-                <span className="text-xs text-warm-gray/50 font-medium">
+                <span className="text-xs text-warm-gray/70 font-medium">
                   Play on this screen
                 </span>
               </div>
@@ -920,19 +928,19 @@ function PlayerSetupView({
         <h3 className="font-outfit font-black text-plum text-sm">Game Setup</h3>
         <div className="grid grid-cols-4 gap-2 text-center">
           <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-            <div className="text-[9px] font-black text-warm-gray/40 uppercase">Rounds</div>
+            <div className="text-[9px] font-black text-warm-gray/60 uppercase">Rounds</div>
             <div className="font-outfit font-black text-lg text-soft-purple">{rounds}</div>
           </div>
           <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-            <div className="text-[9px] font-black text-warm-gray/40 uppercase">Cats/Rd</div>
+            <div className="text-[9px] font-black text-warm-gray/60 uppercase">Cats/Rd</div>
             <div className="font-outfit font-black text-lg text-soft-purple">{catsPerRound}</div>
           </div>
           <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-            <div className="text-[9px] font-black text-warm-gray/40 uppercase">Timer</div>
+            <div className="text-[9px] font-black text-warm-gray/60 uppercase">Timer</div>
             <div className="font-outfit font-black text-lg text-soft-purple">{timer}s</div>
           </div>
           <div className="bg-warm-white rounded-xl p-2 border border-warm-gray/10">
-            <div className="text-[9px] font-black text-warm-gray/40 uppercase">Mode</div>
+            <div className="text-[9px] font-black text-warm-gray/60 uppercase">Mode</div>
             <div className="font-outfit font-black text-[10px] text-soft-purple mt-0.5">
               {selectionMode === "HOST_PICK" ? "Host Pick" : "Draft"}
             </div>
@@ -969,7 +977,7 @@ function PlayerSetupView({
               It's your turn to pick! Look at the host's screen.
             </p>
           ) : (
-            <p className="text-sm text-warm-gray/50 text-center">
+            <p className="text-sm text-warm-gray/70 text-center">
               {players[draftTurnIndex]?.name || "Someone"} is picking...
             </p>
           )}

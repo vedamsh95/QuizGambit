@@ -19,6 +19,7 @@ import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
 
 import CategoryDraftGrid from "./CategoryDraftGrid";
+import { getAvatar } from "../assets/avatars";
 
 export default function ArenaLobby() {
   const navigate = useNavigate();
@@ -784,8 +785,18 @@ export default function ArenaLobby() {
                       key={p.id}
                       className="bg-black/40 border border-white/10 p-4 rounded-xl flex items-center gap-3 animate-in zoom-in duration-300"
                     >
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center font-bold text-white shadow-lg shadow-purple-500/20">
-                        {p.name[0]}
+                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden shadow-lg shadow-purple-500/20">
+                        {p.metadata?.avatar ? (
+                          <img
+                            src={getAvatar(p.metadata.avatar).src}
+                            alt={getAvatar(p.metadata.avatar).label}
+                            className="w-7 h-7 object-contain"
+                          />
+                        ) : (
+                          <span className="font-bold text-white text-sm">
+                            {p.name[0]}
+                          </span>
+                        )}
                       </div>
                       <div className="overflow-hidden">
                         <div className="text-white font-bold truncate">

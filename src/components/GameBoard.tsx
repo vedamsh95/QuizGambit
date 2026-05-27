@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { Trophy, Clock, Zap, XCircle, Play, Eye, Users, Plus, Minus, Edit2, Save, RotateCcw, Lock, Unlock, Timer as TimerIcon, Trash2, LogOut, Wifi, WifiOff } from 'lucide-react'
+import { Trophy, Clock, Zap, XCircle, Play, Eye, Users, Plus, Minus, Edit2, Save, RotateCcw, Lock, Unlock, Timer as TimerIcon, Trash2, LogOut, WifiOff } from 'lucide-react'
+import { GameHeaderButton, GameConnectionBadge } from './ui'
 import confetti from 'canvas-confetti'
 import { pickQuestionsForGame } from '../lib/spacedRepetition'
 import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
@@ -450,38 +451,24 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                         </span>
                     </div>
                     {!isLocal && (
-                        <div className="glass-dark px-4 py-2 rounded-xl border-white/5 flex items-center gap-2">
-                            {isConnected ? (
-                                <Wifi className="w-4 h-4 text-neon-emerald" />
-                            ) : (
-                                <WifiOff className="w-4 h-4 text-red-500" />
-                            )}
-                            <span className={`font-orbitron font-bold tracking-widest uppercase text-xs ${isConnected ? 'text-neon-emerald' : 'text-red-500'}`}>
-                                {isConnected ? `${onlineCount} online` : 'Reconnecting...'}
-                            </span>
-                        </div>
+                        <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
                     )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                     {currentRound > 1 && (
-                        <button onClick={() => setCurrentRound(r => r - 1)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs">Prev</button>
+                        <GameHeaderButton variant="subtle" onClick={() => setCurrentRound(r => r - 1)}>Prev</GameHeaderButton>
                     )}
                     {currentRound < (settings.rounds || 1) && (
-                        <button onClick={() => setCurrentRound(r => r + 1)} className="px-4 py-2 rounded-lg bg-neon-emerald text-black font-bold text-xs uppercase tracking-wider">Next Round</button>
+                        <button onClick={() => setCurrentRound(r => r + 1)} className="px-4 py-2 rounded-lg bg-neon-emerald text-black font-bold text-xs uppercase tracking-wider active:scale-[0.97] transition-all">Next Round</button>
+                    )}
+                    {onReturnToLobby && (
+                        <GameHeaderButton variant="primary" icon={<RotateCcw className="w-3 h-3" />} onClick={onReturnToLobby}>Back to Lobby</GameHeaderButton>
+                    )}
+                    {onExit && (
+                        <GameHeaderButton variant="danger" icon={<LogOut className="w-3 h-3" />} onClick={onExit} className="ml-2">End Game</GameHeaderButton>
                     )}
                 </div>
-
-                {onReturnToLobby && (
-                    <button onClick={onReturnToLobby} className="px-4 py-2 rounded-lg bg-neon-emerald/10 hover:bg-neon-emerald/20 text-neon-emerald border border-neon-emerald/30 hover:border-neon-emerald/50 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all">
-                        <RotateCcw className="w-4 h-4" /> Back to Lobby
-                    </button>
-                )}
-                {onExit && (
-                    <button onClick={onExit} className="ml-2 px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/50 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all">
-                        <LogOut className="w-4 h-4" /> End Game
-                    </button>
-                )}
             </div>
 
             <div className="flex-1 flex gap-4 overflow-hidden relative">
@@ -513,7 +500,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                     {activeQuestion.q_type === 'MCQ' && activeQuestion.options ? (
                                         // MCQ Display
                                         <div className="w-full max-w-2xl space-y-3">
-                                            <div className="text-[10px] font-black text-white/20 uppercase tracking-widest text-center mb-4">
+                                            <div className="text-xs font-black text-white/70 uppercase tracking-widest text-center mb-4">
                                                 {isAnswerRevealed ? 'Answer Revealed' : 'Select an Option'}
                                             </div>
                                             <div className="grid grid-cols-2 gap-3">
@@ -592,7 +579,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
 
                                                 <button
                                                     onClick={handleClearBuzzer}
-                                                    className="p-4 rounded-xl flex items-center gap-2 bg-white/5 text-white/40 hover:text-red-400 border border-white/10 hover:border-red-400/50 transition-all ml-4"
+                                                    className="p-4 rounded-xl flex items-center gap-2 bg-white/5 text-white/60 hover:text-red-400 border border-white/10 hover:border-red-400/50 transition-all ml-4"
                                                 >
                                                     <RotateCcw className="w-5 h-5" />
                                                     <span className="text-xs uppercase tracking-widest">Reset</span>
@@ -605,7 +592,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                     {isAnswerRevealed && (
                                         <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-8 delay-150 flex flex-col gap-4">
                                             <div className="bg-black/40 border border-white/10 rounded-2xl p-4 overflow-hidden flex flex-col gap-2">
-                                                <div className="text-[10px] font-black text-white/20 uppercase tracking-widest text-center">Quick Scoring</div>
+                                                <div className="text-xs font-black text-white/60 uppercase tracking-widest text-center">Quick Scoring</div>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
                                                     {players.map(p => {
                                                         const isGraded = gradedPlayers[p.id]
@@ -613,18 +600,16 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                                             <div key={p.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
                                                                 <span className="text-xs font-bold text-white truncate max-w-[120px]">{p.name}</span>
 
-                                                                <div className="flex items-center gap-2">
-                                                                    <button
-                                                                        disabled={isGraded === 'correct'}
-                                                                        onClick={() => adjustScore(p.id, activeQuestion.points, 'correct')}
-                                                                        className={`p-1.5 rounded transition-all ${isGraded === 'correct' ? 'bg-neon-emerald text-black' : 'bg-white/5 hover:bg-neon-emerald/20 text-white/20 hover:text-neon-emerald'}`}
+                                                                <div className="flex items-center gap-2">                                            <button
+                                                disabled={isGraded === 'correct'}
+                                                onClick={() => adjustScore(p.id, activeQuestion.points, 'correct')}
+                                                className={`p-1.5 rounded transition-all ${isGraded === 'correct' ? 'bg-neon-emerald text-black' : 'bg-white/10 hover:bg-neon-emerald/20 text-white/50 hover:text-white'}`}
                                                                     >
                                                                         <Plus className="w-4 h-4" />
-                                                                    </button>
-                                                                    <button
-                                                                        disabled={isGraded === 'wrong'}
-                                                                        onClick={() => adjustScore(p.id, -activeQuestion.points, 'wrong')}
-                                                                        className={`p-1.5 rounded transition-all ${isGraded === 'wrong' ? 'bg-red-500 text-white' : 'bg-white/5 hover:bg-red-500/20 text-white/20 hover:text-red-500'}`}
+                                                                    </button>                                            <button
+                                                disabled={isGraded === 'wrong'}
+                                                onClick={() => adjustScore(p.id, -activeQuestion.points, 'wrong')}
+                                                className={`p-1.5 rounded transition-all ${isGraded === 'wrong' ? 'bg-red-500 text-white' : 'bg-white/10 hover:bg-red-500/20 text-white/50 hover:text-white'}`}
                                                                     >
                                                                         <Minus className="w-4 h-4" />
                                                                     </button>
@@ -658,7 +643,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                         {/* Header */}
                                         <div className={`h-16 md:h-20 glass rounded-lg flex items-center justify-center text-center p-2 border relative group overflow-hidden ${theme.border} bg-gradient-to-b ${theme.gradient} to-transparent`}>
                                             <div className={`absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity ${theme.bg}`} />
-                                            <span className="text-white font-black text-[9px] md:text-[10px] uppercase tracking-widest leading-relaxed line-clamp-3 relative z-10 drop-shadow-md">
+                                            <span className="text-white font-black text-[9px] md:text-xs uppercase tracking-widest leading-relaxed line-clamp-3 relative z-10 drop-shadow-md">
                                                 {cat.name}
                                             </span>
                                         </div>
@@ -689,7 +674,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                                         )}
 
                                                         {isRevealed ? (
-                                                            <span className="text-[10px] p-2 text-center font-medium text-white/50 leading-tight">
+                                                            <span className="text-xs p-2 text-center font-medium text-white/70 leading-tight">
                                                                 {q.answer_text || "DONE"}
                                                             </span>
                                                         ) : (
@@ -711,7 +696,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                 {/* Mobile: Tab toggle for sidebar */}
                 <button
                     onClick={() => setActiveTab(t => t === 'CONTROLS' ? 'SCORES' : 'CONTROLS')}
-                    className="lg:hidden px-3 py-1.5 rounded-lg bg-white/10 text-white/60 text-[10px] font-bold uppercase tracking-widest"
+                    className="lg:hidden px-3 py-1.5 rounded-lg bg-white/10 text-white/80 text-xs font-bold uppercase tracking-widest"
                 >
                     {activeTab === 'CONTROLS' ? 'Scores →' : '← Controls'}
                 </button>
@@ -722,13 +707,13 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                     <div className="flex p-1 bg-white/5 rounded-xl">
                         <button
                             onClick={() => setActiveTab('CONTROLS')}
-                            className={`flex-1 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all ${activeTab === 'CONTROLS' ? 'bg-neon-emerald text-black shadow-lg' : 'text-white/40 hover:text-white'}`}
+                            className={`flex-1 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all ${activeTab === 'CONTROLS' ? 'bg-neon-emerald text-black shadow-lg' : 'text-white/60 hover:text-white'}`}
                         >
                             Controls
                         </button>
                         <button
                             onClick={() => setActiveTab('SCORES')}
-                            className={`flex-1 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all ${activeTab === 'SCORES' ? 'bg-neon-emerald text-black shadow-lg' : 'text-white/40 hover:text-white'}`}
+                            className={`flex-1 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all ${activeTab === 'SCORES' ? 'bg-neon-emerald text-black shadow-lg' : 'text-white/60 hover:text-white'}`}
                         >
                             Scores
                         </button>
@@ -740,7 +725,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                             <div className="flex-1 p-4 flex flex-col gap-6 animate-in fade-in slide-in-from-right-4">
                                 {/* Buzzer Status Section */}
                                 <div className="space-y-3">
-                                    <h3 className="text-[10px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-white/80 uppercase tracking-widest flex items-center gap-2">
                                         <Zap className="w-3 h-3" /> Buzzer System
                                     </h3>
 
@@ -748,25 +733,25 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                         <button
                                             onClick={handleOpenBuzzers}
                                             disabled={status === 'BUZZING'}
-                                            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all border ${status === 'BUZZING' ? 'bg-neon-emerald text-black border-neon-emerald opacity-100' : 'bg-white/5 text-white/40 border-white/5 hover:bg-white/10'}`}
+                                            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all border ${status === 'BUZZING' ? 'bg-neon-emerald text-black border-neon-emerald opacity-100' : 'bg-white/5 text-white/60 border-white/5 hover:bg-white/10 hover:text-white'}`}
                                         >
                                             <Unlock className="w-6 h-6" />
-                                            <span className="text-[10px] font-black uppercase">UNLOCK</span>
+                                            <span className="text-xs font-black uppercase">UNLOCK</span>
                                         </button>
                                         <button
                                             onClick={handleCloseBuzzers}
                                             disabled={status !== 'BUZZING'}
-                                            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all border ${status !== 'BUZZING' ? 'bg-red-500/20 text-red-500 border-red-500/50' : 'bg-white/5 text-white/40 border-white/5 hover:bg-white/10'}`}
+                                            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all border ${status !== 'BUZZING' ? 'bg-red-500/20 text-red-500 border-red-500/50' : 'bg-white/5 text-white/60 border-white/5 hover:bg-white/10 hover:text-white'}`}
                                         >
                                             <Lock className="w-6 h-6" />
-                                            <span className="text-[10px] font-black uppercase">LOCK</span>
+                                            <span className="text-xs font-black uppercase">LOCK</span>
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Current Buzzer Display */}
                                 <div className="space-y-3 flex-1">
-                                    <h3 className="text-[10px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-white/80 uppercase tracking-widest flex items-center gap-2">
                                         <Users className="w-3 h-3" /> Active Buzzer
                                     </h3>
 
@@ -778,7 +763,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                             <span className="text-white font-bold text-lg mb-1">
                                                 {players.find(p => p.id === buzzedPlayerId)?.name || "Unknown"}
                                             </span>
-                                            <span className="text-neon-emerald text-[10px] uppercase tracking-widest">HAS BUZZED IN!</span>
+                                            <span className="text-neon-emerald text-xs uppercase tracking-widest">HAS BUZZED IN!</span>
 
                                             <button
                                                 onClick={handleClearBuzzer}
@@ -788,7 +773,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                             </button>
                                         </div>
                                     ) : (
-                                        <div className="h-32 flex items-center justify-center bg-white/5 rounded-xl border-2 border-dashed border-white/10 text-white/20 text-xs font-mono uppercase">
+                                        <div className="h-32 flex items-center justify-center bg-white/5 rounded-xl border-2 border-dashed border-white/10 text-white/70 text-xs font-mono uppercase">
                                             Waiting for buzz...
                                         </div>
                                     )}
@@ -797,16 +782,16 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                 {/* Timer Section */}
                                 <div className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col gap-4">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Timer</span>
-                                        <TimerIcon className="w-3 h-3 text-white/40" />
+                                        <span className="text-xs font-black text-white/60 uppercase tracking-widest">Timer</span>
+                                        <TimerIcon className="w-3 h-3 text-white/50" />
                                     </div>
 
                                     <div className="flex items-center justify-between gap-2">
-                                        <button onClick={() => setTimer((t: number) => Math.max(0, t - 1))} className="p-2 text-white/20 hover:text-white hover:bg-white/10 rounded"><Minus className="w-4 h-4" /></button>
+                                        <button onClick={() => setTimer((t: number) => Math.max(0, t - 1))} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded"><Minus className="w-4 h-4" /></button>
                                         <div className="text-4xl font-mono font-black text-white text-center tracking-widest drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                                             00:{timer.toString().padStart(2, '0')}
                                         </div>
-                                        <button onClick={() => setTimer((t: number) => t + 1)} className="p-2 text-white/20 hover:text-white hover:bg-white/10 rounded"><Plus className="w-4 h-4" /></button>
+                                        <button onClick={() => setTimer((t: number) => t + 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded"><Plus className="w-4 h-4" /></button>
                                     </div>
 
                                     <div className="flex gap-2">
@@ -845,7 +830,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                         {activeTab === 'SCORES' && (
                             <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar p-2 animate-in fade-in slide-in-from-right-4">
                                 {players.length === 0 ? (
-                                    <div className="text-white/20 text-center text-[10px] mt-10">Waiting for players...</div>
+                                    <div className="text-white/70 text-center text-xs mt-10">Waiting for players...</div>
                                 ) : (
                                     players.map((p, i) => {
                                         const isGraded = gradedPlayers[p.id];
@@ -853,7 +838,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                             <div key={p.id} className={`flex flex-col p-3 rounded-lg border transition-all ${isGraded ? 'bg-white/10' : 'bg-white/5'} border-white/5`}>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <div className="flex items-center gap-3">
-                                                        <span className={`text-[10px] font-bold w-4 ${i === 0 ? 'text-yellow-400' : 'text-white/20'}`}>{i + 1}</span>
+                                                        <span className={`text-xs font-bold w-4 ${i === 0 ? 'text-yellow-400' : 'text-white/70'}`}>{i + 1}</span>
                                                         <span className="text-xs font-bold text-white truncate max-w-[100px]">{p.name}</span>
                                                     </div>
 
@@ -873,7 +858,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                                     ) : (
                                                         <div className="flex items-center gap-2 group/score">
                                                             <span className="text-neon-emerald font-mono text-sm font-bold">{p.score}</span>
-                                                            <button onClick={() => { setEditingScoreId(p.id); setEditScoreValue(p.score.toString()) }} className="text-white/20 hover:text-white transition-colors">
+                                                            <button onClick={() => { setEditingScoreId(p.id); setEditScoreValue(p.score.toString()) }} className="text-white/50 hover:text-white transition-colors">
                                                                 <Edit2 className="w-3 h-3" />
                                                             </button>
                                                         </div>
@@ -886,14 +871,14 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                                                         <button
                                                             disabled={isGraded === 'correct'}
                                                             onClick={() => adjustScore(p.id, activeQuestion.points, 'correct')}
-                                                            className={`p-2 rounded flex items-center justify-center gap-1 transition-all ${isGraded === 'correct' ? 'bg-neon-emerald text-black' : 'bg-white/5 hover:bg-neon-emerald/20 text-white/40 hover:text-neon-emerald'}`}
+                                                            className={`p-2 rounded flex items-center justify-center gap-1 transition-all ${isGraded === 'correct' ? 'bg-neon-emerald text-black' : 'bg-white/10 hover:bg-neon-emerald/20 text-white/60 hover:text-white'}`}
                                                         >
                                                             <Plus className="w-3 h-3" />
                                                         </button>
                                                         <button
                                                             disabled={isGraded === 'wrong'}
                                                             onClick={() => adjustScore(p.id, -activeQuestion.points, 'wrong')}
-                                                            className={`p-2 rounded flex items-center justify-center gap-1 transition-all ${isGraded === 'wrong' ? 'bg-red-500 text-white' : 'bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-500'}`}
+                                                            className={`p-2 rounded flex items-center justify-center gap-1 transition-all ${isGraded === 'wrong' ? 'bg-red-500 text-white' : 'bg-white/10 hover:bg-red-500/20 text-white/60 hover:text-white'}`}
                                                         >
                                                             <Minus className="w-3 h-3" />
                                                         </button>
