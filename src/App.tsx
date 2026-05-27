@@ -7,7 +7,7 @@ import { ToastProvider } from "./components/ui/ClayToast";
 
 // ── V2 Components ───────────────────────────────────────────────────────
 import HomeScreen from "./components/HomeScreen";
-import GameLobby from "./components/GameLobby";
+import UnifiedLobby from "./components/UnifiedLobby";
 import GameResults from "./components/GameResults";
 
 // ── V1 Components (kept for compatibility) ─────────────────────────────
@@ -20,7 +20,6 @@ import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
-import BuzzerLobby from "./components/BuzzerLobby";
 
 // ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
 function PlayRoute() {
@@ -97,11 +96,7 @@ function PlayRoute() {
   };
 
   const handleReturnToLobby = () => {
-    if (lobby.mode === "LOCAL_BUZZER") {
-      navigate(`/lobby-buzzer/${code}`);
-    } else {
-      navigate(`/lobby/${code}`);
-    }
+    navigate(`/lobby/${code}`);
   };
 
   return (
@@ -154,7 +149,7 @@ export default function App() {
           <Routes>
             {/* ── V2 Core Routes ─────────────────────────────────── */}
             <Route path="/" element={<HomeScreen />} />
-            <Route path="/lobby/:code" element={<GameLobby />} />
+            <Route path="/lobby/:code" element={<UnifiedLobby />} />
             <Route path="/play/:code" element={<PlayRoute />} />
             <Route path="/results/:code" element={<GameResults />} />
 
@@ -234,7 +229,6 @@ export default function App() {
             />
 
             {/* ── Buzzer ────────────────────────────────────────── */}
-            <Route path="/lobby-buzzer/:code" element={<BuzzerLobby />} />
             <Route path="/buzzer/:code" element={<BuzzerPlayerView />} />
 
             {/* ── Prototype (dev only) ───────────────────────────── */}

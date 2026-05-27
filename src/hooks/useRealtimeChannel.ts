@@ -40,6 +40,10 @@ export interface BroadcastEvents {
   'draft:sync': { picks: any[]; turnIndex: number; phase: string }
   'game:start': Record<string, never>
   'game:end': Record<string, never>
+  'player:join': { playerId: string; playerName: string }
+  'player:leave': { playerId: string }
+  'buzz:timestamp': { playerId: string; playerName: string; buzzTime: number }
+  'vote:submit': { playerId: string; mode: string }
 }
 
 export type BroadcastEventName = keyof BroadcastEvents

@@ -91,6 +91,7 @@ export default function GameBoardV2({
   );
   const [remoteCategories, setRemoteCategories] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [buzzTimestamps, setBuzzTimestamps] = useState<Record<string, number>>({});
 
   const totalRounds = settings?.rounds || 1;
 
@@ -155,6 +156,14 @@ export default function GameBoardV2({
     );
 
     unsubs.push(
+      onBroadcast("buzz:timestamp", (payload: any) => {
+        if (payload.playerId && payload.buzzTime) {
+          setBuzzTimestamps((prev) => ({ ...prev, [payload.playerId]: payload.buzzTime }));
+        }
+      })
+    );
+
+    unsubs.push(
       onBroadcast("timer:tick", (payload: any) => {
         if (payload.remainingSec !== undefined) {
           setTimer(payload.remainingSec);
@@ -195,6 +204,36 @@ export default function GameBoardV2({
 
     return () => unsubs.forEach((fn) => fn());
   }, [onBroadcast, isLocal, lobbyCode]);
+
+  // ── Polling fallback for BUZZING (catches missed realtime events) ──────
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isLocal || lobbyCode === "LOCAL") return;
+
+    if (status === "BUZZING" || status === "ANSWERING") {
+      pollRef.current = setInterval(async () => {
+        const { data } = await supabase
+          .from("lobbies")
+          .select("status, buzzed_player_id")
+          .eq("code", lobbyCode)
+          .single();
+        if (!data) return;
+        if (data.status !== statusRef.current) setStatus(data.status);
+        if (data.buzzed_player_id !== undefined && data.buzzed_player_id !== buzzedPlayerIdRef.current) {
+          setBuzzedPlayerId(data.buzzed_player_id);
+        }
+      }, 2000);
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [isLocal, lobbyCode, status]);
 
   // ── Timer (host only; clients sync via broadcast) ──────────────────────
 
@@ -356,7 +395,10 @@ export default function GameBoardV2({
     if (error || !data) return; // Someone beat us — lobby change will sync state
 
     setBuzzedPlayerId(hostId);
+    const now = Date.now();
     broadcast("buzzer:press", { playerId: hostId });
+    broadcast("buzz:timestamp", { playerId: hostId, playerName: store.getPlayerName(), buzzTime: now });
+    setBuzzTimestamps((prev) => ({ ...prev, [hostId]: now }));
   }, [lobbyCode, status, buzzedPlayerId, broadcast]);
 
   const handleAdjustTimer = useCallback((delta: number) => {
@@ -444,6 +486,7 @@ export default function GameBoardV2({
   const activeQRef = useRef(activeQuestion);
   const revealedRef = useRef(isAnswerRevealed);
   const roundRef = useRef(currentRound);
+  const buzzedPlayerIdRef = useRef(buzzedPlayerId);
 
   useEffect(() => { closeRef.current = handleCloseQuestion; });
   useEffect(() => { openBuzzersRef.current = handleOpenBuzzers; });
@@ -452,6 +495,7 @@ export default function GameBoardV2({
   useEffect(() => { activeQRef.current = activeQuestion; });
   useEffect(() => { revealedRef.current = isAnswerRevealed; });
   useEffect(() => { roundRef.current = currentRound; });
+  useEffect(() => { buzzedPlayerIdRef.current = buzzedPlayerId; });
 
   // ── Reset revealed questions when round changes ───────────────────────
 
@@ -637,6 +681,7 @@ export default function GameBoardV2({
             players={players}
             status={status}
             buzzedPlayerId={buzzedPlayerId}
+            buzzTimestamps={buzzTimestamps}
             onOpenBuzzers={handleOpenBuzzers}
             onCloseBuzzers={handleCloseBuzzers}
             onClearBuzzer={handleClearBuzzer}
@@ -936,17 +981,6 @@ function QuestionOverlay({
           </div>
         )}
 
-        {/* buzz-pulse keyframes (also used in BuzzerPlayerView) */}
-        <style>{`
-          @keyframes buzz-pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.06); }
-          }
-          .animate-buzz-pulse {
-            animation: buzz-pulse 1.2s ease-in-out infinite;
-          }
-        `}</style>
-
         {/* Buzzed player indicator */}
         {buzzedPlayerId && (
           <div className="bg-mint-light border border-mint/30 p-4 rounded-xl text-center animate-pulse max-w-sm mx-auto">
@@ -1047,6 +1081,7 @@ function ScoreSidebar({
   players,
   status,
   buzzedPlayerId,
+  buzzTimestamps,
   onOpenBuzzers,
   onCloseBuzzers,
   onClearBuzzer,
@@ -1057,6 +1092,7 @@ function ScoreSidebar({
   players: any[];
   status: GamePhase;
   buzzedPlayerId: string | null;
+  buzzTimestamps: Record<string, number>;
   onOpenBuzzers: () => void;
   onCloseBuzzers: () => void;
   onClearBuzzer: () => void;
@@ -1161,19 +1197,27 @@ function ScoreSidebar({
         ) : (
           players.map((p, i) => {
             const isEditing = editingPlayer === p.id;
+            const bt = buzzTimestamps[p.id];
             return (
               <ClayCard key={p.id} elevation="flat" padding="sm" className="flex items-center justify-between">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="font-outfit font-black text-xs sm:text-sm text-warm-gray/80 w-5 sm:w-6 text-center">
+                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                  <span className="font-outfit font-black text-xs sm:text-sm text-warm-gray/80 w-5 sm:w-6 text-center flex-shrink-0">
                     {getMedal(i + 1)}
                   </span>
                   <ClayAvatar
                     name={p.name}
                     size="sm"
                     color={getAvatarColor(p.name, i)}
-                    status="online"
+                    status={buzzedPlayerId === p.id ? "online" : undefined}
                   />
-                  <span className="font-outfit font-bold text-xs sm:text-sm text-plum truncate max-w-[60px] sm:max-w-[80px]">{p.name}</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-outfit font-bold text-xs sm:text-sm text-plum truncate max-w-[60px] sm:max-w-[80px]">{p.name}</span>
+                    {bt && (
+                      <span className="text-[8px] sm:text-[9px] font-mono text-mint/70 tabular-nums">
+                        ⚡ {new Date(bt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {isEditing ? (
                   <input

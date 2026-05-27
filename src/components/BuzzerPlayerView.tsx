@@ -41,7 +41,7 @@ export default function BuzzerPlayerView() {
   // ── Host settings (live from lobby) ────────────────────────────────────
 
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [hostRounds, setHostRounds] = useState(3);
+  const [hostRounds, setHostRounds] = useState(1);
   const [hostTimer, setHostTimer] = useState(15);
   const [hostCatsPerRound, setHostCatsPerRound] = useState(5);
   const [hostSelectionMode, setHostSelectionMode] = useState("HOST_PICK");
@@ -55,11 +55,16 @@ export default function BuzzerPlayerView() {
   const [draftPool, setDraftPool] = useState<{ id: string; name: string }[]>([]);
   const [draftPicks, setDraftPicks] = useState<any[]>([]);
 
-  const buzzFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Buzz timestamps for leaderboard ──────────────────────────────────
+
+  const [buzzTimestamps, setBuzzTimestamps] = useState<Record<string, number>>({});
   const gameStatusRef = useRef(gameStatus);
   const buzzedPlayerIdRef = useRef(buzzedPlayerId);
+  const playersRef = useRef(players);
+  const buzzFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { gameStatusRef.current = gameStatus; });
   useEffect(() => { buzzedPlayerIdRef.current = buzzedPlayerId; });
+  useEffect(() => { playersRef.current = players; });
 
   // ── Realtime ────────────────────────────────────────────────────────────
 
@@ -231,7 +236,7 @@ export default function BuzzerPlayerView() {
         if (payload.turnIndex !== undefined) setDraftTurnIndex(payload.turnIndex);
         if (payload.phase) setDraftPhase(payload.phase);
         // Reset drafting flag when turn passes away from this player
-        const myIdx = players.findIndex((p) => p.id === playerId);
+        const myIdx = playersRef.current.findIndex((p) => p.id === playerId);
         if (myIdx !== payload.turnIndex) setIsDrafting(false);
       })
     );
@@ -262,6 +267,25 @@ export default function BuzzerPlayerView() {
     unsubs.push(
       onBroadcast("game:start", () => {
         setGameStarted(true);
+      })
+    );
+
+    // Listen for buzzer presses from other players (including host)
+    unsubs.push(
+      onBroadcast("buzzer:press", (payload: any) => {
+        if (payload.playerId && payload.playerId !== playerId) {
+          setBuzzedPlayerId(payload.playerId);
+          setBuzzState("buzzed-too-slow");
+        }
+      })
+    );
+
+    // Listen for buzz timestamps from all players
+    unsubs.push(
+      onBroadcast("buzz:timestamp", (payload: any) => {
+        if (payload.playerId && payload.buzzTime) {
+          setBuzzTimestamps((prev) => ({ ...prev, [payload.playerId]: payload.buzzTime }));
+        }
       })
     );
 
@@ -357,6 +381,9 @@ export default function BuzzerPlayerView() {
       setPlayerScore(0);
       setPhase("PLAY");
 
+      // Broadcast join so host sees it immediately
+      broadcast("player:join", { playerId: newId, playerName: name });
+
       if (lobby.status === "BUZZING" && !lobby.buzzed_player_id) {
         setBuzzState("buzzing-open");
       }
@@ -389,14 +416,14 @@ export default function BuzzerPlayerView() {
   const handleBuzz = useCallback(async () => {
     if (!code || !playerId || gameStatus !== "BUZZING") return;
 
-    setBuzzState("buzzed-success");
-
+    // Call RPC first — let server decide who wins (avoids flash on failure)
     const { data, error } = await supabase.rpc("buzz_in", {
       p_lobby_code: code,
       p_player_id: playerId,
     });
 
     if (error || !data) {
+      // Someone else buzzed first — show "too slow" briefly, then reset
       setBuzzState("buzzed-too-slow");
       if (buzzFlashRef.current) clearTimeout(buzzFlashRef.current);
       buzzFlashRef.current = setTimeout(() => {
@@ -407,9 +434,13 @@ export default function BuzzerPlayerView() {
       return;
     }
 
+    setBuzzState("buzzed-success");
     setBuzzedPlayerId(playerId);
+    const now = Date.now();
     broadcast("buzzer:press", { playerId });
-  }, [code, playerId, gameStatus, buzzedPlayerId, broadcast]);
+    broadcast("buzz:timestamp", { playerId, playerName, buzzTime: now });
+    setBuzzTimestamps((prev) => ({ ...prev, [playerId]: now }));
+  }, [code, playerId, gameStatus, playerName, broadcast]);
 
   const [isDrafting, setIsDrafting] = useState(false);
 
@@ -439,12 +470,65 @@ export default function BuzzerPlayerView() {
     if (code) {
       localStorage.removeItem(`buzzer_player_${code}`);
     }
+    if (buzzFlashRef.current) clearTimeout(buzzFlashRef.current);
     setPhase("JOIN");
     setPlayerId(null);
     setPlayerName("");
   }, [code]);
 
-  // ── Derived ─────────────────────────────────────────────────────────────
+  // ── Polling fallback for critical phases (catches missed realtime events) ─
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!code || phase !== "PLAY" || !playerId) return;
+
+    const needsPolling =
+      gameStatus === "BUZZING" ||
+      gameStatus === "READING" ||
+      gameStatus === "ANSWERING" ||
+      draftPhase === "in_progress" ||
+      gameStatus === "LOBBY";
+
+    if (needsPolling) {
+      pollRef.current = setInterval(async () => {
+        const { data } = await supabase
+          .from("lobbies")
+          .select("status, buzzed_player_id, settings")
+          .eq("code", code)
+          .single();
+        if (!data) return;
+
+        if (data.status !== gameStatusRef.current) {
+          setGameStatus(data.status);
+          if (data.status === "BUZZING" && !data.buzzed_player_id) {
+            setBuzzState("buzzing-open");
+            setBuzzedPlayerId(null);
+          }
+        }
+        if (data.buzzed_player_id !== buzzedPlayerIdRef.current) {
+          setBuzzedPlayerId(data.buzzed_player_id);
+          if (data.buzzed_player_id && data.buzzed_player_id !== playerId) {
+            setBuzzState("buzzed-too-slow");
+          }
+        }
+        if (data.settings) {
+          const s = data.settings;
+          if (s.draftPhase !== undefined) setDraftPhase(s.draftPhase);
+          if (s.draftTurnIndex !== undefined) setDraftTurnIndex(s.draftTurnIndex);
+          if (s.draftPicks) setDraftPicks(s.draftPicks);
+          if (s.rounds !== undefined) setHostRounds(s.rounds);
+        }
+      }, 2000);
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [code, phase, playerId, gameStatus, draftPhase]);
 
   const getStatusLabel = (s: string): string => {
     if (s === "LOBBY" && gameStarted) return "Game live — waiting for question";
@@ -772,26 +856,39 @@ export default function BuzzerPlayerView() {
           </button>
 
           {showLeaderboard && (
-            <div className="mt-2 space-y-1.5 max-h-[200px] overflow-y-auto animate-clay-pop">
-              {[...players].sort((a: any, b: any) => (b.score || 0) - (a.score || 0)).map((p, i) => (
+            <div className="mt-2 space-y-1.5 max-h-[300px] overflow-y-auto animate-clay-pop">
+              <div className="text-[9px] font-black text-warm-gray/40 uppercase tracking-wider px-1 mb-1">
+                Leaderboard
+              </div>
+              {[...players].sort((a: any, b: any) => (b.score || 0) - (a.score || 0)).map((p, i) => {
+                  const bt = buzzTimestamps[p.id];
+                  return (
                   <div
                     key={p.id}
                     className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all ${
                       p.id === playerId ? "bg-soft-purple-light border border-soft-purple/20" : "bg-warm-white border border-warm-gray/5"
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="font-outfit font-black text-xs text-warm-gray/50 w-6 text-center">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="font-outfit font-black text-xs text-warm-gray/50 w-6 text-center flex-shrink-0">
                         {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
                       </span>
-                      <span className="font-outfit font-bold text-sm text-plum truncate max-w-[120px]">
-                        {p.name}
-                        {p.id === playerId && <span className="ml-1 text-[10px] text-soft-purple">(you)</span>}
-                      </span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-outfit font-bold text-sm text-plum truncate max-w-[120px]">
+                          {p.name}
+                          {p.id === playerId && <span className="ml-1 text-[10px] text-soft-purple">(you)</span>}
+                        </span>
+                        {bt && (
+                          <span className="text-[9px] font-mono text-mint/70 tabular-nums">
+                            ⚡ {new Date(bt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="font-mono font-bold text-sm text-plum">{p.score || 0}</span>
+                    <span className="font-mono font-bold text-sm text-plum flex-shrink-0 ml-2">{p.score || 0}</span>
                   </div>
-                ))}
+                  );
+                })}
                 {players.length === 0 && (
                   <div className="text-center py-4 text-warm-gray/30 text-xs">No players yet</div>
                 )}

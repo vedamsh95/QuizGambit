@@ -15,9 +15,6 @@ import {
   Sparkles,
   BookOpen,
   Swords,
-  Monitor,
-  Globe,
-  Zap,
   Check,
   X,
 } from "lucide-react";
@@ -41,7 +38,6 @@ export default function HomeScreen() {
   const [joinCode, setJoinCode] = useState("");
   const [showJoin, setShowJoin] = useState(false);
   const [showSolo, setShowSolo] = useState(false);
-  const [showHostModal, setShowHostModal] = useState(false);
   const [isHosting, setIsHosting] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinStatus, setJoinStatus] = useState("");
@@ -58,7 +54,6 @@ export default function HomeScreen() {
   const openSolo = useCallback(async () => {
     setShowSolo(true);
     setShowJoin(false);
-    setShowHostModal(false);
     if (categories.length > 0) return;
     setFetchingCats(true);
     const { data } = await supabase.from("categories_library").select("*");
@@ -90,16 +85,14 @@ export default function HomeScreen() {
 
   const nameValid = playerName.trim().length >= 2;
 
-  // ── Host → Multiplayer ──────────────────────────────────────────────
-  const handleHostMultiplayer = useCallback(async () => {
+  // ── Host → Create lobby (mode selected inside the unified lobby) ─────
+  const handleHost = useCallback(async () => {
     if (!playerName.trim()) return;
     setIsHosting(true);
-    setShowHostModal(false);
     store.setPlayerName(playerName.trim());
-    store.ensurePlayerId();
+    const playerId = store.ensurePlayerId();
 
     try {
-      const playerId = store.ensurePlayerId();
       const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
       let code = "";
@@ -114,15 +107,8 @@ export default function HomeScreen() {
           code,
           host_id: playerId,
           status: "LOBBY",
-          mode: "STANDARD",
-          settings: {
-            rounds: 5,
-            timer: 15,
-            hasBuzzer: true,
-            categories: 5,
-            selectionMode: "HOST",
-            categorySource: "both",
-          },
+          mode: null,        // mode picked inside the lobby
+          settings: {},
         });
 
         if (!error) {
@@ -146,7 +132,8 @@ export default function HomeScreen() {
           lobby_code: code,
           name: playerName.trim(),
           score: 0,
-          metadata: { avatar },
+          joined_at: new Date().toISOString(),
+          metadata: { avatar, is_host: true },
         },
         { onConflict: "id" },
       );
@@ -155,90 +142,6 @@ export default function HomeScreen() {
       navigate(`/lobby/${code}`);
     } catch (err) {
       console.error("Host error:", err);
-    } finally {
-      setIsHosting(false);
-    }
-  }, [playerName, avatar, navigate]);
-
-  // ── Host → Local ────────────────────────────────────────────────────
-  const handleHostLocal = useCallback(() => {
-    if (!playerName.trim()) return;
-    setShowHostModal(false);
-    store.setPlayerName(playerName.trim());
-    store.ensurePlayerId();
-    store.clearLocalGameSettings();
-    navigate("/local");
-  }, [playerName, navigate]);
-
-  // ── Host → Buzzer Game ──────────────────────────────────────────────
-  const handleHostBuzzer = useCallback(async () => {
-    if (!playerName.trim()) return;
-    setIsHosting(true);
-    setShowHostModal(false);
-    store.setPlayerName(playerName.trim());
-    store.ensurePlayerId();
-
-    try {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      let code = "";
-      let success = false;
-
-      for (let attempt = 0; attempt < 5; attempt++) {
-        code = "";
-        for (let i = 0; i < 6; i++) {
-          code += chars[Math.floor(Math.random() * chars.length)];
-        }
-
-        const { error } = await supabase.from("lobbies").insert({
-          code,
-          status: "LOBBY",
-          mode: "LOCAL_BUZZER",
-          settings: {
-            rounds: 3,
-            categoriesPerRound: 5,
-            timer: 15,
-            selectionMode: "HOST_PICK",
-            draftPhase: "pending",
-            draftPicks: [],
-            draftTurnIndex: 0,
-            roundCategories: {},
-            selectedCategoryIds: [],
-          },
-        });
-
-        if (!error) {
-          success = true;
-          break;
-        }
-        if (error.code !== "23505") {
-          console.error("Failed to create buzzer lobby:", error);
-          return;
-        }
-      }
-
-      if (!success) {
-        console.error("Failed to generate unique room code after 5 attempts");
-        return;
-      }
-
-      // Insert host as a player so they can buzz and participate in drafts
-      const hostPlayerId = store.ensurePlayerId();
-      await supabase.from("players").upsert(
-        {
-          id: hostPlayerId,
-          lobby_code: code,
-          name: playerName.trim(),
-          score: 0,
-          joined_at: new Date().toISOString(),
-          metadata: { avatar, is_host: true },
-        },
-        { onConflict: "id" },
-      );
-
-      store.setHostLobbyCode(code);
-      navigate(`/lobby-buzzer/${code}`);
-    } catch (err) {
-      console.error("Buzzer host error:", err);
     } finally {
       setIsHosting(false);
     }
@@ -259,9 +162,7 @@ export default function HomeScreen() {
     setIsJoining(true);
     setJoinStatus("Looking up game...");
     store.setPlayerName(playerName.trim());
-    store.ensurePlayerId();
-
-    try {
+    store.ensurePlayerId();      try {
       // Check the lobby mode to route to the correct page
       const { data: lobby, error } = await supabase
         .from("lobbies")
@@ -270,18 +171,21 @@ export default function HomeScreen() {
         .single();
 
       if (error || !lobby) {
-        // Navigate anyway — GameLobby will show a "not found" error with a back button
         navigate(`/lobby/${cleanCode}`);
         return;
       }
 
-      // Route based on lobby mode
-      if (lobby.mode === "LOCAL_BUZZER") {
-        navigate(`/buzzer/${cleanCode}`);
-      } else if (lobby.mode === "ARENA") {
+      // Arena lobbies still use the arena route
+      if (lobby.mode === "ARENA") {
         navigate(`/arena`);
+      } else if (lobby.mode === "BUZZER" || lobby.mode === "LOCAL_BUZZER") {
+        // Buzzer game already in progress — go to buzzer player view
+        navigate(`/buzzer/${cleanCode}`);
+      } else if (lobby.mode === "STANDARD" || lobby.mode === "LOCAL") {
+        // Game in progress — go to play
+        navigate(`/play/${cleanCode}`);
       } else {
-        // STANDARD or any other mode
+        // mode is null — game hasn't started yet, join the unified lobby
         navigate(`/lobby/${cleanCode}`);
       }
     } catch {
@@ -384,9 +288,9 @@ export default function HomeScreen() {
         {/* Host Card */}
         <button
           onClick={() => {
-            setShowHostModal(true);
             setShowJoin(false);
             setShowSolo(false);
+            handleHost();
           }}
           disabled={!nameValid || isHosting}
           className="clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
@@ -412,7 +316,6 @@ export default function HomeScreen() {
           onClick={() => {
             setShowJoin((p) => !p);
             setShowSolo(false);
-            setShowHostModal(false);
           }}
           className={`clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all animate-clay-pop
@@ -464,99 +367,6 @@ export default function HomeScreen() {
           </p>
         </button>
       </div>
-
-      {/* ── Host Modal (Local vs Multiplayer) ────────────────────────── */}
-      {showHostModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-clay-pop"
-          onClick={() => setShowHostModal(false)}
-        >
-          <div
-            className="clay-elevated p-6 w-full max-w-sm flex flex-col gap-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <h3 className="font-outfit font-black text-base text-plum">
-                How do you want to host?
-              </h3>
-              <button
-                onClick={() => setShowHostModal(false)}
-                className="p-1 text-plum/30 hover:text-plum transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Local Option */}
-            <button
-              onClick={handleHostLocal}
-              className="clay p-4 flex items-center gap-4 text-left cursor-pointer
-                         hover:-translate-y-0.5 transition-all group w-full"
-            >
-              <div className="w-12 h-12 rounded-xl bg-peach flex items-center justify-center flex-shrink-0
-                              group-hover:scale-105 transition-transform">
-                <Monitor className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <h4 className="font-outfit font-black text-sm text-plum">Local</h4>
-                <p className="text-[10px] text-plum/40 font-medium leading-tight mt-0.5">
-                  Play on this device with friends around you
-                </p>
-              </div>
-            </button>
-
-            {/* Buzzer Option */}
-            <button
-              onClick={handleHostBuzzer}
-              disabled={isHosting}
-              className="clay p-4 flex items-center gap-4 text-left cursor-pointer
-                         hover:-translate-y-0.5 transition-all group w-full
-                         disabled:opacity-50 disabled:cursor-not-allowed
-                         bg-gradient-to-r from-mint-light/50 to-transparent"
-            >
-              <div className="w-12 h-12 rounded-xl bg-mint flex items-center justify-center flex-shrink-0
-                              group-hover:scale-105 transition-transform">
-                {isHosting ? (
-                  <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                ) : (
-                  <Zap className="w-6 h-6 text-white" />
-                )}
-              </div>
-              <div className="flex-1">
-                <h4 className="font-outfit font-black text-sm text-plum">Buzzer Game</h4>
-                <p className="text-[10px] text-plum/40 font-medium leading-tight mt-0.5">
-                  Players buzz in from their phones. Setup together in the lobby.
-                </p>
-              </div>
-            </button>
-
-            {/* Multiplayer Option */}
-            <button
-              onClick={handleHostMultiplayer}
-              disabled={isHosting}
-              className="clay p-4 flex items-center gap-4 text-left cursor-pointer
-                         hover:-translate-y-0.5 transition-all group w-full
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="w-12 h-12 rounded-xl bg-soft-purple flex items-center justify-center flex-shrink-0
-                              group-hover:scale-105 transition-transform">
-                {isHosting ? (
-                  <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                ) : (
-                  <Globe className="w-6 h-6 text-white" />
-                )}
-              </div>
-              <div className="flex-1">
-                <h4 className="font-outfit font-black text-sm text-plum">Multiplayer</h4>
-                <p className="text-[10px] text-plum/40 font-medium leading-tight mt-0.5">
-                  Create an online room &amp; share the code
-                </p>
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ── Join Panel ───────────────────────────────────────────────── */}
       {showJoin && (
