@@ -7,12 +7,38 @@ import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import ClayButton from "./ui/ClayButton";
 import ClayCard from "./ui/ClayCard";
 import ModeSelection from "./ModeSelection";
+import type { GameMode, PlayStyle } from "./ModeSelection";
 import BuzzerSetup from "./BuzzerSetup";
-import type { GameMode } from "./ModeSelection";
 import {
   Users, ArrowLeft, Crown, Wifi, WifiOff, LogOut,
   Play, UserPlus, Share2,
 } from "lucide-react";
+
+// ── Backward compat: legacy mode strings from old lobbies ───────────────────
+
+/** Normalize old BUZZER lobby mode to new GameMode; keeps STANDARD/LOCAL as-is (no new equivalent yet). */
+function normalizeMode(raw: string | null): string | null {
+  if (!raw) return null;
+  if (raw === "BUZZER") return "QUIZ_5X5";
+  return raw;
+}
+
+/** Derive effective play style from settings + legacy mode fallback. */
+function derivePlayStyle(mode: string | null, settings: any): string | null {
+  // New lobbies: explicit play_style in settings
+  if (settings?.play_style) return settings.play_style as string;
+  // Old lobbies: infer from legacy mode column
+  if (mode === "BUZZER") return "BUZZER";
+  if (mode === "STANDARD") return "MULTIPLAYER";
+  if (mode === "LOCAL") return "LOCAL";
+  return null;
+}
+
+/** True when the mode points to a 5×5 game played as buzzer. */
+function isBuzzer5x5(mode: string | null, playStyle: string | null): boolean {
+  if (playStyle === "BUZZER") return true;
+  return mode === "BUZZER";
+}
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,7 +75,8 @@ export default function UnifiedLobby() {
 
   // ── Flow state ──────────────────────────────────────────────────────────
 
-  const [lobbyMode, setLobbyMode] = useState<string | null>(null);
+  const [lobbyMode, setLobbyMode] = useState<string | null>(null);        // game_type, e.g. "QUIZ_5X5"
+  const [lobbyPlayStyle, setLobbyPlayStyle] = useState<string | null>(null);  // "BUZZER" | "MULTIPLAYER" | "LOCAL"
   const [phase, setPhase] = useState<LobbyPhase>("MODE_SELECTION");
 
   // ── Voting state ────────────────────────────────────────────────────────
@@ -98,21 +125,27 @@ export default function UnifiedLobby() {
 
       // Mode changed — advance to setup
       if (updated.mode && !lobbyRef.current?.mode) {
-        setLobbyMode(updated.mode);
+        const nm = normalizeMode(updated.mode);
+        setLobbyMode(nm);
+        setLobbyPlayStyle(derivePlayStyle(updated.mode, updated.settings));
         setPhase("SETUP");
       }
 
-      // Settings sync (voteState, etc.)
+      // Settings sync (voteState, play_style, etc.)
       if (updated.settings) {
         const s = updated.settings;
         if (s.voteState) {
           try { setVoteState(s.voteState); } catch {}
         }
+        if (s.play_style && s.play_style !== lobbyRef.current?.settings?.play_style) {
+          setLobbyPlayStyle(s.play_style);
+        }
       }
 
       // Status transition: lobby → playing
       if (["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(updated.status)) {
-        if (updated.mode === "BUZZER" && !isHost) {
+        const ps = derivePlayStyle(updated.mode, updated.settings);
+        if (isBuzzer5x5(updated.mode, ps) && !isHost) {
           navigate(`/buzzer/${code}`);
         } else {
           navigate(`/play/${code}`);
@@ -155,8 +188,11 @@ export default function UnifiedLobby() {
 
       setLobby(lobbyData);
       setIsHost(lobbyData.host_id === playerId);
-      setLobbyMode(lobbyData.mode || null);
-      setPhase(lobbyData.mode ? "SETUP" : "MODE_SELECTION");
+      const nm = normalizeMode(lobbyData.mode);
+      const ps = derivePlayStyle(lobbyData.mode, lobbyData.settings);
+      setLobbyMode(nm);
+      setLobbyPlayStyle(ps);
+      setPhase(nm ? "SETUP" : "MODE_SELECTION");
 
       // Reset lobby status on re-entry
       if (lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {
@@ -252,6 +288,7 @@ export default function UnifiedLobby() {
     unsubs.push(onBroadcast("settings:update", (payload: any) => {
       if (payload.mode) {
         setLobbyMode(payload.mode);
+        setLobbyPlayStyle(payload.play_style || null);
         setPhase("SETUP");
       }
       if (payload.voteState) {
@@ -273,7 +310,10 @@ export default function UnifiedLobby() {
     }));
 
     unsubs.push(onBroadcast("game:start", () => {
-      if (lobbyRef.current?.mode === "BUZZER" && !isHost) {
+      const ps = lobbyRef.current?.settings?.play_style || derivePlayStyle(
+        lobbyRef.current?.mode, lobbyRef.current?.settings
+      );
+      if (isBuzzer5x5(lobbyRef.current?.mode, ps) && !isHost) {
         navigate(`/buzzer/${code}`);
       } else {
         navigate(`/play/${code}`);
@@ -299,7 +339,10 @@ export default function UnifiedLobby() {
 
       // Mode changed
       if (data.mode && data.mode !== lobbyRef.current?.mode) {
-        setLobbyMode(data.mode);
+        const nm = normalizeMode(data.mode);
+        const ps = derivePlayStyle(data.mode, data.settings);
+        setLobbyMode(nm);
+        setLobbyPlayStyle(ps);
         setPhase("SETUP");
       }
 
@@ -310,6 +353,9 @@ export default function UnifiedLobby() {
           if (JSON.stringify(prev) !== JSON.stringify(vs)) return vs;
           return prev;
         });
+      }
+      if (data.settings?.play_style && data.settings.play_style !== lobbyRef.current?.settings?.play_style) {
+        setLobbyPlayStyle(data.settings.play_style);
       }
     }, 3000);
 
@@ -331,18 +377,20 @@ export default function UnifiedLobby() {
     return { error };
   }, [code]);
 
-  const handleSelectMode = useCallback(async (mode: GameMode) => {
+  const handleSelectMode = useCallback(async (mode: GameMode, playStyle: PlayStyle) => {
     if (!code || !isHost) return;
 
     setLobbyMode(mode);
+    setLobbyPlayStyle(playStyle);
     setPhase("SETUP");
 
-    // Update lobby mode + settings
+    // Store game_type in the mode column, play_style in settings
     await supabase.from("lobbies").update({ mode }).eq("code", code);
+    await updateLobbySetting("play_style", playStyle);
 
-    // Seed default settings based on mode
+    // Seed default settings based on game type
     const defaultSettings: any = { rounds: 1, timer: 15 };
-    if (mode === "BUZZER") {
+    if (mode === "QUIZ_5X5") {
       Object.assign(defaultSettings, {
         catsPerRound: 5,
         selectionMode: "HOST_PICK",
@@ -357,7 +405,7 @@ export default function UnifiedLobby() {
       Object.entries(defaultSettings).map(([k, v]) => updateLobbySetting(k, v))
     );
 
-    broadcast("settings:update", { mode, ...defaultSettings });
+    broadcast("settings:update", { mode, play_style: playStyle, ...defaultSettings });
   }, [code, isHost, broadcast, updateLobbySetting]);
 
   const handleToggleVoting = useCallback(async (enabled: boolean) => {
@@ -371,27 +419,6 @@ export default function UnifiedLobby() {
     broadcast("vote:submit", { playerId, mode });
   }, [playerId, broadcast]);
 
-  const handleLockIn = useCallback(async () => {
-    if (!isHost) return;
-
-    // Tally votes
-    const counts: Record<string, number> = {};
-    Object.values(voteState.votes).forEach((v) => {
-      counts[v] = (counts[v] || 0) + 1;
-    });
-
-    // Find winner
-    let winner: string | null = null;
-    let maxVotes = 0;
-    Object.entries(counts).forEach(([mode, count]) => {
-      if (count > maxVotes) { winner = mode; maxVotes = count; }
-    });
-
-    if (winner) {
-      await handleSelectMode(winner as GameMode);
-    }
-  }, [isHost, voteState.votes, handleSelectMode]);
-
   // ── Start Game ──────────────────────────────────────────────────────────
 
   const handleStartGame = useCallback(async () => {
@@ -402,7 +429,7 @@ export default function UnifiedLobby() {
     try {
       const s = lobby?.settings || {};
 
-      if (lobbyMode === "BUZZER") {
+      if (isBuzzer5x5(lobbyMode, lobbyPlayStyle)) {
         // Build round categories from draft picks or selected categories
         const catsToProcess: { round: number; cat: Category }[] = [];
         const picks = s.draftPicks || [];
@@ -456,9 +483,9 @@ export default function UnifiedLobby() {
       await supabase.from("lobbies").update({ status: "PLAYING" }).eq("code", code);
       broadcast("game:start", {});
 
-      if (lobbyMode === "BUZZER" && isHost) {
+      if (isBuzzer5x5(lobbyMode, lobbyPlayStyle) && isHost) {
         navigate(`/play/${code}`);
-      } else if (lobbyMode === "BUZZER" && !isHost) {
+      } else if (isBuzzer5x5(lobbyMode, lobbyPlayStyle) && !isHost) {
         navigate(`/buzzer/${code}`);
       } else {
         navigate(`/play/${code}`);
@@ -467,7 +494,7 @@ export default function UnifiedLobby() {
       setStartError(err?.message || "Failed to start game.");
       setIsStarting(false);
     }
-  }, [code, isStarting, lobbyMode, lobby, allCategories, isHost, updateLobbySetting, broadcast, navigate]);
+  }, [code, isStarting, lobbyMode, lobbyPlayStyle, lobby, allCategories, isHost, updateLobbySetting, broadcast, navigate]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -534,10 +561,24 @@ export default function UnifiedLobby() {
 
   // ── Mode display name ───────────────────────────────────────────────────
 
-  const modeLabel = lobbyMode === "BUZZER" ? "Buzzer Game"
-    : lobbyMode === "STANDARD" ? "Multiplayer"
-    : lobbyMode === "LOCAL" ? "Local"
-    : lobbyMode || "Unknown";
+  const modeLabel = (() => {
+    if (!lobbyMode) return "Unknown";
+    const gameName = lobbyMode === "QUIZ_5X5" ? "5×5 Quiz" : lobbyMode;
+    const styleName =
+      lobbyPlayStyle === "BUZZER" ? "Buzzer" :
+      lobbyPlayStyle === "MULTIPLAYER" ? "Multiplayer" :
+      lobbyPlayStyle === "LOCAL" ? "Local" : "";
+    return styleName ? `${gameName} · ${styleName}` : gameName;
+  })();
+
+  // ── Play style helpers for setup phase ──────────────────────────────────
+
+  // Note: BUZZER is always normalized to QUIZ_5X5, so lobbyMode is never "BUZZER".
+  // STANDARD/LOCAL legacy fallbacks are still needed for old lobbies not yet migrated.
+  const isBuzzer = lobbyPlayStyle === "BUZZER";
+  const isStandard = lobbyPlayStyle === "MULTIPLAYER" || (lobbyMode === "STANDARD" && !lobbyPlayStyle);
+  const isLocal = lobbyPlayStyle === "LOCAL" || (lobbyMode === "LOCAL" && !lobbyPlayStyle);
+  const is5x5 = lobbyMode === "QUIZ_5X5" || lobbyMode === "BUZZER" || lobbyMode === "STANDARD" || lobbyMode === "LOCAL";
 
   // ── Render ──────────────────────────────────────────────────────────────
 
@@ -675,13 +716,13 @@ export default function UnifiedLobby() {
               onSelectMode={handleSelectMode}
               onToggleVoting={handleToggleVoting}
               onVote={handleVote}
-              onLockIn={handleLockIn}
+
             />
           )}
 
-          {phase === "SETUP" && lobbyMode === "BUZZER" && (
+          {/* ── Buzzer setup ────────────────────────────────────────────── */}
+          {phase === "SETUP" && is5x5 && isBuzzer && (
             <div className="space-y-6">
-              {/* Mode badge */}
               <div className="flex items-center gap-3">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mint-light text-mint text-[10px] font-black tracking-[0.2em] uppercase">
                   ⚡ Buzzer Game
@@ -719,6 +760,7 @@ export default function UnifiedLobby() {
                     players={players}
                     playerId={playerId}
                     hostPlayerId={lobby?.host_id}
+                    playStyle="BUZZER"
                   />
                   <div className="clay p-5 text-center">
                     <div className="animate-pulse flex items-center justify-center gap-2 mb-3">
@@ -736,7 +778,8 @@ export default function UnifiedLobby() {
             </div>
           )}
 
-          {phase === "SETUP" && lobbyMode === "STANDARD" && (
+          {/* ── Standard/multiplayer setup ───────────────────────────────── */}
+          {phase === "SETUP" && is5x5 && isStandard && (
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-soft-purple-light text-soft-purple text-[10px] font-black tracking-[0.2em] uppercase">
@@ -796,7 +839,8 @@ export default function UnifiedLobby() {
             </div>
           )}
 
-          {phase === "SETUP" && lobbyMode === "LOCAL" && (
+          {/* ── Local setup ──────────────────────────────────────────────── */}
+          {phase === "SETUP" && is5x5 && isLocal && (
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-peach-light text-peach text-[10px] font-black tracking-[0.2em] uppercase">
@@ -832,11 +876,13 @@ function PlayerSetupView({
   players,
   playerId,
   hostPlayerId,
+  playStyle,
 }: {
   settings: any;
   players: any[];
   playerId: string;
   hostPlayerId: string;
+  playStyle?: string;
 }) {
   const rounds = settings?.rounds || 1;
   const catsPerRound = settings?.catsPerRound || 5;
@@ -925,7 +971,7 @@ function PlayerSetupView({
 
       {/* Hint */}
       <p className="text-center text-[10px] font-medium text-mint/60">
-        🎮 <strong>Buzzer game</strong> — after setup, stay on this screen and press the buzz button when the host opens a question.
+        🎮 <strong>{playStyle === "BUZZER" ? "Buzzer game" : "Game"}</strong> — after setup, stay on this screen and press the buzz button when the host opens a question.
       </p>
     </div>
   );

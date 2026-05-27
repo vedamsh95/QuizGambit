@@ -1,59 +1,246 @@
 import { useState, useCallback } from "react";
-import { Zap, Globe, Monitor, Crown, Check, Users, ChevronRight, Lock } from "lucide-react";
+import {
+  Zap, Globe, Monitor, Crown, Check, Users, Lock,
+  Hash, Wand2, Puzzle, Dices, Swords, FerrisWheel,
+  Network, TrendingUp, type LucideIcon,
+} from "lucide-react";
 import ClayButton from "./ui/ClayButton";
+import ClayCard from "./ui/ClayCard";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type GameMode = "BUZZER" | "STANDARD" | "LOCAL";
+export type GameMode = "QUIZ_5X5" | "THE_NUMBER" | "SPELL_IT" | "CROSSWORD" | "ODDSMAKER"
+  | "WORD_DUEL" | "ROULETTE" | "CONNECTIONS" | "HIGHER_LOWER" | "ANAGRAMS" | "BLUFF";
+
+export type PlayStyle = "LOCAL" | "MULTIPLAYER" | "BUZZER";
+
+interface GameConfig {
+  id: GameMode;
+  label: string;
+  tagline: string;
+  description: string;
+  icon: LucideIcon;
+  gradient: string;        // tailwind gradient class
+  glowColor: string;        // tailwind shadow color
+  accentText: string;       // tailwind text color for accent elements
+  accentBg: string;         // tailwind bg color for tags/badges
+  playStyles: PlayStyle[];  // which play styles this game supports
+  available: boolean;       // false = coming soon
+  features: string[];       // short feature bullets shown on card
+}
+
+// ── Game configs ────────────────────────────────────────────────────────────
+
+const GAMES: GameConfig[] = [
+  {
+    id: "QUIZ_5X5",
+    label: "5×5 Quiz",
+    tagline: "The flagship trivia board",
+    description:
+      "A 5×5 grid of categories and point values. Buzz in to answer, build streaks, and dominate the board. Supports category drafts, host picks, and full buzzer chaos.",
+    icon: Zap,
+    gradient: "from-purple-600 via-violet-500 to-indigo-500",
+    glowColor: "shadow-purple-500/25",
+    accentText: "text-purple-200",
+    accentBg: "bg-purple-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: true,
+    features: ["5×5 Board", "Point Values", "Category Draft", "Streak Bonuses"],
+  },
+  {
+    id: "THE_NUMBER",
+    label: "The Number",
+    tagline: "Closest guess wins",
+    description:
+      "Every answer is a number. No binary right or wrong — the closest guess wins. Exact answers get perfect scores. Ties broken by fastest buzzer. Bar chart reveal on every round.",
+    icon: Hash,
+    gradient: "from-blue-600 via-cyan-500 to-teal-400",
+    glowColor: "shadow-cyan-500/20",
+    accentText: "text-cyan-200",
+    accentBg: "bg-cyan-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Numeric Answers", "Closest Wins", "Bar Chart Reveal", "Speed Tiebreaker"],
+  },
+  {
+    id: "SPELL_IT",
+    label: "Spell It",
+    tagline: "Unscramble & type fast",
+    description:
+      "A word appears scrambled with extra decoy letters. Buzz in and type the correct spelling. Pure speed — no trivia knowledge needed. Rapid-fire rounds, 30 seconds each.",
+    icon: Wand2,
+    gradient: "from-amber-500 via-orange-400 to-red-400",
+    glowColor: "shadow-amber-500/20",
+    accentText: "text-amber-200",
+    accentBg: "bg-amber-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Word Scrambles", "Decoy Letters", "Speed Scoring", "No Trivia Needed"],
+  },
+  {
+    id: "CROSSWORD",
+    label: "Crossword Clash",
+    tagline: "Build the grid together",
+    description:
+      "A shared crossword grid grows on the host screen. Answer clues to fill words. New words intersect previous ones — spot a steal at any intersection for bonus points.",
+    icon: Puzzle,
+    gradient: "from-teal-600 via-emerald-500 to-green-400",
+    glowColor: "shadow-emerald-500/20",
+    accentText: "text-emerald-200",
+    accentBg: "bg-emerald-500/20",
+    playStyles: ["MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Shared Grid", "Intersection Steals", "Spatial Puzzle", "Word Building"],
+  },
+  {
+    id: "ODDSMAKER",
+    label: "Oddsmaker",
+    tagline: "Bet on who gets it right",
+    description:
+      "Don't answer the question — predict whether another player will. Correct bet = points. The actual answerer scores separately. Zero trivia knowledge required to win.",
+    icon: Dices,
+    gradient: "from-rose-600 via-pink-500 to-fuchsia-400",
+    glowColor: "shadow-pink-500/20",
+    accentText: "text-pink-200",
+    accentBg: "bg-pink-500/20",
+    playStyles: ["MULTIPLAYER"],
+    available: false,
+    features: ["Social Betting", "Prediction Scoring", "No Knowledge Needed", "Rotating Targets"],
+  },
+  {
+    id: "WORD_DUEL",
+    label: "Word Duel",
+    tagline: "1v1 word association",
+    description:
+      "Face off against another player. A seed word appears — type an associated word in 5 seconds. If both type the SAME word, both are eliminated. Fastest unique answer wins.",
+    icon: Swords,
+    gradient: "from-orange-600 via-red-500 to-rose-500",
+    glowColor: "shadow-orange-500/20",
+    accentText: "text-orange-200",
+    accentBg: "bg-orange-500/20",
+    playStyles: ["MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["1v1 Duels", "Sudden Death Rule", "5-Second Timer", "Round-Robin"],
+  },
+  {
+    id: "ROULETTE",
+    label: "Category Roulette",
+    tagline: "Spin to pick your poison",
+    description:
+      "A spinning wheel picks a random category. Play or Pass in 3 seconds. Passed categories come back in a Revenge Pool — next player must play them. High tension, fast decisions.",
+    icon: FerrisWheel,
+    gradient: "from-emerald-600 via-green-500 to-lime-400",
+    glowColor: "shadow-green-500/20",
+    accentText: "text-green-200",
+    accentBg: "bg-green-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Spinning Wheel", "Play or Pass", "Revenge Pool", "Social Pressure"],
+  },
+  {
+    id: "CONNECTIONS",
+    label: "Connections Race",
+    tagline: "Group items, race to finish",
+    description:
+      "9–12 items on a grid. Group them into categories of 3–4. First to find ALL groups wins. Wrong group = 30-second lockout. Pattern recognition meets competitive speed.",
+    icon: Network,
+    gradient: "from-indigo-600 via-purple-500 to-violet-400",
+    glowColor: "shadow-indigo-500/20",
+    accentText: "text-indigo-200",
+    accentBg: "bg-indigo-500/20",
+    playStyles: ["MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Pattern Matching", "Tap to Group", "30s Lockout", "Race to Finish"],
+  },
+  {
+    id: "HIGHER_LOWER",
+    label: "Higher / Lower",
+    tagline: "Chain your guesses",
+    description:
+      "Guess whether the next fact is higher or lower than the last. Build a streak multiplier. When you bust, the turn passes. Bank your score or keep pushing your luck.",
+    icon: TrendingUp,
+    gradient: "from-slate-600 via-gray-500 to-zinc-400",
+    glowColor: "shadow-slate-500/15",
+    accentText: "text-slate-200",
+    accentBg: "bg-slate-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Chain Guesses", "Streak Multiplier", "Bank or Bust", "Numeric Trivia"],
+  },
+  {
+    id: "ANAGRAMS",
+    label: "Anagrams",
+    tagline: "Unscramble before the hint gets easier",
+    description:
+      "A cryptic clue and scrambled answer. Hints progressively clarify. First correct answer = max points. Wrong guesses hurt less as hints improve. The 'I knew it at hint #2' regret is real.",
+    icon: Wand2,
+    gradient: "from-violet-600 via-purple-500 to-fuchsia-500",
+    glowColor: "shadow-violet-500/20",
+    accentText: "text-violet-200",
+    accentBg: "bg-violet-500/20",
+    playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["Progressive Hints", "Scrambled Answers", "Time-Decay Scoring", "Buzzer + Type"],
+  },
+  {
+    id: "BLUFF",
+    label: "Bluff the Bot",
+    tagline: "Spot the AI's lies",
+    description:
+      "AI generates one real answer and two convincing fakes. Pick the truth. Optional deception layer: one player knows the answer and must convince others to pick wrong.",
+    icon: Dices,
+    gradient: "from-red-700 via-rose-600 to-pink-500",
+    glowColor: "shadow-red-500/20",
+    accentText: "text-red-200",
+    accentBg: "bg-red-500/20",
+    playStyles: ["MULTIPLAYER", "BUZZER"],
+    available: false,
+    features: ["AI Fake Answers", "Spot the Truth", "Deception Layer", "Social Deduction"],
+  },
+];
+
+// Map play style → config for the second step (after game is selected)
+const PLAY_STYLES: { id: PlayStyle; label: string; icon: LucideIcon; description: string; gradient: string }[] = [
+  {
+    id: "LOCAL",
+    label: "Local",
+    icon: Monitor,
+    description: "Everyone plays on this screen. Pass-and-play style.",
+    gradient: "from-peach to-orange-400",
+  },
+  {
+    id: "MULTIPLAYER",
+    label: "Multiplayer",
+    icon: Globe,
+    description: "Everyone answers on their own device. Timed rounds.",
+    gradient: "from-soft-purple to-purple-400",
+  },
+  {
+    id: "BUZZER",
+    label: "Buzzer",
+    icon: Zap,
+    description: "Buzz from your phone to answer first. Fast-paced.",
+    gradient: "from-mint to-emerald-400",
+  },
+];
+
+export type SelectionStep = "GAME_SELECTION" | "PLAY_STYLE_SELECTION";
 
 interface VoteState {
   enabled: boolean;
-  votes: Record<string, GameMode>; // playerId → mode
+  votes: Record<string, GameMode>;
 }
 
 interface ModeSelectionProps {
   isHost: boolean;
   playerId: string;
   players: any[];
-  lobbyMode: string | null; // null = mode not yet selected
+  lobbyMode: string | null;
   voteState: VoteState;
-  onSelectMode: (mode: GameMode) => void;
+  onSelectMode: (mode: GameMode, playStyle: PlayStyle) => void;
   onToggleVoting: (enabled: boolean) => void;
   onVote: (mode: GameMode) => void;
-  onLockIn: () => void; // host locks in the winning mode
 }
-
-// ── Mode config ─────────────────────────────────────────────────────────────
-
-const MODES: { id: GameMode; label: string; icon: any; description: string; gradient: string; bg: string; ring: string }[] = [
-  {
-    id: "BUZZER",
-    label: "Buzzer Game",
-    icon: Zap,
-    description: "Players buzz in from their phones. Host picks or draft categories. Fast-paced, competitive.",
-    gradient: "from-mint to-emerald-400",
-    bg: "bg-mint",
-    ring: "ring-mint",
-  },
-  {
-    id: "STANDARD",
-    label: "Multiplayer",
-    icon: Globe,
-    description: "Classic quiz game. Everyone answers on their device. Timed rounds with scoring.",
-    gradient: "from-soft-purple to-purple-400",
-    bg: "bg-soft-purple",
-    ring: "ring-soft-purple",
-  },
-  {
-    id: "LOCAL",
-    label: "Local",
-    icon: Monitor,
-    description: "Play together on this screen. Pass-and-play style. No devices needed.",
-    gradient: "from-peach to-orange-400",
-    bg: "bg-peach",
-    ring: "ring-peach",
-  },
-];
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -66,23 +253,21 @@ export default function ModeSelection({
   onSelectMode,
   onToggleVoting,
   onVote,
-  onLockIn,
 }: ModeSelectionProps) {
+  const [step, setStep] = useState<SelectionStep>("GAME_SELECTION");
+  const [selectedGame, setSelectedGame] = useState<GameMode | null>(null);
   const [myVote, setMyVote] = useState<GameMode | null>(
     voteState.votes?.[playerId] || null
   );
 
   // ── Vote counts ──────────────────────────────────────────────────────────
 
-  const voteCounts: Record<GameMode, number> = { BUZZER: 0, STANDARD: 0, LOCAL: 0 };
+  const voteCounts: Record<string, number> = {};
   Object.values(voteState.votes || {}).forEach((v) => {
-    if (voteCounts[v] !== undefined) voteCounts[v]++;
+    voteCounts[v] = (voteCounts[v] || 0) + 1;
   });
   const totalVotes = Object.values(voteCounts).reduce((a, b) => a + b, 0);
-  const totalPlayers = players.length;
-
-  // Leader (for highlight)
-  const maxVotes = Math.max(...Object.values(voteCounts));
+  const maxVotes = Math.max(0, ...Object.values(voteCounts));
   const leaders = Object.entries(voteCounts)
     .filter(([, c]) => c === maxVotes && c > 0)
     .map(([m]) => m as GameMode);
@@ -91,45 +276,235 @@ export default function ModeSelection({
 
   const handleVote = useCallback(
     (mode: GameMode) => {
-      if (lobbyMode) return; // mode already locked
+      if (lobbyMode) return;
       setMyVote(mode);
       onVote(mode);
     },
     [lobbyMode, onVote]
   );
 
-  const handleDirectPick = useCallback(
+  const handleGamePick = useCallback(
     (mode: GameMode) => {
-      if (!isHost || lobbyMode) return;
-      onSelectMode(mode);
+      if (lobbyMode) return;
+      const game = GAMES.find((g) => g.id === mode);
+      if (!game?.available) return;
+      setSelectedGame(mode);
+      setStep("PLAY_STYLE_SELECTION");
     },
-    [isHost, lobbyMode, onSelectMode]
+    [lobbyMode]
   );
+
+  const handlePlayStylePick = useCallback(
+    (style: PlayStyle) => {
+      if (!selectedGame || !isHost || lobbyMode) return;
+      onSelectMode(selectedGame, style);
+    },
+    [selectedGame, isHost, lobbyMode, onSelectMode]
+  );
+
+  const handleBackToGames = useCallback(() => {
+    setStep("GAME_SELECTION");
+    setSelectedGame(null);
+  }, []);
+
+  // ── Available vs Coming Soon split ───────────────────────────────────────
+
+  const availableGames = GAMES.filter((g) => g.available);
+  const comingSoonGames = GAMES.filter((g) => !g.available);
+
+  // ── Play style tag renderer ──────────────────────────────────────────────
+
+  const playStyleTag = (style: PlayStyle) => {
+    const config: Record<PlayStyle, { icon: LucideIcon; label: string }> = {
+      LOCAL: { icon: Monitor, label: "Local" },
+      MULTIPLAYER: { icon: Globe, label: "Multi" },
+      BUZZER: { icon: Zap, label: "Buzzer" },
+    };
+    const { icon: Icon, label } = config[style];
+    return (
+      <span
+        key={style}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/15 text-[8px] font-black text-white/80 uppercase tracking-wider"
+        title={`Supports ${label}`}
+      >
+        <Icon className="w-2.5 h-2.5" />
+        {label}
+      </span>
+    );
+  };
+
+  // ── Selected game config ─────────────────────────────────────────────────
+
+  const selectedGameConfig = GAMES.find((g) => g.id === selectedGame);
+
+  // ── Lock-in state (for host when voting is enabled) ──────────────────────
+
+  const showLockIn = isHost && voteState.enabled && !lobbyMode && totalVotes >= 2;
+  const singleLeader = leaders.length === 1 ? leaders[0] : null;
+  const tieLeader = leaders.length > 1;
 
   // ── Render ───────────────────────────────────────────────────────────────
 
+  if (lobbyMode) {
+    // ── Mode already selected (transitioning to setup) ──────────────────────
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 max-w-4xl mx-auto w-full">
+        <div className="text-center space-y-3 animate-clay-pop">
+          {(() => {
+            const game = GAMES.find((g) => g.id === lobbyMode);
+            return (
+              <>
+                <div
+                  className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${game?.gradient || "from-mint to-emerald-400"} flex items-center justify-center`}
+                >
+                  {game ? <game.icon className="w-8 h-8 text-white" /> : <Check className="w-8 h-8 text-white" />}
+                </div>
+                <p className="text-sm font-bold text-plum">
+                  {game?.label || lobbyMode} selected!
+                </p>
+                <p className="text-xs text-warm-gray/50">
+                  Setting up the game...
+                </p>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 2: Play Style Selection ────────────────────────────────────────
+
+  if (step === "PLAY_STYLE_SELECTION" && selectedGameConfig) {
+    return (
+      <div className="flex-1 flex flex-col items-center p-4 sm:p-6 max-w-2xl mx-auto w-full gap-8">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-mint-light text-mint text-[10px] font-black tracking-[0.2em] uppercase">
+            <Zap className="w-3 h-3" />
+            Step 2 of 2
+          </div>
+          <h2 className="font-outfit font-black text-2xl sm:text-3xl text-plum">
+            How to Play?
+          </h2>
+          <p className="text-xs text-warm-gray/50 font-medium max-w-md mx-auto">
+            Choose how players interact with <span className="font-bold text-plum">{selectedGameConfig.label}</span>
+          </p>
+        </div>
+
+        {/* Back button */}
+        {isHost && (
+          <button
+            onClick={handleBackToGames}
+            className="flex items-center gap-1.5 text-xs font-bold text-warm-gray/50 hover:text-plum transition-colors"
+          >
+            ← Back to game selection
+          </button>
+        )}
+
+        {/* Selected game reminder */}
+        <div
+          className={`w-full rounded-2xl bg-gradient-to-br ${selectedGameConfig.gradient} p-4 flex items-center gap-4 opacity-90`}
+        >
+          <div className={`w-10 h-10 rounded-xl ${selectedGameConfig.accentBg} backdrop-blur-sm flex items-center justify-center shrink-0`}>
+            <selectedGameConfig.icon className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <p className="font-outfit font-black text-base text-white">{selectedGameConfig.label}</p>
+            <p className="text-[10px] font-semibold text-white/60">{selectedGameConfig.tagline}</p>
+          </div>
+        </div>
+
+        {/* Play style cards */}
+        <div className="w-full space-y-3">
+          <h3 className="text-[10px] font-black text-warm-gray/40 uppercase tracking-widest">
+            Pick Play Style
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {PLAY_STYLES.filter((ps) =>
+              selectedGameConfig.playStyles.includes(ps.id)
+            ).map((style) => {
+              const isDisabled = !isHost;
+              return (
+                <button
+                  key={style.id}
+                  onClick={() => !isDisabled && handlePlayStylePick(style.id)}
+                  disabled={isDisabled}
+                  className={`group relative overflow-hidden rounded-2xl border-2 text-left transition-all duration-300 ${
+                    isDisabled
+                      ? "border-warm-gray/10 cursor-default opacity-70"
+                      : "border-transparent hover:scale-[1.02] cursor-pointer"
+                  }`}
+                >
+                  {/* Gradient background */}
+                  <div className={`absolute inset-0 bg-gradient-to-br ${style.gradient} opacity-90`} />
+
+                  {/* Content */}
+                  <div className="relative p-5 text-center">
+                    <div className="w-14 h-14 mx-auto rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4">
+                      <style.icon className="w-7 h-7 text-white" />
+                    </div>
+                    <h3 className="font-outfit font-black text-lg text-white mb-1">
+                      {style.label}
+                    </h3>
+                    <p className="text-[11px] leading-relaxed text-white/70">
+                      {style.description}
+                    </p>
+                  </div>
+
+                  {/* Hover shine */}
+                  {!isDisabled && (
+                    <div
+                      className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 70%)",
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Non-host: host is choosing */}
+          {!isHost && (
+            <ClayCard padding="md" className="text-center space-y-2">
+              <div className="w-10 h-10 mx-auto rounded-xl bg-soft-purple-light flex items-center justify-center">
+                <Crown className="w-5 h-5 text-soft-purple" />
+              </div>
+              <p className="text-xs font-bold text-warm-gray/50">
+                Host is picking the play style...
+              </p>
+            </ClayCard>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 1: Game Selection ──────────────────────────────────────────────
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 max-w-xl mx-auto w-full gap-6">
+    <div className="flex-1 flex flex-col items-center p-4 sm:p-6 max-w-4xl mx-auto w-full gap-8">
       {/* Header */}
       <div className="text-center space-y-2">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-soft-purple-light text-soft-purple text-[10px] font-black tracking-[0.2em] uppercase">
           <Crown className="w-3 h-3" />
-          Game Mode
+          Choose Game
         </div>
-        <h2 className="font-outfit font-black text-2xl text-plum">
-          {lobbyMode ? "Mode Selected" : "Choose a game mode"}
+        <h2 className="font-outfit font-black text-2xl sm:text-3xl text-plum">
+          Pick a game
         </h2>
-        <p className="text-xs text-warm-gray/50 font-medium max-w-xs mx-auto">
-          {lobbyMode
-            ? `Playing ${MODES.find((m) => m.id === lobbyMode)?.label || lobbyMode}`
-            : isHost
-              ? "Pick a mode or let players vote"
-              : "Vote for your preferred game mode"}
+        <p className="text-xs text-warm-gray/50 font-medium max-w-md mx-auto">
+          {isHost
+            ? "Select a game or let players vote"
+            : "Vote for your favorite game"}
         </p>
       </div>
 
       {/* Host voting toggle */}
-      {isHost && !lobbyMode && (
+      {isHost && (
         <div className="flex items-center gap-3">
           <button
             onClick={() => onToggleVoting(!voteState.enabled)}
@@ -142,174 +517,268 @@ export default function ModeSelection({
             <Users className="w-3.5 h-3.5" />
             {voteState.enabled ? "Voting ON" : "Voting OFF"}
             <span className="text-[9px] opacity-60">
-              ({voteState.enabled ? "players can vote" : "host picks directly"})
+              ({voteState.enabled ? "players can vote" : "host picks"})
             </span>
           </button>
         </div>
       )}
 
-      {/* Mode cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
-        {MODES.map((mode) => {
-          const isSelected = lobbyMode === mode.id;
-          const isLeading = leaders.includes(mode.id);
-          const votePct = totalPlayers > 0 ? (voteCounts[mode.id] / totalPlayers) * 100 : 0;
+      {/* Available Games */}
+      <div className="w-full space-y-3">
+        <h3 className="text-[10px] font-black text-warm-gray/40 uppercase tracking-widest">
+          Available Now
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {availableGames.map((game) => {
+            const isSelected = lobbyMode === game.id;
+            const isLeading = leaders.includes(game.id);
+            const canInteract = !lobbyMode && (isHost && !voteState.enabled ? true : voteState.enabled);
 
-          const canInteract = !lobbyMode && (isHost && !voteState.enabled ? true : voteState.enabled);
-          const isClickable = canInteract;
-
-          return (
-            <button
-              key={mode.id}
-              onClick={() => {
-                if (!canInteract) return;
-                if (isHost && !voteState.enabled) {
-                  handleDirectPick(mode.id);
-                } else if (voteState.enabled) {
-                  handleVote(mode.id);
-                }
-              }}
-              disabled={!isClickable}
-              className={`relative p-5 rounded-2xl border-2 text-left transition-all ${
-                isSelected
-                  ? `bg-gradient-to-br ${mode.gradient} text-white border-transparent shadow-[4px_4px_0px_rgba(166,157,145,0.3)]`
-                  : voteState.enabled && myVote === mode.id
-                    ? `border-${mode.ring.split("-")[1] || "mint"}/50 bg-${mode.bg.split("-")[1] || "mint"}-light shadow-[2px_2px_0px_rgba(166,157,145,0.15)]`
-                    : "bg-warm-white border-warm-gray/15 hover:border-warm-gray/30 hover:-translate-y-0.5"
-              } ${isClickable ? "cursor-pointer" : "cursor-default opacity-80"}`}
-            >
-              {/* Icon */}
-              <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center mb-3 ${
+            return (
+              <button
+                key={game.id}
+                onClick={() => {
+                  if (isSelected || !canInteract) return;
+                  if (isHost && !voteState.enabled) handleGamePick(game.id);
+                  else if (voteState.enabled) handleVote(game.id);
+                }}
+                disabled={isSelected || !canInteract}
+                className={`group relative overflow-hidden rounded-2xl border-2 text-left transition-all duration-300 ${
                   isSelected
-                    ? "bg-white/20"
-                    : myVote === mode.id && voteState.enabled
-                      ? mode.bg + " text-white"
-                      : "bg-warm-gray/10"
-                }`}
+                    ? "border-white/30 scale-[1.02]"
+                    : voteState.enabled && myVote === game.id
+                      ? "border-white/40 scale-[1.01]"
+                      : "border-transparent hover:scale-[1.01]"
+                } ${canInteract ? "cursor-pointer" : "cursor-default"}`}
               >
-                <mode.icon className={`w-5 h-5 ${isSelected ? "text-white" : myVote === mode.id && voteState.enabled ? "text-white" : "text-warm-gray/60"}`} />
-              </div>
+                {/* Gradient background */}
+                <div className={`absolute inset-0 bg-gradient-to-br ${game.gradient} opacity-90`} />
 
-              {/* Label */}
-              <h3
-                className={`font-outfit font-black text-sm mb-1 ${
-                  isSelected ? "text-white" : "text-plum"
-                }`}
-              >
-                {mode.label}
-              </h3>
+                {/* Subtle pattern overlay */}
+                <div
+                  className="absolute inset-0 opacity-10"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(circle at 25% 25%, rgba(255,255,255,0.4) 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,0.3) 1px, transparent 1px)",
+                    backgroundSize: "24px 24px",
+                  }}
+                />
 
-              {/* Description */}
-              <p
-                className={`text-[10px] font-medium leading-tight ${
-                  isSelected ? "text-white/80" : "text-warm-gray/50"
-                }`}
-              >
-                {mode.description}
-              </p>
-
-              {/* Vote bar (only when voting is enabled) */}
-              {voteState.enabled && !isSelected && (
-                <div className="mt-3 space-y-1">
-                  <div className="flex justify-between text-[9px] font-bold text-warm-gray/40">
-                    <span>{voteCounts[mode.id]} vote{voteCounts[mode.id] !== 1 ? "s" : ""}</span>
-                    <span>{Math.round(votePct)}%</span>
+                {/* Content */}
+                <div className="relative p-5">
+                  {/* Top row: icon + badges */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className={`w-12 h-12 rounded-xl ${game.accentBg} backdrop-blur-sm flex items-center justify-center`}>
+                      <game.icon className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {isSelected && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/20 text-white text-[9px] font-black uppercase tracking-wider backdrop-blur-sm">
+                          <Check className="w-3 h-3" /> Selected
+                        </span>
+                      )}
+                      {voteState.enabled && myVote === game.id && !isSelected && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/20 text-white text-[9px] font-black uppercase tracking-wider backdrop-blur-sm">
+                          <Check className="w-3 h-3" /> Voted
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="h-1.5 bg-warm-gray/10 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        isLeading ? "bg-mint" : "bg-warm-gray/30"
-                      }`}
-                      style={{ width: `${votePct}%` }}
-                    />
+
+                  {/* Title + tagline */}
+                  <h3 className="font-outfit font-black text-xl text-white mb-1">
+                    {game.label}
+                  </h3>
+                  <p className="text-sm font-semibold text-white/70 mb-3">
+                    {game.tagline}
+                  </p>
+
+                  {/* Play style tags */}
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {game.playStyles.map(playStyleTag)}
                   </div>
-                </div>
-              )}
 
-              {/* Selected indicator */}
-              {isSelected && (
-                <div className="absolute top-3 right-3">
-                  <Lock className="w-4 h-4 text-white/70" />
-                </div>
-              )}
+                  {/* Features */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {game.features.map((feat) => (
+                      <span
+                        key={feat}
+                        className="text-[9px] font-bold text-white/60 bg-white/10 px-2 py-0.5 rounded-full"
+                      >
+                        {feat}
+                      </span>
+                    ))}
+                  </div>
 
-              {/* My vote indicator */}
-              {voteState.enabled && myVote === mode.id && !isSelected && (
-                <Check className="absolute top-3 right-3 w-4 h-4 text-mint" />
-              )}
-            </button>
-          );
-        })}
+                  {/* Vote bar (when voting enabled) */}
+                  {voteState.enabled && !isSelected && voteCounts[game.id] !== undefined && (
+                    <div className="mt-4 space-y-1.5">
+                      <div className="flex justify-between text-[9px] font-bold text-white/60">
+                        <span>{voteCounts[game.id]} vote{(voteCounts[game.id] || 0) !== 1 ? "s" : ""}</span>
+                        <span>
+                          {totalVotes > 0 ? Math.round(((voteCounts[game.id] || 0) / totalVotes) * 100) : 0}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-white/15 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isLeading ? "bg-white" : "bg-white/40"
+                          }`}
+                          style={{
+                            width: `${totalVotes > 0 ? ((voteCounts[game.id] || 0) / totalVotes) * 100 : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Hover shine */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 70%)",
+                  }}
+                />
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Vote summary (voting enabled) */}
+      {/* Coming Soon */}
+      <div className="w-full space-y-3">
+        <h3 className="text-[10px] font-black text-warm-gray/40 uppercase tracking-widest">
+          Coming Soon
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {comingSoonGames.map((game) => (
+            <div
+              key={game.id}
+              className="group relative overflow-hidden rounded-2xl border border-warm-gray/10 bg-warm-white transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+            >
+              {/* Content */}
+              <div className="relative p-4">
+                {/* Top row */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${game.gradient} flex items-center justify-center opacity-80`}>
+                    <game.icon className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-plum/5 text-plum/40 text-[8px] font-black uppercase tracking-wider border border-plum/10">
+                    <Lock className="w-2.5 h-2.5" />
+                    Coming Soon
+                  </span>
+                </div>
+
+                {/* Title + tagline */}
+                <h3 className="font-outfit font-black text-sm text-plum mb-0.5">
+                  {game.label}
+                </h3>
+                <p className="text-[10px] font-semibold text-warm-gray/50 mb-2">
+                  {game.tagline}
+                </p>
+
+                {/* Description */}
+                <p className="text-[10px] leading-relaxed text-warm-gray/40 mb-3 line-clamp-3">
+                  {game.description}
+                </p>
+
+                {/* Play style tags */}
+                <div className="flex flex-wrap gap-1">
+                  {game.playStyles.map((style) => {
+                    const config: Record<PlayStyle, { icon: LucideIcon; label: string }> = {
+                      LOCAL: { icon: Monitor, label: "Local" },
+                      MULTIPLAYER: { icon: Globe, label: "Multi" },
+                      BUZZER: { icon: Zap, label: "Buzzer" },
+                    };
+                    const { icon: Icon, label } = config[style];
+                    return (
+                      <span
+                        key={style}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-warm-gray/5 text-[8px] font-bold text-warm-gray/40 uppercase"
+                      >
+                        <Icon className="w-2.5 h-2.5" />
+                        {label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Subtle gradient accent line at top */}
+              <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${game.gradient} opacity-60`} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Vote summary (when voting enabled) */}
       {voteState.enabled && !lobbyMode && totalVotes > 0 && (
-        <div className="text-center space-y-1">
+        <ClayCard elevation="elevated" padding="md" className="w-full max-w-lg text-center space-y-2">
           <p className="text-[10px] font-bold text-warm-gray/50">
-            {totalVotes} of {totalPlayers} players voted
+            {totalVotes} of {players.length} player{players.length !== 1 ? "s" : ""} voted
           </p>
-          <div className="flex items-center gap-2 justify-center text-[10px] font-bold">
+          <div className="flex flex-wrap items-center gap-3 justify-center">
             {Object.entries(voteCounts)
               .filter(([, c]) => c > 0)
               .sort(([, a], [, b]) => b - a)
-              .map(([m, c]) => (
-                <span key={m} className="text-warm-gray/50">
-                  {MODES.find((md) => md.id === m)?.label}: {c}
-                </span>
-              ))}
+              .map(([m, c]) => {
+                const game = GAMES.find((g) => g.id === m);
+                return (
+                  <span key={m} className="text-[9px] font-black text-warm-gray/60">
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full mr-1 bg-gradient-to-br ${game?.gradient || ""}`}
+                    />
+                    {game?.label || m}: {c}
+                  </span>
+                );
+              })}
           </div>
+        </ClayCard>
+      )}
+
+      {/* Host: Lock In */}
+      {showLockIn && (
+        <div className="w-full max-w-sm space-y-2">
+          <ClayButton
+            variant="primary"
+            size="lg"
+            icon={<Lock className="w-4 h-4" />}
+            onClick={() => { if (singleLeader) handleGamePick(singleLeader); }}
+            disabled={tieLeader}
+            className="w-full"
+          >
+            {singleLeader
+              ? `Lock In: ${GAMES.find((g) => g.id === singleLeader)?.label}`
+              : "Tie — host must pick manually"}
+          </ClayButton>
+          {tieLeader && (
+            <p className="text-[10px] text-center font-bold text-peach">
+              Multiple games are tied. Toggle voting off and pick directly, or wait for more votes.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Host: Lock In button (when voting is enabled and enough votes) */}
-      {isHost && voteState.enabled && !lobbyMode && totalVotes >= 2 && (
-        <ClayButton
-          variant="primary"
-          size="lg"
-          icon={<Lock className="w-4 h-4" />}
-          onClick={onLockIn}
-          className="w-full max-w-sm"
-        >
-          Lock In:{" "}
-          {leaders.length === 1
-            ? MODES.find((m) => m.id === leaders[0])?.label
-            : "Tied — pick one"}
-        </ClayButton>
-      )}
-
-      {/* Waiting message (voting enabled but not enough votes) */}
+      {/* Waiting for votes */}
       {isHost && voteState.enabled && !lobbyMode && totalVotes === 0 && (
         <p className="text-center text-xs text-warm-gray/40 font-medium">
           Waiting for players to vote...
         </p>
       )}
 
-      {/* Non-host message when voting is off */}
+      {/* Non-host: host is choosing */}
       {!isHost && !lobbyMode && !voteState.enabled && (
-        <div className="text-center p-4 bg-warm-white rounded-2xl border border-warm-gray/10">
+        <ClayCard padding="md" className="w-full max-w-sm text-center space-y-2">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-soft-purple-light flex items-center justify-center">
+            <Crown className="w-6 h-6 text-soft-purple" />
+          </div>
           <p className="text-sm font-bold text-warm-gray/50">
-            Host is choosing the game mode...
+            Host is choosing the game...
           </p>
-          <p className="text-[10px] text-warm-gray/40 mt-1">
+          <p className="text-[10px] text-warm-gray/40">
             {players.length} player{players.length !== 1 ? "s" : ""} connected
           </p>
-        </div>
-      )}
-
-      {/* After mode locked: countdown / transition */}
-      {lobbyMode && (
-        <div className="text-center space-y-2 animate-clay-pop">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-mint-light flex items-center justify-center">
-            <Check className="w-8 h-8 text-mint" />
-          </div>
-          <p className="text-sm font-bold text-mint">
-            {MODES.find((m) => m.id === lobbyMode)?.label} selected!
-          </p>
-          <p className="text-xs text-warm-gray/50">
-            Setting up the game...
-          </p>
-        </div>
+        </ClayCard>
       )}
     </div>
   );
