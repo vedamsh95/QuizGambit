@@ -89,6 +89,11 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
         subscribeLobby: !isLocal ? lobbyCode : undefined,
         subscribePlayers: !isLocal ? lobbyCode : undefined,
         onLobbyChange: (payload: any) => {
+            // Handle lobby DELETE (host ended the game)
+            if (!payload.new) {
+                if (onExit) onExit();
+                return;
+            }
             const newLobby = payload.new
             if (newLobby.status) setStatus(newLobby.status)
             if (newLobby.buzzed_player_id !== undefined) setBuzzedPlayerId(newLobby.buzzed_player_id)
@@ -140,6 +145,13 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                 setBuzzedPlayerId(null)
             }
         }))
+
+        // Handle player leave (instant removal from list)
+        unsubs.push(onBroadcast('player:leave', (payload: any) => {
+            if (payload.playerId) {
+                setPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+            }
+        }));
 
         // Handle question close (phase transition)
         unsubs.push(onBroadcast('question:close', (payload: any) => {

@@ -34,6 +34,11 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
     },
     subscribeLobby: code,
     onLobbyChange: (payload: any) => {
+      // Handle lobby DELETE (host ended the game)
+      if (!payload.new) {
+        navigate("/");
+        return;
+      }
       const updated = payload.new;
       if (updated.status === "PLAYING" && lobby?.settings?.draft?.isComplete) {
         navigate(`/play?code=${code}&mode=arena`);
@@ -340,6 +345,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
       <button
         onClick={async () => {
           if (confirm("Are you sure you want to leave the game?")) {
+            broadcast("player:leave", { playerId });
             await supabase
               .from("players")
               .delete()

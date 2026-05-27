@@ -270,6 +270,12 @@ export default function UnifiedLobby() {
   useEffect(() => {
     const unsubs: (() => void)[] = [];
 
+    unsubs.push(onBroadcast("player:leave", (payload: any) => {
+      if (payload.playerId) {
+        setPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+      }
+    }));
+
     unsubs.push(onBroadcast("player:join", async () => {
       if (!code) return;
       const { data } = await supabase
@@ -507,6 +513,7 @@ export default function UnifiedLobby() {
 
   const handleLeave = useCallback(async () => {
     if (confirm("Leave this lobby?")) {
+      broadcast("player:leave", { playerId });
       await supabase
         .from("players")
         .delete()
@@ -518,7 +525,7 @@ export default function UnifiedLobby() {
       }
       navigate("/");
     }
-  }, [code, playerId, isHost, navigate]);
+  }, [code, playerId, isHost, navigate, broadcast]);
 
   const formattedCode = code
     ? `${code.slice(0, 3)}-${code.slice(3, 6)}`

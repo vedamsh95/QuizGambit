@@ -154,6 +154,14 @@ export default function ArenaBoard({
       })
     );
 
+    unsubs.push(
+      onBroadcast('player:leave', (payload: any) => {
+        if (payload.playerId) {
+          setPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+        }
+      })
+    );
+
     return () => unsubs.forEach((fn) => fn());
   }, [onBroadcast]);
 
@@ -714,6 +722,7 @@ export default function ArenaBoard({
           <button
             onClick={async () => {
               if (confirm("Are you sure you want to leave the game?")) {
+                broadcast("player:leave", { playerId });
                 const { error } = await supabase.rpc("leave_game", {
                   p_lobby_code: code,
                   p_player_id: playerId,

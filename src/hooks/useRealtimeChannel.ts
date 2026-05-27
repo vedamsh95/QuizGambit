@@ -62,12 +62,14 @@ export interface UseRealtimeChannelOptions {
   subscribePlayers?: string // lobby code to filter on
   /** Whether to subscribe to postgres_changes (arena_answers table) */
   subscribeArenaAnswers?: string // lobby code to filter on
-  /** Handlers for lobby table changes */
+  /** Handlers for lobby table changes (payload.new may be null on DELETE) */
   onLobbyChange?: (payload: any) => void
   /** Handlers for player table changes */
   onPlayerChange?: () => void
   /** Handlers for arena_answers inserts */
   onArenaAnswer?: (payload: any) => void
+  /** Called when the channel connects or reconnects — use to re-fetch stale state */
+  onReconnect?: () => void
 }
 
 export interface UseRealtimeChannelReturn {
@@ -111,6 +113,7 @@ export function useRealtimeChannel(
     onLobbyChange,
     onPlayerChange,
     onArenaAnswer,
+    onReconnect,
   } = options
 
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -122,6 +125,35 @@ export function useRealtimeChannel(
   )
   // Guard against duplicate subscription setups
   const subscribedRef = useRef(false)
+
+  // ── Callback refs — always dispatch to latest callbacks (fixes stale closures) ──
+
+  const onLobbyChangeRef = useRef(onLobbyChange)
+  const onPlayerChangeRef = useRef(onPlayerChange)
+  const onArenaAnswerRef = useRef(onArenaAnswer)
+  const onReconnectRef = useRef(onReconnect)
+
+  useEffect(() => { onLobbyChangeRef.current = onLobbyChange })
+  useEffect(() => { onPlayerChangeRef.current = onPlayerChange })
+  useEffect(() => { onArenaAnswerRef.current = onArenaAnswer })
+  useEffect(() => { onReconnectRef.current = onReconnect })
+
+  // ── Safe broadcast queue (only for idempotent join/leave events) ──────────
+
+  const pendingBroadcastsRef = useRef<Array<{ event: BroadcastEventName; payload: any }>>([])
+
+  const flushPendingBroadcasts = useCallback(() => {
+    if (!channelRef.current || !isConnectedRef.current) return
+    const pending = pendingBroadcastsRef.current
+    pendingBroadcastsRef.current = []
+    for (const { event, payload } of pending) {
+      channelRef.current
+        .send({ type: 'broadcast', event: event as string, payload })
+        .catch((err) => {
+          console.error(`[Realtime] Flushed broadcast error (${event}):`, err)
+        })
+    }
+  }, [])
 
   // ── Broadcast dispatch ──────────────────────────────────────────────────
 
@@ -138,7 +170,12 @@ export function useRealtimeChannel(
             console.error(`[Realtime] Broadcast send error (${event}):`, err)
           })
       } else {
-        console.warn(`[Realtime] Cannot broadcast "${event}" — channel not connected`)
+        // Queue safe events (player:join, player:leave) for delivery on connect
+        if (event === 'player:join' || event === 'player:leave') {
+          pendingBroadcastsRef.current.push({ event, payload })
+        } else {
+          console.warn(`[Realtime] Cannot broadcast "${event}" — channel not connected`)
+        }
       }
     },
     [] // Stable ref-based, no dependencies needed
@@ -234,22 +271,30 @@ export function useRealtimeChannel(
       })
     }
 
-    // ── postgres_changes (optional) ──────────────────────────────────────
+    // ── postgres_changes: lobby (UPDATE + DELETE) ──────────────────────
 
     if (subscribeLobby) {
       channel.on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',  // catch UPDATE and DELETE
           schema: 'public',
           table: 'lobbies',
           filter: `code=eq.${subscribeLobby}`,
         },
         (payload) => {
-          onLobbyChange?.(payload)
+          // DELETE — lobby removed (host left)
+          if (payload.eventType === 'DELETE') {
+            onLobbyChangeRef.current?.({ new: null, eventType: 'DELETE' })
+            return
+          }
+          // UPDATE — lobby changed
+          onLobbyChangeRef.current?.(payload)
         }
       )
     }
+
+    // ── postgres_changes: players (INSERT/UPDATE/DELETE) ────────────────
 
     if (subscribePlayers) {
       channel.on(
@@ -261,10 +306,12 @@ export function useRealtimeChannel(
           filter: `lobby_code=eq.${subscribePlayers}`,
         },
         () => {
-          onPlayerChange?.()
+          onPlayerChangeRef.current?.()
         }
       )
     }
+
+    // ── postgres_changes: arena_answers (INSERT only) ────────────────────
 
     if (subscribeArenaAnswers) {
       channel.on(
@@ -276,7 +323,7 @@ export function useRealtimeChannel(
           filter: `lobby_code=eq.${subscribeArenaAnswers}`,
         },
         (payload) => {
-          onArenaAnswer?.(payload)
+          onArenaAnswerRef.current?.(payload)
         }
       )
     }
@@ -296,6 +343,12 @@ export function useRealtimeChannel(
             lastSeen: Date.now(),
           } as never)
         }
+
+        // Flush queued safe broadcasts (player:join, player:leave)
+        flushPendingBroadcasts()
+
+        // Re-fetch stale state after reconnection
+        onReconnectRef.current?.()
       } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
         console.warn(`[Realtime] Channel "${channelName}" ${status}`)
         isConnectedRef.current = false
@@ -309,13 +362,14 @@ export function useRealtimeChannel(
 
     return () => {
       subscribedRef.current = false
-      // Clear stale broadcast handlers on channel teardown
+      // Clear stale broadcast handlers and pending queue on channel teardown
       broadcastHandlersRef.current.clear()
+      pendingBroadcastsRef.current = []
       isConnectedRef.current = false
       supabase.removeChannel(channel)
       setIsConnected(false)
     }
-    // Only re-create if channelName changes — rest are stable via refs
+    // Only re-create if channelName changes — callbacks are stable via refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName])
 

@@ -290,6 +290,14 @@ export default function BuzzerPlayerView() {
     );
 
     unsubs.push(
+      onBroadcast("player:leave", (payload: any) => {
+        if (payload.playerId) {
+          setPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+        }
+      })
+    );
+
+    unsubs.push(
       onBroadcast("game:end", () => {
         navigate(`/buzzer/${code}`);
       })
@@ -466,15 +474,20 @@ export default function BuzzerPlayerView() {
     });
   }, [code, playerId, playerName, draftPhase, draftTurnIndex, draftPicks, players, isDrafting, broadcast]);
 
-  const handleLeave = useCallback(() => {
-    if (code) {
-      localStorage.removeItem(`buzzer_player_${code}`);
-    }
+  const handleLeave = useCallback(async () => {
+    if (!code || !playerId) return;
+    broadcast("player:leave", { playerId });
+    await supabase
+      .from("players")
+      .delete()
+      .eq("id", playerId)
+      .eq("lobby_code", code);
+    localStorage.removeItem(`buzzer_player_${code}`);
     if (buzzFlashRef.current) clearTimeout(buzzFlashRef.current);
     setPhase("JOIN");
     setPlayerId(null);
     setPlayerName("");
-  }, [code]);
+  }, [code, playerId, broadcast]);
 
   // ── Polling fallback for critical phases (catches missed realtime events) ─
 
