@@ -1,12 +1,13 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { smartSelectQuestions } from "../lib/smartSelection";
 import AvatarPicker from "./ui/AvatarPicker";
 import CodeInput from "./ui/CodeInput";
 import ClayButton from "./ui/ClayButton";
-import ThemeSwitcher from "./ui/ThemeSwitcher";
+import SettingsPanel from "./ui/SettingsPanel";
 import { AVATARS, getAvatar } from "../assets/avatars";
 import {
   Play,
@@ -31,6 +32,7 @@ interface Category {
 
 // ── HomeScreen ─────────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   // ── State ──────────────────────────────────────────────────────────
@@ -262,9 +264,9 @@ export default function HomeScreen() {
   // ── Render ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-4 sm:p-6 gap-5">
-      {/* Theme switcher */}
-      <div className="absolute top-4 right-4">
-        <ThemeSwitcher compact />
+      {/* Settings panel */}
+      <div className="absolute top-4 right-4 z-40">
+        <SettingsPanel />
       </div>
 
       {/* ── Branding ───────────────────────────────────────────────── */}
@@ -273,9 +275,9 @@ export default function HomeScreen() {
           <span className="text-white text-2xl font-black font-outfit">QG</span>
         </div>
         <h1 className="font-outfit font-black text-3xl sm:text-4xl text-plum tracking-tight">
-          QUIZGAMBIT
+          {t('home.title')}
         </h1>
-        <p className="text-xs text-plum/60 font-medium">Challenge your knowledge</p>
+        <p className="text-xs text-plum/60 font-medium">{t('home.tagline')}</p>
       </div>
 
       {/* ── Name Input with Avatar Beside ─────────────────────────── */}
@@ -287,7 +289,7 @@ export default function HomeScreen() {
           style={{
             background: "linear-gradient(135deg, #7C5CFC 0%, #A78BFA 100%)",
           }}
-          title="Change avatar"
+          title={t('home.changeAvatar')}
         >
           {/* White circle behind the SVG icon for contrast */}
           <span className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-inner">
@@ -302,7 +304,7 @@ export default function HomeScreen() {
           type="text"
           value={playerName}
           onChange={handleNameChange}
-          placeholder="Enter your name..."
+          placeholder={t('home.namePlaceholder')}
           maxLength={24}
           className="clay-input text-base font-bold font-outfit flex-1"
           autoComplete="off"
@@ -331,9 +333,9 @@ export default function HomeScreen() {
               <Users className="w-5 h-5 text-white" />
             )}
           </div>
-          <h3 className="font-outfit font-black text-sm text-plum">Host</h3>
+          <h3 className="font-outfit font-black text-sm text-plum">{t('home.host')}</h3>
           <p className="text-xs text-plum/60 font-medium leading-tight">
-            Create a room &amp; invite friends
+            {t('home.hostDesc')}
           </p>
         </button>
 
@@ -352,9 +354,9 @@ export default function HomeScreen() {
           <div className="w-11 h-11 rounded-xl bg-sky flex items-center justify-center">
             <LogIn className="w-5 h-5 text-white" />
           </div>
-          <h3 className="font-outfit font-black text-sm text-plum">Join</h3>
+          <h3 className="font-outfit font-black text-sm text-plum">{t('home.join')}</h3>
           <p className="text-xs text-plum/60 font-medium leading-tight">
-            Enter a code to join
+            {t('home.joinDesc')}
           </p>
         </button>
 
@@ -370,9 +372,9 @@ export default function HomeScreen() {
           <div className="w-11 h-11 rounded-xl bg-mint flex items-center justify-center">
             <User className="w-5 h-5 text-white" />
           </div>
-          <h3 className="font-outfit font-black text-sm text-plum">Play Solo</h3>
+          <h3 className="font-outfit font-black text-sm text-plum">{t('home.playSolo')}</h3>
           <p className="text-xs text-plum/60 font-medium leading-tight">
-            Practice by yourself
+            {t('home.playSoloDesc')}
           </p>
         </button>
 
@@ -387,9 +389,9 @@ export default function HomeScreen() {
           <div className="w-11 h-11 rounded-xl bg-butter flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <h3 className="font-outfit font-black text-sm text-plum">AI Gen</h3>
+          <h3 className="font-outfit font-black text-sm text-plum">{t('home.aiGen')}</h3>
           <p className="text-xs text-plum/60 font-medium leading-tight">
-            Generate quiz questions
+            {t('home.aiGenDesc')}
           </p>
         </button>
       </div>
@@ -399,7 +401,7 @@ export default function HomeScreen() {
         <div className="clay-elevated p-5 w-full max-w-md flex flex-col gap-4 animate-clay-pop">
           <div className="flex items-center justify-between">
             <h3 className="font-outfit font-black text-sm text-plum">
-              Join a Game
+              {t('home.joinGameTitle')}
             </h3>
             <button
               onClick={() => {
@@ -422,7 +424,7 @@ export default function HomeScreen() {
               }}
               className="flex-1"
             >
-              Cancel
+              {t('common.cancel')}
             </ClayButton>
             <ClayButton
               variant="primary"
@@ -432,7 +434,7 @@ export default function HomeScreen() {
               onClick={handleJoin}
               className="flex-1"
             >
-              Join
+              {t('home.join')}
             </ClayButton>
           </div>
           {joinStatus && (
@@ -449,7 +451,7 @@ export default function HomeScreen() {
           {/* Header */}
           <div className="flex items-center justify-between">
             <h3 className="font-outfit font-black text-sm text-plum">
-              Solo Setup
+              {t('home.soloSetup')}
             </h3>
             <button
               onClick={() => {
@@ -466,7 +468,7 @@ export default function HomeScreen() {
           <div className="flex gap-4">
             <div className="flex-1 flex flex-col gap-1">
               <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
-                Rounds: {soloRounds}
+                {t('home.roundsLabel', { count: soloRounds })}
               </label>
               <input
                 type="range"
@@ -479,7 +481,7 @@ export default function HomeScreen() {
             </div>
             <div className="flex-1 flex flex-col gap-1">
               <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
-                Timer: {soloTimer}s
+                {t('home.timerLabel', { count: soloTimer })}
               </label>
               <input
                 type="range"
@@ -496,7 +498,7 @@ export default function HomeScreen() {
           {/* Category grid */}
           <div>
             <p className="text-[10px] font-black uppercase tracking-wider text-plum/60 mb-2">
-              Pick categories ({selectedCats.size} selected)
+              {t('home.pickCategories')} ({t('home.selected', { count: selectedCats.size })})
             </p>
             {fetchingCats ? (
               <div className="grid grid-cols-2 gap-2">
@@ -540,7 +542,7 @@ export default function HomeScreen() {
             onClick={handleSoloStart}
             className="w-full bg-mint hover:bg-mint/90"
           >
-            Start Solo Game
+            {t('home.startSoloGame')}
           </ClayButton>
         </div>
       )}
@@ -554,7 +556,7 @@ export default function HomeScreen() {
           <div className="clay-elevated p-6 rounded-[2.5rem] max-w-lg w-full animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h3 className="font-outfit font-black text-lg text-plum">Choose Avatar</h3>
+                <h3 className="font-outfit font-black text-lg text-plum">{t('home.chooseAvatar')}</h3>
                 <p className="text-xs text-plum/60 font-medium">
                   {getAvatar(avatar).label} · {getAvatar(avatar).theme}
                 </p>
@@ -581,7 +583,7 @@ export default function HomeScreen() {
       <div className="w-full max-w-md flex items-center gap-3">
         <div className="flex-1 h-px bg-clay-border" />
         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-plum/40">
-          More
+          {t('home.more')}
         </span>
         <div className="flex-1 h-px bg-clay-border" />
       </div>
@@ -594,7 +596,7 @@ export default function HomeScreen() {
                      hover:text-plum transition-all"
         >
           <BookOpen className="w-3.5 h-3.5" />
-          <span>Library</span>
+          <span>{t('home.library')}</span>
         </button>
 
         <button
@@ -603,7 +605,7 @@ export default function HomeScreen() {
                      hover:text-plum transition-all"
         >
           <Swords className="w-3.5 h-3.5" />
-          <span>Arena</span>
+          <span>{t('home.arena')}</span>
         </button>
       </div>
     </div>

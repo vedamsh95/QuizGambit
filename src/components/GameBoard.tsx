@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { Trophy, Clock, Zap, XCircle, Play, Eye, Users, Plus, Minus, Edit2, Save, RotateCcw, Lock, Unlock, Timer as TimerIcon, Trash2, LogOut, WifiOff } from 'lucide-react'
 import { GameHeaderButton, GameConnectionBadge } from './ui'
+import LanguageSwitcher from './ui/LanguageSwitcher'
 import confetti from 'canvas-confetti'
 import { pickQuestionsForGame } from '../lib/spacedRepetition'
 import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
@@ -444,6 +445,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                             R{currentRound}/{settings.rounds || 1}
                         </span>
                     </div>
+                    <LanguageSwitcher compact variant="dark" />
                     <div className="glass-dark px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl border-white/5 flex items-center gap-1 md:gap-3">
                         <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${status === 'BUZZING' ? 'bg-neon-emerald animate-pulse' : 'bg-red-500'}`} />
                         <span className="font-orbitron font-bold text-white tracking-widest uppercase text-[9px] md:text-xs hidden sm:inline">

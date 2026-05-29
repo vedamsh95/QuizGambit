@@ -3,10 +3,12 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import ArenaBoard from "./ArenaBoard";
+import SimultaneousBoard from "./SimultaneousBoard";
 import GameBoard from "./GameBoard";
 import PlayerView from "./PlayerView";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { GameHeaderButton } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 /**
  * GameRoom — Unified entry point for all players (Standard & Arena).
@@ -30,7 +32,7 @@ export default function GameRoom() {
   const [phase, setPhase] = useState<"loading" | "join" | "lobby" | "play" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [lobby, setLobby] = useState<any>(null);
-  const [mode, setMode] = useState<"STANDARD" | "ARENA" | null>(null);
+  const [mode, setMode] = useState<"STANDARD" | "ARENA" | "SIMULTANEOUS" | null>(null);
   const [playerName, setPlayerName] = useState(store.getPlayerName());
   const [tempName, setTempName] = useState(playerName);
   const [playerId, setPlayerId] = useState<string>(() => store.ensurePlayerId());
@@ -246,6 +248,9 @@ export default function GameRoom() {
   if (phase === "join") {
     return (
       <div className="min-h-screen bg-deep-void flex items-center justify-center p-6">
+        <div className="absolute top-4 right-4">
+          <LanguageSwitcher compact variant="dark" />
+        </div>
         <div className="glass p-12 rounded-[3rem] max-w-md w-full text-center space-y-8 animate-in zoom-in duration-300">
           <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto border border-blue-500/20 text-blue-500">
             <svg
@@ -323,6 +328,9 @@ export default function GameRoom() {
   if (phase === "lobby") {
     return (
       <div className="min-h-screen bg-deep-void flex flex-col items-center justify-center p-6 text-center gap-6">
+        <div className="absolute top-4 right-4">
+          <LanguageSwitcher compact variant="dark" />
+        </div>
         <div className="glass p-10 rounded-[3rem] max-w-lg w-full space-y-6">
           <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-2">
             <div className="w-3 h-3 rounded-full bg-neon-emerald animate-pulse" />
@@ -356,6 +364,9 @@ export default function GameRoom() {
 
   // ── RENDER: Play (in-game) ─────────────────────────────────────────────
   if (phase === "play" && mode) {
+    if (mode === "SIMULTANEOUS") {
+      return <SimultaneousBoard code={code!} playerId={playerId} playerName={playerName} />;
+    }
     if (mode === "ARENA") {
       return <ArenaBoard code={code!} playerId={playerId} playerName={playerName} />;
     }

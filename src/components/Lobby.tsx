@@ -4,6 +4,7 @@ import { Users, Settings2, Play, Crown, Clock, Hash, Zap, ChevronRight, Share2, 
 import { useRealtimeChannel } from '../hooks/useRealtimeChannel'
 import { getAvatar } from '../assets/avatars'
 import { GameHeaderButton, GameConnectionBadge } from './ui'
+import LanguageSwitcher from './ui/LanguageSwitcher'
 
 interface LobbyProps {
     lobbyCode: string
@@ -125,9 +126,12 @@ export default function Lobby({ lobbyCode, onStartGame, onEndGame }: LobbyProps)
                     <label className="text-xs font-orbitron tracking-[0.3em] text-neon-emerald/60 block mb-2 uppercase">Lobby Code</label>
                     <div className="flex items-center justify-between">
                         <span className="text-6xl font-orbitron font-black text-white tracking-tighter">{lobbyCode}</span>
-                        <button className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/5 active:scale-90">
-                            <Share2 className="w-5 h-5 text-white/40" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <LanguageSwitcher compact variant="dark" />
+                            <button className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/5 active:scale-90">
+                                <Share2 className="w-5 h-5 text-white/40" />
+                            </button>
+                        </div>
                     </div>
                     <p className="mt-4 text-white/70 text-xs font-bold tracking-widest uppercase flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />

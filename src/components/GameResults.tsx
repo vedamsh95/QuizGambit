@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import ClayButton from "./ui/ClayButton";
 import ClayCard from "./ui/ClayCard";
 import { Trophy, Medal, Home, RotateCcw } from "lucide-react";
 import confetti from "canvas-confetti";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 interface PlayerResult {
   id: string;
@@ -26,6 +28,7 @@ const BG_GRADIENTS = [
 ];
 
 export default function GameResults() {
+  const { t } = useTranslation();
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const [players, setPlayers] = useState<PlayerResult[]>([]);
@@ -86,13 +89,18 @@ export default function GameResults() {
 
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-4 sm:p-8 gap-8">
+      {/* Language switcher */}
+      <div className="absolute top-4 right-4">
+        <LanguageSwitcher compact />
+      </div>
+
       {/* Header */}
       <div className="text-center space-y-2 animate-clay-pop">
         <Trophy className="w-12 h-12 text-butter mx-auto" />
         <h1 className="text-3xl sm:text-4xl font-outfit font-black text-plum">
-          Game Over!
+          {t('gameOver.title')}
         </h1>
-        <p className="text-sm text-plum/40">Final Results</p>
+        <p className="text-sm text-plum/40">{t('gameOver.finalResults')}</p>
       </div>
 
       {/* Podium */}
@@ -125,7 +133,7 @@ export default function GameResults() {
           {top3[0] && (
             <div className="flex flex-col items-center gap-2 flex-1">
               <div className="text-butter text-xs font-black uppercase tracking-widest">
-                👑 Winner
+                👑 {t('gameOver.winner')}
               </div>
               <div
                 className="clay-avatar w-20 h-20 sm:w-22 sm:h-22 rounded-full flex items-center justify-center text-white text-2xl font-black ring-3 ring-butter ring-offset-2"
@@ -174,7 +182,7 @@ export default function GameResults() {
       {/* Full scoreboard */}
       <ClayCard padding="md" className="w-full max-w-sm">
         <h3 className="text-xs font-black uppercase tracking-widest text-plum/40 mb-3">
-          Full Scoreboard
+          {t('gameOver.fullScoreboard')}
         </h3>
         <div className="flex flex-col gap-2">
           {players.map((p, i) => (
@@ -189,7 +197,7 @@ export default function GameResults() {
                 <span className="text-sm font-bold text-plum">{p.name}</span>
               </div>
               <span className="text-sm font-black text-soft-purple font-outfit">
-                {p.score} pts
+                {p.score} {t('gameOver.score')}
               </span>
             </div>
           ))}
@@ -205,7 +213,7 @@ export default function GameResults() {
           onClick={handleHome}
           className="flex-1"
         >
-          Home
+          {t('gameOver.home')}
         </ClayButton>
         <ClayButton
           variant="primary"
@@ -214,7 +222,7 @@ export default function GameResults() {
           onClick={handlePlayAgain}
           className="flex-1"
         >
-          Play Again
+          {t('gameOver.playAgain')}
         </ClayButton>
       </div>
     </div>

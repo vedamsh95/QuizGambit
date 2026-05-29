@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { smartSelectQuestions } from "../lib/smartSelection";
 import ClayButton from "./ui/ClayButton";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 import { Gamepad2, Sliders, Users, BookOpen, Search, Plus, Trash2, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowLeft } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -255,14 +256,17 @@ export default function LocalPlaySetupV2({ onStart }: LocalPlaySetupV2Props) {
   return (
     <div className="min-h-screen bg-clay-cream py-6 px-4 sm:px-6">
       <div className="max-w-5xl mx-auto">
-        {/* ── Back to Home ──────────────────────────────────────────── */}
-        <button
-          onClick={() => navigate("/")}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors mb-4"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Home
-        </button>
+        {/* ── Back to Home + Language Switcher ──────────────────────── */}
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => navigate("/")}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Home
+          </button>
+          <LanguageSwitcher compact />
+        </div>
 
         {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="text-center mb-8 space-y-3">

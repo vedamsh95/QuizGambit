@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { Zap, Users, Trophy, Wifi, WifiOff, ArrowRight, LogIn, Circle, BookOpen, Sliders, Clock, Hash } from "lucide-react";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -603,6 +604,7 @@ export default function BuzzerPlayerView() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <LanguageSwitcher compact />
           {isConnected ? (
             <Wifi className="w-3.5 h-3.5 text-mint" />
           ) : (

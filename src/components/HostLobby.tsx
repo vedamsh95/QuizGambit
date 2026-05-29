@@ -11,6 +11,7 @@ import Lobby from "./Lobby";
 import ArenaLobby from "./ArenaLobby";
 import { store } from "../lib/storage";
 import { GameHeaderButton, GameConnectionBadge } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 /**
  * HostLobby — Unified host entry point for Standard & Arena modes.
@@ -181,6 +182,7 @@ export default function HostLobby() {
           </GameHeaderButton>
 
           <div className="flex items-center gap-4">
+            <LanguageSwitcher compact variant="dark" />
             {/* Connection Status */}
             <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
 
@@ -230,6 +232,7 @@ export default function HostLobby() {
         </GameHeaderButton>
 
         <div className="flex items-center gap-4">
+          <LanguageSwitcher compact variant="dark" />
           {/* Connection Status */}
           <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
 

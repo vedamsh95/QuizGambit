@@ -17,6 +17,7 @@ import Lobby from "./Lobby";
 import GameBoard from "./GameBoard";
 import GameOver from "./GameOver";
 import { GameHeaderButton } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -609,11 +610,14 @@ q_type: "MCQ", // All questions are now MCQ only
 
       return (
         <div className="min-h-screen bg-deep-void p-8 flex flex-col items-center justify-center gap-8 text-center relative">
+          <div className="absolute top-4 right-4 z-50">
+            <LanguageSwitcher compact variant="dark" />
+          </div>
           <GameHeaderButton
             variant="ghost"
             icon={<ArrowLeft className="w-3 h-3" />}
             onClick={() => navigate("/")}
-            className="absolute top-6 left-6"
+            className="absolute top-4 left-4"
           >
             Home
           </GameHeaderButton>
@@ -672,6 +676,9 @@ q_type: "MCQ", // All questions are now MCQ only
     const isRoundFull = currentRoundCats.length >= catsPerRound;
     return (
       <div className="min-h-screen bg-deep-void p-4 md:p-8 flex flex-col gap-6">
+        <div className="absolute top-4 right-4 z-50">
+          <LanguageSwitcher compact variant="dark" />
+        </div>
         <GameHeaderButton
           variant="ghost"
           icon={<ArrowLeft className="w-3 h-3" />}
@@ -828,6 +835,9 @@ q_type: "MCQ", // All questions are now MCQ only
   if (lobby) {
     return (
       <div className="min-h-screen bg-deep-void">
+        <div className="fixed top-4 right-4 z-50">
+          <LanguageSwitcher compact variant="dark" />
+        </div>
         <GameHeaderButton
           variant="ghost"
           icon={<ArrowLeft className="w-3 h-3" />}
@@ -847,6 +857,9 @@ q_type: "MCQ", // All questions are now MCQ only
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-deep-void p-4 relative">
+      <div className="absolute top-6 right-6 z-50">
+        <LanguageSwitcher compact variant="dark" />
+      </div>
       <GameHeaderButton
         variant="ghost"
         icon={<ArrowLeft className="w-3 h-3" />}

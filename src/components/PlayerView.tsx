@@ -8,6 +8,7 @@ import CategoryDraftGrid from "./CategoryDraftGrid";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { store } from "../lib/storage";
 import { GameHeaderButton, GameConnectionBadge } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 interface PlayerViewProps {
   code: string;
@@ -362,8 +363,11 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
         Leave
       </GameHeaderButton>
 
-      {/* Connection Status */}
-      <GameConnectionBadge isConnected={isConnected} className="absolute top-4 left-4" />
+      {/* Connection Status + Language Switcher */}
+      <div className="absolute top-4 left-4 flex items-center gap-3">
+        <GameConnectionBadge isConnected={isConnected} />
+        <LanguageSwitcher compact variant="dark" />
+      </div>
 
       <div className="text-center mb-10">
         <h2 className="text-white/70 font-orbitron text-sm tracking-[0.4em] mb-1">

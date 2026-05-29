@@ -62,6 +62,8 @@ export interface UseRealtimeChannelOptions {
   subscribePlayers?: string // lobby code to filter on
   /** Whether to subscribe to postgres_changes (arena_answers table) */
   subscribeArenaAnswers?: string // lobby code to filter on
+  /** Override the answers table name (default: 'arena_answers') */
+  answersTableName?: string
   /** Handlers for lobby table changes (payload.new may be null on DELETE) */
   onLobbyChange?: (payload: any) => void
   /** Handlers for player table changes */
@@ -110,6 +112,7 @@ export function useRealtimeChannel(
     subscribeLobby,
     subscribePlayers,
     subscribeArenaAnswers,
+    answersTableName = 'arena_answers',
     onLobbyChange,
     onPlayerChange,
     onArenaAnswer,
@@ -318,9 +321,8 @@ export function useRealtimeChannel(
         'postgres_changes',
         {
           event: 'INSERT',
-          schema: 'public',
-          table: 'arena_answers',
-          filter: `lobby_code=eq.${subscribeArenaAnswers}`,
+          schema: 'public',            table: answersTableName,
+            filter: `lobby_code=eq.${subscribeArenaAnswers}`,
         },
         (payload) => {
           onArenaAnswerRef.current?.(payload)

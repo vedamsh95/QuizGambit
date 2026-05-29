@@ -20,6 +20,7 @@ import confetti from "canvas-confetti";
 
 import CategoryDraftGrid from "./CategoryDraftGrid";
 import { getAvatar } from "../assets/avatars";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 export default function ArenaLobby() {
   const navigate = useNavigate();
@@ -597,6 +598,9 @@ export default function ArenaLobby() {
           >
             <ArrowLeft className="w-3 h-3" /> Home
           </button>
+          <div className="absolute top-0 right-16">
+            <LanguageSwitcher compact variant="dark" />
+          </div>
           <span className="text-neon-emerald text-xs font-black tracking-[0.5em] uppercase">
             Multiplayer PVP
           </span>

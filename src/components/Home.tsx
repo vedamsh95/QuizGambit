@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { store } from '../lib/storage'
 import Auth from './Auth'
 import LocalPlaySetup from './LocalPlaySetup'
+import LanguageSwitcher from './ui/LanguageSwitcher'
 
 interface HomeProps {
     onHost: () => void
@@ -90,6 +91,7 @@ export default function Home({ onHost, onJoin, onStartLocal, onLibrary, onAdmin,
                 </div>
 
                 <div className="flex items-center gap-6">
+                    <LanguageSwitcher compact variant="dark" />
                     <button
                         onClick={() => setShowSettings(true)}
                         className="text-white/40 hover:text-white transition-colors"

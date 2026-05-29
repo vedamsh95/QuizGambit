@@ -19,6 +19,9 @@ export { default as LanguageSwitcher } from "./LanguageSwitcher";
 export { ThemeProvider, useTheme, type Theme } from "./ThemeProvider";
 export { default as ThemeSwitcher } from "./ThemeSwitcher";
 
+// ── Settings ────────────────────────────────────────────────────────────────
+export { default as SettingsPanel } from "./SettingsPanel";
+
 // ── V2 Components ───────────────────────────────────────────────────────────
 export { default as AvatarPicker } from "./AvatarPicker";
 export { default as CodeInput } from "./CodeInput";

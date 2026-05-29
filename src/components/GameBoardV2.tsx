@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { ClayTile, ClayCard, ClayBadge, ClayButton, ClayAvatar } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 import type { TileColor } from "./ui/ClayTile";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -616,6 +617,7 @@ export default function GameBoardV2({
         </div>
 
         <div className="flex items-center gap-3">
+          <LanguageSwitcher compact />
           {/* Connection status */}
           {!isLocal && lobbyCode !== "LOCAL" && (
             <div className="flex items-center gap-1.5 text-[10px] font-bold">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   BookOpen, Search, X, CheckCircle2, Trophy, Zap,
-  Play, ChevronRight, Plus, Sliders, Clock, Hash, Crown,
+  Play, ChevronRight, Plus, Sliders, Clock, Hash, Target, Shield,
 } from "lucide-react";
 import ClayButton from "./ui/ClayButton";
 import { supabase } from "../lib/supabase";
@@ -32,11 +32,28 @@ interface Category {
   is_global?: boolean;
 }
 
-interface BuzzerSetupProps {
+export interface SimultaneousSettings {
+  rounds: number;
+  timer: number;
+  catsPerRound: number;
+  scoringType: "RELATIVE" | "FASTEST_FINGER";
+  penaltyType: "HALF" | "FULL";
+  selectionMode: "HOST_PICK" | "PLAYER_DRAFT";
+  selectedCategories: Record<number, Category[]>;
+  setupStep: "waiting" | "configuring" | "draft_pool";
+  draftPoolIds: string[];
+  draftPhase: "pending" | "in_progress" | "complete";
+  draftPicks: DraftPick[];
+  draftTurnIndex: number;
+}
+
+interface SimultaneousSetupProps {
   lobbyCode: string;
   players: any[];
   hostPlayerId: string;
   hostPlayerName: string;
+  playerId: string;
+  playerName: string;
   broadcast: (event: BroadcastEventName, payload: any) => void;
   onBroadcast: (event: BroadcastEventName, handler: BroadcastHandler) => () => void;
   updateLobbySetting: (key: string, val: any) => Promise<{ error: any }>;
@@ -56,13 +73,17 @@ const CAT_COLORS = [
   "bg-butter border-butter/30",
 ];
 
+const DEFAULT_CATS_PER_ROUND = 5; // 5×5 grid
+
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function BuzzerSetup({
+export default function SimultaneousSetup({
   lobbyCode,
   players,
   hostPlayerId,
   hostPlayerName,
+  playerId,
+  playerName,
   broadcast,
   onBroadcast,
   updateLobbySetting,
@@ -70,12 +91,20 @@ export default function BuzzerSetup({
   catsLoading,
   initialSettings,
   onStartGame,
-}: BuzzerSetupProps) {
+}: SimultaneousSetupProps) {
   // ── Settings state ──────────────────────────────────────────────────────
 
   const [rounds, setRounds] = useState(initialSettings?.rounds || 1);
   const [timer, setTimer] = useState(initialSettings?.timer || 15);
-  const [catsPerRound, setCatsPerRound] = useState(initialSettings?.catsPerRound || 5);
+  const [catsPerRound, setCatsPerRound] = useState(
+    initialSettings?.catsPerRound || DEFAULT_CATS_PER_ROUND
+  );
+  const [scoringType, setScoringType] = useState<"RELATIVE" | "FASTEST_FINGER">(
+    initialSettings?.scoringType || "RELATIVE"
+  );
+  const [penaltyType, setPenaltyType] = useState<"HALF" | "FULL">(
+    initialSettings?.penaltyType || "HALF"
+  );
 
   // ── Category state ─────────────────────────────────────────────────────
 
@@ -111,7 +140,7 @@ export default function BuzzerSetup({
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState("");
 
-  // ── Refs (latest values for broadcast handlers) ────────────────────────
+  // ── Refs ───────────────────────────────────────────────────────────────
 
   const draftPicksRef = useRef(draftPicks);
   const draftTurnIndexRef = useRef(draftTurnIndex);
@@ -122,71 +151,29 @@ export default function BuzzerSetup({
   const selectedCategoriesRef = useRef(selectedCategories);
   const draftPoolIdsRef = useRef(draftPoolIds);
   const setupStepRef = useRef(setupStep);
-  const pickedCategoryIdsRef = useRef(new Set<string>());
-  const timeoutIdsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const scoringTypeRef = useRef(scoringType);
+  const penaltyTypeRef = useRef(penaltyType);
+  const timerRef = useRef(timer);
   const sliderDebounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const poolEverTouchedRef = useRef(false);
 
-  useEffect(() => { draftPicksRef.current = draftPicks; });
-  useEffect(() => { draftTurnIndexRef.current = draftTurnIndex; });
-  useEffect(() => { catsPerRoundRef.current = catsPerRound; });
-  useEffect(() => { playersRef.current = players; });
-  useEffect(() => { draftPhaseRef.current = draftPhase; });
-  useEffect(() => { roundsRef.current = rounds; });
-  useEffect(() => { selectedCategoriesRef.current = selectedCategories; });
-  useEffect(() => { draftPoolIdsRef.current = draftPoolIds; });
-  useEffect(() => { setupStepRef.current = setupStep; });
-  useEffect(() => { pickedCategoryIdsRef.current = pickedCategoryIds; }, [draftPicks]);
-
-  // ── Cleanup ────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    return () => {
-      timeoutIdsRef.current.forEach(clearTimeout);
-      timeoutIdsRef.current.clear();
-      Object.values(sliderDebounceRef.current).forEach(clearTimeout);
-    };
-  }, []);
+  useEffect(() => { draftPicksRef.current = draftPicks; }, [draftPicks]);
+  useEffect(() => { draftTurnIndexRef.current = draftTurnIndex; }, [draftTurnIndex]);
+  useEffect(() => { catsPerRoundRef.current = catsPerRound; }, [catsPerRound]);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { draftPhaseRef.current = draftPhase; }, [draftPhase]);
+  useEffect(() => { roundsRef.current = rounds; }, [rounds]);
+  useEffect(() => { selectedCategoriesRef.current = selectedCategories; }, [selectedCategories]);
+  useEffect(() => { draftPoolIdsRef.current = draftPoolIds; }, [draftPoolIds]);
+  useEffect(() => { setupStepRef.current = setupStep; }, [setupStep]);
+  useEffect(() => { scoringTypeRef.current = scoringType; }, [scoringType]);
+  useEffect(() => { penaltyTypeRef.current = penaltyType; }, [penaltyType]);
+  useEffect(() => { timerRef.current = timer; }, [timer]);
 
   // ── Broadcast listeners ────────────────────────────────────────────────
 
   useEffect(() => {
     const unsubs: (() => void)[] = [];
-
-    unsubs.push(onBroadcast("draft:pick", (payload: any) => {
-      if (!payload.playerId || !payload.categoryId) return;
-      if (draftPhaseRef.current !== "in_progress") return;
-
-      const currentPicks = draftPicksRef.current;
-      if (currentPicks.some((p: any) => p.categoryId === payload.categoryId)) return;
-
-      const nextSlot = currentPicks.length;
-      const round = Math.floor(nextSlot / catsPerRoundRef.current) + 1;
-      const slotIndex = nextSlot % catsPerRoundRef.current;
-
-      const enrichedPick: DraftPick = { ...payload, round, slotIndex };
-      const newPicks = [...currentPicks, enrichedPick];
-      setDraftPicks(newPicks);
-      draftPicksRef.current = newPicks;
-
-      const nextTurn = (draftTurnIndexRef.current + 1) % (playersRef.current.length || 1);
-      setDraftTurnIndex(nextTurn);
-      draftTurnIndexRef.current = nextTurn;
-
-      updateLobbySetting("draftPicks", newPicks);
-      updateLobbySetting("draftTurnIndex", nextTurn);
-
-      const total = roundsRef.current * catsPerRoundRef.current;
-      if (newPicks.length >= total) {
-        setDraftPhase("complete");
-        draftPhaseRef.current = "complete";
-        updateLobbySetting("draftPhase", "complete");
-        broadcast("draft:complete", { picks: newPicks });
-        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
-      } else {
-        broadcast("draft:turn", { turnIndex: nextTurn });
-        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
-      }
-    }));
 
     unsubs.push(onBroadcast("settings:update", (payload: any) => {
       if (payload.rounds !== undefined) setRounds(payload.rounds);
@@ -194,6 +181,8 @@ export default function BuzzerSetup({
       if (payload.catsPerRound !== undefined) setCatsPerRound(payload.catsPerRound);
       if (payload.selectionMode) setSelectionMode(payload.selectionMode);
       if (payload.setupStep) setSetupStep(payload.setupStep);
+      if (payload.scoringType) setScoringType(payload.scoringType);
+      if (payload.penaltyType) setPenaltyType(payload.penaltyType);
       if (payload.draftPoolIds) {
         try { setDraftPoolIds(new Set(payload.draftPoolIds)); } catch {}
       }
@@ -205,26 +194,51 @@ export default function BuzzerSetup({
       }
     }));
 
+    // Draft broadcast listeners
+    unsubs.push(onBroadcast("draft:pick", (payload: any) => {
+      if (!payload.playerId || !payload.categoryId) return;
+      if (draftPhaseRef.current !== "in_progress") return;
+
+      const currentPicks = draftPicksRef.current;
+      if (currentPicks.some((p) => p.categoryId === payload.categoryId)) return;
+
+      const nextSlot = currentPicks.length;
+      const round = Math.floor(nextSlot / catsPerRoundRef.current) + 1;
+      const slotIndex = nextSlot % catsPerRoundRef.current;
+
+      const enrichedPick: DraftPick = { ...payload, round, slotIndex };
+      const newPicks = [...currentPicks, enrichedPick];
+      setDraftPicks(newPicks);
+
+      const nextTurn = (draftTurnIndexRef.current + 1) % (playersRef.current.length || 1);
+      setDraftTurnIndex(nextTurn);
+
+      updateLobbySetting("draftPicks", newPicks);
+      updateLobbySetting("draftTurnIndex", nextTurn);
+
+      const total = roundsRef.current * catsPerRoundRef.current;
+      if (newPicks.length >= total) {
+        setDraftPhase("complete");
+        updateLobbySetting("draftPhase", "complete");
+        broadcast("draft:complete", { picks: newPicks });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
+      } else {
+        broadcast("draft:turn", { turnIndex: nextTurn });
+        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
+      }
+    }));
+
     return () => unsubs.forEach((fn) => fn());
   }, [onBroadcast, updateLobbySetting, broadcast]);
 
-  // ── Polling fallback (syncs draft + settings from DB) ──────────────────
-
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef(timer);
-  useEffect(() => { timerRef.current = timer; });
+  // ── Polling fallback ───────────────────────────────────────────────────
 
   useEffect(() => {
     if (!lobbyCode) return;
-
-    const needsPolling =
-      setupStep === "configuring" ||
-      setupStep === "draft_pool" ||
-      draftPhase === "in_progress";
-
+    const needsPolling = setupStep === "configuring" || setupStep === "draft_pool" || draftPhase === "in_progress";
     if (!needsPolling) return;
 
-    pollRef.current = setInterval(async () => {
+    const interval = setInterval(async () => {
       const { data } = await supabase
         .from("lobbies")
         .select("settings")
@@ -233,53 +247,27 @@ export default function BuzzerSetup({
       if (!data?.settings) return;
       const s = data.settings;
 
-      // Sync draft state
-      if (s.draftPicks && JSON.stringify(s.draftPicks) !== JSON.stringify(draftPicksRef.current)) {
-        setDraftPicks(s.draftPicks);
-      }
-      if (s.draftTurnIndex !== undefined && s.draftTurnIndex !== draftTurnIndexRef.current) {
-        setDraftTurnIndex(s.draftTurnIndex);
-      }
-      if (s.draftPhase && s.draftPhase !== draftPhaseRef.current) {
-        setDraftPhase(s.draftPhase);
-      }
+      if (s.draftPicks) setDraftPicks(s.draftPicks);
+      if (s.draftTurnIndex !== undefined) setDraftTurnIndex(s.draftTurnIndex);
+      if (s.draftPhase) setDraftPhase(s.draftPhase);
       if (s.draftPoolIds) {
-        try {
-          const poolSet = new Set(s.draftPoolIds as string[]);
-          if (poolSet.size !== draftPoolIdsRef.current.size ||
-              !Array.from(poolSet).every((id) => draftPoolIdsRef.current.has(id))) {
-            setDraftPoolIds(poolSet);
-          }
-        } catch {}
+        try { setDraftPoolIds(new Set(s.draftPoolIds as string[])); } catch {}
       }
-      if (s.setupStep && s.setupStep !== setupStepRef.current) {
-        setSetupStep(s.setupStep);
-      }
-      if (s.selectedCategories) {
-        try {
-          if (JSON.stringify(s.selectedCategories) !== JSON.stringify(selectedCategoriesRef.current)) {
-            setSelectedCategories(s.selectedCategories);
-          }
-        } catch {}
-      }
-      if (s.rounds !== undefined && s.rounds !== roundsRef.current) {
-        setRounds(s.rounds);
-      }
-      if (s.catsPerRound !== undefined && s.catsPerRound !== catsPerRoundRef.current) {
-        setCatsPerRound(s.catsPerRound);
-      }
-      if (s.timer !== undefined && s.timer !== timerRef.current) {
-        setTimer(s.timer);
-      }
+      if (s.setupStep) setSetupStep(s.setupStep);
+      if (s.selectedCategories) setSelectedCategories(s.selectedCategories);
+      if (s.rounds !== undefined) setRounds(s.rounds);
+      if (s.timer !== undefined) setTimer(s.timer);
+      if (s.catsPerRound !== undefined) setCatsPerRound(s.catsPerRound);
+      if (s.scoringType) setScoringType(s.scoringType);
+      if (s.penaltyType) setPenaltyType(s.penaltyType);
     }, 3000);
 
-    return () => {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    };
+    return () => clearInterval(interval);
   }, [lobbyCode, setupStep, draftPhase]);
 
   // ── Derived ────────────────────────────────────────────────────────────
 
+  const isHost = playerId === hostPlayerId;
   const totalSlots = rounds * catsPerRound;
 
   const draftPool: DraftCategory[] = useMemo(() => {
@@ -327,27 +315,11 @@ export default function BuzzerSetup({
     sliderDebounceRef.current[key] = setTimeout(() => updateLobbySetting(key, val), 300);
   }, [updateLobbySetting]);
 
-  const scheduleBroadcast = useCallback((payload: any) => {
-    const id = setTimeout(() => {
-      timeoutIdsRef.current.delete(id);
-      broadcast("settings:update", payload);
-    }, 0);
-    timeoutIdsRef.current.add(id);
-  }, [broadcast]);
-
-  const scheduleLobbyUpdate = useCallback((key: string, val: any) => {
-    const id = setTimeout(() => {
-      timeoutIdsRef.current.delete(id);
-      updateLobbySetting(key, val);
-    }, 0);
-    timeoutIdsRef.current.add(id);
-  }, [updateLobbySetting]);
-
   // ── Settings handlers ──────────────────────────────────────────────────
 
   const handleRoundsChange = useCallback((val: number) => {
+    if (!isHost) return;
     setRounds(val);
-    roundsRef.current = val;
     setSelectedCategories((prev) => {
       const cleaned: Record<number, Category[]> = {};
       for (let r = 1; r <= val; r++) {
@@ -361,14 +333,15 @@ export default function BuzzerSetup({
   }, [catsPerRound, debouncedUpdate, broadcast]);
 
   const handleTimerChange = useCallback((val: number) => {
+    if (!isHost) return;
     setTimer(val);
     broadcast("settings:update", { timer: val });
     debouncedUpdate("timer", val);
   }, [debouncedUpdate, broadcast]);
 
   const handleCatsPerRoundChange = useCallback((val: number) => {
+    if (!isHost) return;
     setCatsPerRound(val);
-    catsPerRoundRef.current = val;
     setSelectedCategories((prev) => {
       const cleaned: Record<number, Category[]> = {};
       for (let r = 1; r <= rounds; r++) {
@@ -380,16 +353,31 @@ export default function BuzzerSetup({
     debouncedUpdate("catsPerRound", val);
   }, [rounds, debouncedUpdate, broadcast]);
 
-  // ── Category handlers (HOST_PICK mode) ─────────────────────────────────
+  const handleScoringToggle = useCallback((val: "RELATIVE" | "FASTEST_FINGER") => {
+    if (!isHost) return;
+    setScoringType(val);
+    broadcast("settings:update", { scoringType: val });
+    updateLobbySetting("scoringType", val);
+  }, [broadcast, updateLobbySetting]);
+
+  const handlePenaltyToggle = useCallback((val: "HALF" | "FULL") => {
+    if (!isHost) return;
+    setPenaltyType(val);
+    broadcast("settings:update", { penaltyType: val });
+    updateLobbySetting("penaltyType", val);
+  }, [broadcast, updateLobbySetting]);
+
+  // ── Category handlers ──────────────────────────────────────────────────
 
   const toggleCategory = useCallback((cat: Category, round: number) => {
+    if (!isHost) return;
     setSelectedCategories((prev) => {
       const current = prev[round] || [];
       const exists = current.find((c) => c.id === cat.id);
       if (exists) {
         const updated = { ...prev, [round]: current.filter((c) => c.id !== cat.id) };
-        scheduleBroadcast({ selectedCategories: updated });
-        scheduleLobbyUpdate("selectedCategories", updated);
+        broadcast("settings:update", { selectedCategories: updated });
+        updateLobbySetting("selectedCategories", updated);
         return updated;
       }
       if (current.length >= catsPerRound) return prev;
@@ -401,90 +389,82 @@ export default function BuzzerSetup({
             if (k === round) updated[k] = [...val, cat];
             else updated[k] = val.filter((c: any) => c.id !== cat.id);
           }
-          scheduleBroadcast({ selectedCategories: updated });
-          scheduleLobbyUpdate("selectedCategories", updated);
+          broadcast("settings:update", { selectedCategories: updated });
+          updateLobbySetting("selectedCategories", updated);
           return updated;
         }
       }
       const updated = { ...prev, [round]: [...current, cat] };
-      scheduleBroadcast({ selectedCategories: updated });
-      scheduleLobbyUpdate("selectedCategories", updated);
+      broadcast("settings:update", { selectedCategories: updated });
+      updateLobbySetting("selectedCategories", updated);
       return updated;
     });
-  }, [catsPerRound, scheduleBroadcast, scheduleLobbyUpdate]);
+  }, [catsPerRound, broadcast, updateLobbySetting]);
 
   const removeCategory = useCallback((round: number, catId: string) => {
+    if (!isHost) return;
     setSelectedCategories((prev) => {
       const updated = { ...prev, [round]: (prev[round] || []).filter((c) => c.id !== catId) };
-      scheduleBroadcast({ selectedCategories: updated });
-      scheduleLobbyUpdate("selectedCategories", updated);
+      broadcast("settings:update", { selectedCategories: updated });
+      updateLobbySetting("selectedCategories", updated);
       return updated;
     });
-  }, [scheduleBroadcast, scheduleLobbyUpdate]);
+  }, [broadcast, updateLobbySetting]);
 
   // ── Draft pool handler ────────────────────────────────────────────────
 
   const toggleDraftPool = useCallback((catId: string) => {
+    if (!isHost) return;
     setDraftPoolIds((prev) => {
       const next = new Set(prev);
       if (next.has(catId)) next.delete(catId);
       else next.add(catId);
       const arr = Array.from(next);
-      scheduleBroadcast({ draftPoolIds: arr });
-      scheduleLobbyUpdate("draftPoolIds", arr);
+      broadcast("settings:update", { draftPoolIds: arr });
+      updateLobbySetting("draftPoolIds", arr);
       return next;
     });
-  }, [scheduleBroadcast, scheduleLobbyUpdate]);
+  }, [broadcast, updateLobbySetting]);
 
-  // ── Configure handler ─────────────────────────────────────────────────
-
-  const poolEverTouchedRef = useRef(false);
+  // ── Configure / Step handlers ──────────────────────────────────────────
 
   const handleConfigure = useCallback(async () => {
+    if (!isHost) return;
     if (selectionMode === "PLAYER_DRAFT") {
       if (!poolEverTouchedRef.current && allCategories.length > 0) {
         const allCatIds = allCategories.map((c) => c.id);
         const poolSet = new Set(allCatIds);
         setDraftPoolIds(poolSet);
-        draftPoolIdsRef.current = poolSet;
         await updateLobbySetting("draftPoolIds", allCatIds);
         broadcast("settings:update", { draftPoolIds: allCatIds });
       }
       poolEverTouchedRef.current = true;
       const step: "draft_pool" = "draft_pool";
       setSetupStep(step);
-      setupStepRef.current = step;
       await updateLobbySetting("setupStep", step);
       broadcast("settings:update", { setupStep: step });
     } else {
       const step: "configuring" = "configuring";
       setSetupStep(step);
-      setupStepRef.current = step;
       await updateLobbySetting("setupStep", step);
       broadcast("settings:update", { setupStep: step });
     }
   }, [selectionMode, allCategories, updateLobbySetting, broadcast]);
 
-  // ── Mode toggle ───────────────────────────────────────────────────────
-
   const handleToggleMode = useCallback(async (mode: "HOST_PICK" | "PLAYER_DRAFT") => {
+    if (!isHost) return;
     setSelectionMode(mode);
     setSelectedCategories({});
     setDraftPhase("pending");
-    draftPhaseRef.current = "pending";
     setDraftPicks([]);
-    draftPicksRef.current = [];
     setDraftTurnIndex(0);
-    draftTurnIndexRef.current = 0;
     poolEverTouchedRef.current = false;
 
     if (mode === "PLAYER_DRAFT" && allCategories.length > 0) {
       const allCatIds = allCategories.map((c) => c.id);
       const poolSet = new Set(allCatIds);
       setDraftPoolIds(poolSet);
-      draftPoolIdsRef.current = poolSet;
       setSetupStep("draft_pool");
-      setupStepRef.current = "draft_pool";
       await Promise.all([
         updateLobbySetting("selectionMode", mode),
         updateLobbySetting("setupStep", "draft_pool"),
@@ -497,9 +477,7 @@ export default function BuzzerSetup({
       broadcast("settings:update", { selectionMode: mode, setupStep: "draft_pool", selectedCategories: {}, draftPoolIds: allCatIds, draftPhase: "pending" });
     } else {
       setDraftPoolIds(new Set());
-      draftPoolIdsRef.current = new Set();
       setSetupStep("waiting");
-      setupStepRef.current = "waiting";
       await Promise.all([
         updateLobbySetting("selectionMode", mode),
         updateLobbySetting("setupStep", "waiting"),
@@ -516,11 +494,9 @@ export default function BuzzerSetup({
   // ── Draft handlers ────────────────────────────────────────────────────
 
   const handleStartDraft = useCallback(async () => {
-    if (!lobbyCode) return;
+    if (!isHost || !lobbyCode) return;
     setDraftPhase("in_progress");
-    draftPhaseRef.current = "in_progress";
     setDraftTurnIndex(0);
-    draftTurnIndexRef.current = 0;
     const pool = allCategories
       .filter((c) => draftPoolIds.has(c.id))
       .map((c) => ({ id: c.id, name: displayName(c.name) }));
@@ -531,64 +507,55 @@ export default function BuzzerSetup({
     broadcast("draft:sync", { picks: [], turnIndex: 0, phase: "in_progress" });
   }, [lobbyCode, totalSlots, allCategories, draftPoolIds, updateLobbySetting, broadcast]);
 
-  const handleHostPick = useCallback(async (cat: DraftCategory) => {
+  const handleDraftPick = useCallback(async (cat: DraftCategory) => {
     if (!lobbyCode || draftPhase !== "in_progress") return;
-    if (!currentPicker || currentPicker.id !== hostPlayerId) return;
-    if (pickedCategoryIdsRef.current.has(cat.id)) return;
-    pickedCategoryIdsRef.current.add(cat.id);
+    if (!currentPicker || currentPicker.id !== playerId) return;
+    if (pickedCategoryIds.has(cat.id)) return;
 
     const nextSlot = draftPicks.length;
     const round = Math.floor(nextSlot / catsPerRound) + 1;
     const slotIndex = nextSlot % catsPerRound;
 
     const pick: DraftPick = {
-      playerId: hostPlayerId, playerName: hostPlayerName,
+      playerId, playerName,
       categoryId: cat.id, categoryName: cat.name,
       round, slotIndex,
     };
 
     const newPicks = [...draftPicks, pick];
     setDraftPicks(newPicks);
-    draftPicksRef.current = newPicks;
 
     const nextTurn = (draftTurnIndex + 1) % (players.length || 1);
     setDraftTurnIndex(nextTurn);
-    draftTurnIndexRef.current = nextTurn;
 
-    try {
-      await updateLobbySetting("draftPicks", newPicks);
-      await updateLobbySetting("draftTurnIndex", nextTurn);
+    await updateLobbySetting("draftPicks", newPicks);
+    await updateLobbySetting("draftTurnIndex", nextTurn);
 
-      if (newPicks.length >= totalSlots) {
-        setDraftPhase("complete");
-        draftPhaseRef.current = "complete";
-        await updateLobbySetting("draftPhase", "complete");
-        broadcast("draft:complete", { picks: newPicks });
-        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
-      } else {
-        broadcast("draft:pick", pick);
-        broadcast("draft:turn", { turnIndex: nextTurn });
-        broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
-      }
-    } catch (err) {
-      pickedCategoryIdsRef.current.delete(cat.id);
-      console.error("Host pick failed:", err);
+    if (newPicks.length >= totalSlots) {
+      setDraftPhase("complete");
+      await updateLobbySetting("draftPhase", "complete");
+      broadcast("draft:complete", { picks: newPicks });
+      broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "complete" });
+    } else {
+      broadcast("draft:pick", pick);
+      broadcast("draft:sync", { picks: newPicks, turnIndex: nextTurn, phase: "in_progress" });
     }
-  }, [lobbyCode, draftPhase, draftPicks, draftTurnIndex, players, totalSlots, catsPerRound, currentPicker, hostPlayerId, hostPlayerName, updateLobbySetting, broadcast]);
+  }, [lobbyCode, draftPhase, draftPicks, draftTurnIndex, players, totalSlots, catsPerRound, currentPicker, playerId, playerName, pickedCategoryIds, updateLobbySetting, broadcast]);
 
   // ── Start Game ────────────────────────────────────────────────────────
 
   const handleStartClick = useCallback(async () => {
-    if (isStarting) return;
+    if (!isHost || isStarting) return;
     setIsStarting(true);
     setStartError("");
 
     try {
-      // Persist final settings before starting
       await Promise.all([
         updateLobbySetting("rounds", rounds),
         updateLobbySetting("timer", timer),
         updateLobbySetting("catsPerRound", catsPerRound),
+        updateLobbySetting("scoringType", scoringType),
+        updateLobbySetting("penaltyType", penaltyType),
       ]);
       // Await the start callback — it handles navigation on success;
       // if it fails (returns without navigating), reset the spinner.
@@ -598,9 +565,9 @@ export default function BuzzerSetup({
     } finally {
       setIsStarting(false);
     }
-  }, [isStarting, rounds, timer, catsPerRound, updateLobbySetting, onStartGame]);
+  }, [isHost, isStarting, rounds, timer, catsPerRound, scoringType, penaltyType, updateLobbySetting, onStartGame]);
 
-  // ── Filtered categories ───────────────────────────────────────────────
+  // ── Filtered categories ────────────────────────────────────────────────
 
   const filteredCategories = allCategories.filter((c) =>
     displayName(c.name).toLowerCase().includes(categorySearch.toLowerCase())
@@ -613,12 +580,9 @@ export default function BuzzerSetup({
     return acc;
   }, {} as Record<string, Category[]>);
 
-  function getMedal(rank: number) {
-    if (rank === 1) return "🥇";
-    if (rank === 2) return "🥈";
-    if (rank === 3) return "🥉";
-    return `#${rank}`;
-  }
+  // ── Slider class (extracted to avoid TS JSX parsing issues with multiline template literals) ──
+
+  const sliderThumbClass = `w-full h-2 rounded-full appearance-none bg-lavender [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full ${isHost ? "[&::-webkit-slider-thumb]:bg-soft-purple [&::-webkit-slider-thumb]:cursor-pointer" : "[&::-webkit-slider-thumb]:bg-warm-gray/40 cursor-not-allowed opacity-50"}`;
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -630,52 +594,118 @@ export default function BuzzerSetup({
           <Sliders className="w-4 h-4 text-soft-purple" /> Game Settings
         </h3>
         <div className="grid grid-cols-3 gap-4">
+          {/* Rounds */}
           <div className="text-center space-y-2">
             <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Rounds</label>
             <div className="text-3xl font-outfit font-black text-soft-purple">{rounds}</div>
             <input
-              type="range" min={1} max={5} value={rounds}
+              type="range" min={1} max={3} value={rounds}
+              disabled={!isHost}
               onChange={(e) => handleRoundsChange(Number(e.target.value))}
-              className="w-full h-2 rounded-full appearance-none bg-lavender
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5
-                [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-soft-purple [&::-webkit-slider-thumb]:cursor-pointer"
+              className={sliderThumbClass}
             />
-            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>1</span><span>5</span></div>
+            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>1</span><span>3</span></div>
           </div>
+          {/* Categories per round */}
           <div className="text-center space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Cats/Round</label>
+            <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Categories</label>
             <div className="text-3xl font-outfit font-black text-soft-purple">{catsPerRound}</div>
             <input
-              type="range" min={1} max={5} value={catsPerRound}
+              type="range" min={3} max={5} value={catsPerRound}
+              disabled={!isHost}
               onChange={(e) => handleCatsPerRoundChange(Number(e.target.value))}
-              className="w-full h-2 rounded-full appearance-none bg-lavender
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5
-                [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-soft-purple [&::-webkit-slider-thumb]:cursor-pointer"
+              className={sliderThumbClass}
             />
-            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>1</span><span>5</span></div>
+            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>3</span><span>5</span></div>
           </div>
+          {/* Timer */}
           <div className="text-center space-y-2">
             <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Timer</label>
             <div className="text-3xl font-outfit font-black text-soft-purple">{timer}s</div>
             <input
-              type="range" min={5} max={60} step={5} value={timer}
+              type="range" min={5} max={30} step={5} value={timer}
+              disabled={!isHost}
               onChange={(e) => handleTimerChange(Number(e.target.value))}
-              className="w-full h-2 rounded-full appearance-none bg-lavender
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5
-                [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-soft-purple [&::-webkit-slider-thumb]:cursor-pointer"
+              className={sliderThumbClass}
             />
-            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>5s</span><span>60s</span></div>
+            <div className="flex justify-between text-[10px] font-bold text-warm-gray/60"><span>5s</span><span>30s</span></div>
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] font-bold text-warm-gray/70 justify-center">
           <span className="flex items-center gap-1"><Hash className="w-3 h-3" />{rounds} rounds</span>
           <span className="flex items-center gap-1"><BookOpen className="w-3 h-3" />{catsPerRound} cats/round</span>
           <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{timer}s timer</span>
-          <span className="flex items-center gap-1"><Zap className="w-3 h-3" />Buzzer ON</span>
-          <span className="text-soft-purple font-black">= {totalSlots} total slots</span>
+          <span className="text-soft-purple font-black">= {totalSlots} total questions</span>
+        </div>
+      </div>
+
+      {/* ── Scoring & Penalty Toggles ────────────────────────────────────── */}
+      <div className="clay p-5 space-y-4">
+        <h3 className="font-outfit font-black text-plum text-sm flex items-center gap-2">
+          <Target className="w-4 h-4 text-soft-purple" /> Scoring Rules
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          {/* Scoring Type */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Scoring</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() => handleScoringToggle("RELATIVE")}
+                disabled={!isHost}
+                className={`px-3 py-2.5 rounded-xl text-xs font-outfit font-bold transition-all ${
+                  scoringType === "RELATIVE"
+                    ? "bg-soft-purple-light border-2 border-soft-purple/40 text-plum shadow-[2px_2px_0px_rgba(168,152,204,0.3)]"
+                    : `bg-warm-white border border-warm-gray/15 text-warm-gray/70 ${isHost ? "hover:border-soft-purple/30" : "opacity-60"}`
+                } ${!isHost ? "cursor-not-allowed" : ""}`}
+              >
+                <div>Relative</div>
+                <div className="text-[9px] font-medium text-warm-gray/60 mt-0.5">1st 100%, 2nd 75%…</div>
+              </button>
+              <button
+                onClick={() => handleScoringToggle("FASTEST_FINGER")}
+                disabled={!isHost}
+                className={`px-3 py-2.5 rounded-xl text-xs font-outfit font-bold transition-all ${
+                  scoringType === "FASTEST_FINGER"
+                    ? "bg-peach-light border-2 border-peach/40 text-plum shadow-[2px_2px_0px_rgba(255,107,138,0.2)]"
+                    : `bg-warm-white border border-warm-gray/15 text-warm-gray/70 ${isHost ? "hover:border-peach/30" : "opacity-60"}`
+                } ${!isHost ? "cursor-not-allowed" : ""}`}
+              >
+                <div>Fastest Finger</div>
+                <div className="text-[9px] font-medium text-warm-gray/60 mt-0.5">Only 1st gets points</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Penalty Type */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-wider text-warm-gray/70">Wrong Penalty</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() => handlePenaltyToggle("HALF")}
+                disabled={!isHost}
+                className={`px-3 py-2.5 rounded-xl text-xs font-outfit font-bold transition-all ${
+                  penaltyType === "HALF"
+                    ? "bg-mint-light border-2 border-mint/40 text-plum shadow-[2px_2px_0px_rgba(158,217,204,0.3)]"
+                    : `bg-warm-white border border-warm-gray/15 text-warm-gray/70 ${isHost ? "hover:border-mint/30" : "opacity-60"}`
+                } ${!isHost ? "cursor-not-allowed" : ""}`}
+              >
+                <div>Gentle</div>
+                <div className="text-[9px] font-medium text-warm-gray/60 mt-0.5">-50% points</div>
+              </button>
+              <button
+                onClick={() => handlePenaltyToggle("FULL")}
+                disabled={!isHost}
+                className={`px-3 py-2.5 rounded-xl text-xs font-outfit font-bold transition-all ${
+                  penaltyType === "FULL"
+                    ? "bg-peach-light border-2 border-peach/40 text-plum shadow-[2px_2px_0px_rgba(255,107,138,0.2)]"
+                    : `bg-warm-white border border-warm-gray/15 text-warm-gray/70 ${isHost ? "hover:border-peach/30" : "opacity-60"}`
+                } ${!isHost ? "cursor-not-allowed" : ""}`}
+              >
+                <div>Hardcore</div>
+                <div className="text-[9px] font-medium text-warm-gray/60 mt-0.5">-100% points</div>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -690,56 +720,62 @@ export default function BuzzerSetup({
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => handleToggleMode("HOST_PICK")}
-            disabled={!canConfigure || draftPhase !== "pending" || catsLoading}
+            disabled={!canConfigure || draftPhase !== "pending" || catsLoading || !isHost}
             className={`p-4 rounded-xl border-2 text-left transition-all ${
               selectionMode === "HOST_PICK"
                 ? "bg-soft-purple-light border-soft-purple/40 shadow-[2px_2px_0px_rgba(168,152,204,0.3)]"
                 : "bg-warm-white border-warm-gray/15 hover:border-soft-purple/30"
-            } ${(!canConfigure || draftPhase !== "pending" || catsLoading) ? "opacity-50 cursor-not-allowed" : ""}`}
+            } ${(!canConfigure || draftPhase !== "pending" || catsLoading || !isHost) ? "opacity-50 cursor-not-allowed" : ""}`}
           >
             <div className="font-outfit font-black text-sm text-plum">Host Pick</div>
-            <div className="text-[10px] text-warm-gray/70 mt-1">Host assigns categories to rounds. Start immediately.</div>
+            <div className="text-[10px] text-warm-gray/70 mt-1">Host assigns categories to rounds.</div>
           </button>
           <button
             onClick={() => handleToggleMode("PLAYER_DRAFT")}
-            disabled={!canConfigure || draftPhase !== "pending" || catsLoading}
+            disabled={!canConfigure || draftPhase !== "pending" || catsLoading || !isHost}
             className={`p-4 rounded-xl border-2 text-left transition-all ${
               selectionMode === "PLAYER_DRAFT"
                 ? "bg-mint-light border-mint/40 shadow-[2px_2px_0px_rgba(158,217,204,0.4)]"
                 : "bg-warm-white border-warm-gray/15 hover:border-mint/30"
-            } ${(!canConfigure || draftPhase !== "pending" || catsLoading) ? "opacity-50 cursor-not-allowed" : ""}`}
+            } ${(!canConfigure || draftPhase !== "pending" || catsLoading || !isHost) ? "opacity-50 cursor-not-allowed" : ""}`}
           >
             <div className="font-outfit font-black text-sm text-plum">Player Draft</div>
-            <div className="text-[10px] text-warm-gray/70 mt-1">Players take turns picking from the available categories.</div>
+            <div className="text-[10px] text-warm-gray/70 mt-1">Players take turns picking categories.</div>
           </button>
         </div>
       </div>
 
-      {/* ── Waiting Step ──────────────────────────────────────────────── */}
+      {/* ── Waiting Step ─────────────────────────────────────────────────── */}
       {setupStep === "waiting" && (
         <div className="clay p-5 space-y-3 text-center">
-          <p className="text-sm font-bold text-warm-gray/70">
-            {selectionMode === "HOST_PICK"
-              ? "You'll pick categories for each round"
-              : "You'll build a pool of categories for players to draft"}
-          </p>
-          <button
-            onClick={handleConfigure}
-            disabled={!canConfigure}
-            className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-outfit font-black text-lg transition-all ${
-              selectionMode === "HOST_PICK"
-                ? "bg-gradient-to-r from-soft-purple to-purple-400 text-white hover:from-soft-purple/90 hover:to-purple-400/90 shadow-[4px_4px_0px_rgba(168,152,204,0.3)]"
-                : "bg-gradient-to-r from-mint to-emerald-400 text-white hover:from-mint/90 hover:to-emerald-400/90 shadow-[4px_4px_0px_rgba(158,217,204,0.3)]"
-            } active:scale-[0.98] disabled:opacity-30 disabled:active:scale-100`}
-          >
-            <Plus className="w-5 h-5" />
-            {selectionMode === "HOST_PICK" ? "Pick Categories" : draftPoolIds.size > 0 ? "Customize Pool" : "Build Draft Pool"}
-            <ChevronRight className="w-5 h-5" />
-          </button>
-          {!canConfigure && (
-            <p className="text-xs font-bold text-warm-gray/70">
-              Waiting for at least 2 players to join
-            </p>
+          {isHost ? (
+            <>
+              <p className="text-sm font-bold text-warm-gray/70">
+                {selectionMode === "HOST_PICK"
+                  ? "Pick categories for each round's 5×5 grid"
+                  : "Build a pool of categories for players to draft"}
+              </p>
+              <button
+                onClick={handleConfigure}
+                disabled={!canConfigure}
+                className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-outfit font-black text-lg transition-all ${
+                  selectionMode === "HOST_PICK"
+                    ? "bg-gradient-to-r from-soft-purple to-purple-400 text-white hover:from-soft-purple/90 hover:to-purple-400/90 shadow-[4px_4px_0px_rgba(168,152,204,0.3)]"
+                    : "bg-gradient-to-r from-mint to-emerald-400 text-white hover:from-mint/90 hover:to-emerald-400/90 shadow-[4px_4px_0px_rgba(158,217,204,0.3)]"
+                } active:scale-[0.98] disabled:opacity-30 disabled:active:scale-100`}
+              >
+                <Plus className="w-5 h-5" />
+                {selectionMode === "HOST_PICK" ? "Pick Categories" : draftPoolIds.size > 0 ? "Customize Pool" : "Build Draft Pool"}
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <div className="animate-pulse flex items-center justify-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-soft-purple" />
+                <span className="text-sm font-bold text-warm-gray/70">Host is configuring the game...</span>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -755,10 +791,10 @@ export default function BuzzerSetup({
                 ({totalRoundsFilled}/{rounds} rounds configured)
               </span>
             </h3>
+            {isHost && (
             <button
               onClick={() => {
                 setSetupStep("waiting");
-                setupStepRef.current = "waiting";
                 updateLobbySetting("setupStep", "waiting");
                 broadcast("settings:update", { setupStep: "waiting" });
               }}
@@ -766,6 +802,7 @@ export default function BuzzerSetup({
             >
               ← Back
             </button>
+            )}
           </div>
 
           {/* Round tabs */}
@@ -844,13 +881,13 @@ export default function BuzzerSetup({
                           <button
                             key={cat.id}
                             onClick={() => toggleCategory(cat, activeRound)}
-                            disabled={(!isInActive && isFull) || (isInOther && !isInActive)}
+                            disabled={!isHost || (!isInActive && isFull) || (isInOther && !isInActive)}
                             className={`text-left p-2.5 rounded-xl border transition-all ${
                               isInActive
                                 ? "bg-mint-light border-mint/40 shadow-[2px_2px_0px_rgba(158,217,204,0.4)]"
                                 : isInOther
                                   ? "bg-warm-gray/5 border-warm-gray/10 opacity-50 cursor-not-allowed"
-                                  : "bg-warm-white border-warm-gray/15 hover:border-soft-purple/30 hover:-translate-y-0.5 cursor-pointer"
+                                  : `bg-warm-white border-warm-gray/15 ${isHost ? "hover:border-soft-purple/30 hover:-translate-y-0.5 cursor-pointer" : "opacity-50 cursor-not-allowed"}`
                             }`}
                           >
                             <div className="flex items-center justify-between">
@@ -879,7 +916,7 @@ export default function BuzzerSetup({
               {(selectedCategories[activeRound] || []).length === 0 ? (
                 <div className="text-center py-10 text-warm-gray/25 space-y-2">
                   <BookOpen className="w-7 h-7 mx-auto opacity-30" />
-                  <p className="text-xs font-medium">Click categories from the library</p>
+                  <p className="text-xs font-medium">{isHost ? "Click categories from the library" : "Host will select categories"}</p>
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -889,12 +926,14 @@ export default function BuzzerSetup({
                         <span className="font-outfit font-bold text-sm text-plum">{displayName(cat.name)}</span>
                         <div className="text-[10px] font-bold text-warm-gray/60 mt-0.5">{cat.data?.length || 0} questions</div>
                       </div>
+                      {isHost && (
                       <button
                         onClick={() => removeCategory(activeRound, cat.id)}
                         className="p-1 text-warm-gray/60 hover:text-peach rounded-lg hover:bg-peach-light transition-colors"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
+                      )}
                     </div>
                   ))}
                   {Array.from({ length: catsPerRound - (selectedCategories[activeRound] || []).length }).map((_, i) => (
@@ -920,7 +959,7 @@ export default function BuzzerSetup({
         </div>
       )}
 
-      {/* ── Draft Pool Picker (PLAYER_DRAFT mode) ──────────────────────── */}
+      {/* ── Draft Pool Picker (PLAYER_DRAFT mode) ───────────────────────── */}
       {selectionMode === "PLAYER_DRAFT" && setupStep === "draft_pool" && draftPhase === "pending" && (
         <div className="clay p-5 space-y-4 animate-clay-pop">
           <div className="flex items-center justify-between">
@@ -929,10 +968,10 @@ export default function BuzzerSetup({
               Build Draft Pool
               <span className="text-[10px] font-bold text-mint">({draftPoolIds.size}/{totalSlots} needed)</span>
             </h3>
+            {isHost && (
             <button
               onClick={() => {
                 setSetupStep("waiting");
-                setupStepRef.current = "waiting";
                 updateLobbySetting("setupStep", "waiting");
                 broadcast("settings:update", { setupStep: "waiting" });
               }}
@@ -940,6 +979,7 @@ export default function BuzzerSetup({
             >
               ← Back
             </button>
+            )}
           </div>
 
           <p className="text-xs font-medium text-warm-gray/70">
@@ -985,10 +1025,11 @@ export default function BuzzerSetup({
                         <button
                           key={cat.id}
                           onClick={() => toggleDraftPool(cat.id)}
-                          className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                          disabled={!isHost}
+                          className={`text-left p-2.5 rounded-xl border transition-all ${
                             isInPool
                               ? "bg-mint-light border-mint/40 shadow-[2px_2px_0px_rgba(158,217,204,0.4)]"
-                              : "bg-warm-white border-warm-gray/15 hover:border-mint/30 hover:-translate-y-0.5"
+                              : `bg-warm-white border-warm-gray/15 ${isHost ? "hover:border-mint/30 hover:-translate-y-0.5 cursor-pointer" : "opacity-50 cursor-not-allowed"}`
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -1046,21 +1087,23 @@ export default function BuzzerSetup({
 
           {draftPhase === "in_progress" && currentPicker && (
             <div className="p-3 bg-mint-light rounded-xl border border-mint/20 text-center">
-              <span className="font-outfit font-black text-mint text-sm">{currentPicker.name}'s turn to pick</span>
+              <span className="font-outfit font-black text-mint text-sm">
+                {currentPicker.id === playerId ? "It's your turn! Pick a category below" : `${currentPicker.name}'s turn to pick`}
+              </span>
             </div>
           )}
 
           {draftPhase === "in_progress" && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[250px] overflow-y-auto">
               {availableDraftCategories.map((cat) => {
-                const isHostTurn = currentPicker && currentPicker.id === hostPlayerId;
+                const isMyTurn = currentPicker?.id === playerId;
                 return (
                   <button
                     key={cat.id}
-                    onClick={() => handleHostPick(cat)}
-                    disabled={!isHostTurn}
+                    onClick={() => handleDraftPick(cat)}
+                    disabled={!isMyTurn}
                     className={`p-3 rounded-xl border transition-all text-left ${
-                      isHostTurn
+                      isMyTurn
                         ? "bg-warm-white border-warm-gray/15 hover:border-soft-purple/30 hover:-translate-y-0.5 cursor-pointer"
                         : "bg-warm-white border-warm-gray/10 opacity-50 cursor-not-allowed"
                     }`}
@@ -1094,46 +1137,68 @@ export default function BuzzerSetup({
 
       {/* ── Action Buttons ──────────────────────────────────────────────── */}
       <div className="clay p-5">
-        {/* HOST_PICK: Start Game */}
+        {/* HOST_PICK: Start Game (host only) */}
         {selectionMode === "HOST_PICK" && setupStep === "configuring" && (
           <>
-            <button
-              onClick={handleStartClick}
-              disabled={!canStartHostPick || isStarting}
-              className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-mint to-emerald-400 text-white font-outfit font-black text-lg hover:from-mint/90 hover:to-emerald-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(158,217,204,0.3)] active:shadow-[2px_2px_0px_rgba(158,217,204,0.2)]"
-            >
-              {isStarting ? (
-                <span className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-              ) : (
-                <Play className="w-5 h-5" />
-              )}
-              {isStarting ? "Generating Questions..." : "Start Game"}
-              <ChevronRight className="w-5 h-5" />
-            </button>
-            {!canStartHostPick && !startError && (
-              <p className="text-center text-xs font-bold text-warm-gray/70 mt-3">
-                Fill all rounds with categories to start
-              </p>
+            {playerId === hostPlayerId ? (
+              <>
+                <button
+                  onClick={handleStartClick}
+                  disabled={!canStartHostPick || isStarting}
+                  className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-mint to-emerald-400 text-white font-outfit font-black text-lg hover:from-mint/90 hover:to-emerald-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(158,217,204,0.3)] active:shadow-[2px_2px_0px_rgba(158,217,204,0.2)]"
+                >
+                  {isStarting ? (
+                    <span className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  ) : (
+                    <Play className="w-5 h-5" />
+                  )}
+                  {isStarting ? "Starting Game..." : "Start 5×5 Grid Game"}
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                {!canStartHostPick && !startError && (
+                  <p className="text-center text-xs font-bold text-warm-gray/70 mt-3">
+                    Fill all rounds with categories to start
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="text-center space-y-2">
+                <div className="animate-pulse flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-soft-purple" />
+                  <span className="text-sm font-bold text-warm-gray/70">Waiting for host to start the game...</span>
+                </div>
+              </div>
             )}
           </>
         )}
 
-        {/* PLAYER_DRAFT: Start Draft */}
+        {/* PLAYER_DRAFT: Start Draft (host only) */}
         {selectionMode === "PLAYER_DRAFT" && setupStep === "draft_pool" && draftPhase === "pending" && (
           <>
-            <button
-              onClick={handleStartDraft}
-              disabled={!canStartDraftPool}
-              className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-soft-purple to-purple-400 text-white font-outfit font-black text-lg hover:from-soft-purple/90 hover:to-purple-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(168,152,204,0.3)] active:shadow-[2px_2px_0px_rgba(168,152,204,0.2)]"
-            >
-              <Zap className="w-5 h-5" /> Start Category Draft <ChevronRight className="w-5 h-5" />
-            </button>
-            {!canStartDraftPool && !startError && (
-              <p className="text-center text-xs font-bold text-warm-gray/70 mt-3">
-                {draftPoolIds.size < totalSlots
-                  ? `Select at least ${totalSlots} categories (${draftPoolIds.size}/${totalSlots})`
-                  : "Waiting for at least 2 players"}
-              </p>
+            {playerId === hostPlayerId ? (
+              <>
+                <button
+                  onClick={handleStartDraft}
+                  disabled={!canStartDraftPool}
+                  className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-soft-purple to-purple-400 text-white font-outfit font-black text-lg hover:from-soft-purple/90 hover:to-purple-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(168,152,204,0.3)] active:shadow-[2px_2px_0px_rgba(168,152,204,0.2)]"
+                >
+                  <Zap className="w-5 h-5" /> Start Category Draft <ChevronRight className="w-5 h-5" />
+                </button>
+                {!canStartDraftPool && !startError && (
+                  <p className="text-center text-xs font-bold text-warm-gray/70 mt-3">
+                    {draftPoolIds.size < totalSlots
+                      ? `Select at least ${totalSlots} categories (${draftPoolIds.size}/${totalSlots})`
+                      : "Waiting for at least 2 players"}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="text-center space-y-2">
+                <div className="animate-pulse flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-mint" />
+                  <span className="text-sm font-bold text-warm-gray/70">Host is setting up the draft pool...</span>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -1150,21 +1215,32 @@ export default function BuzzerSetup({
           </div>
         )}
 
-        {/* Draft complete: Start Game */}
+        {/* Draft complete: Start Game (host only) */}
         {selectionMode === "PLAYER_DRAFT" && draftPhase === "complete" && (
-          <button
-            onClick={handleStartClick}
-            disabled={isStarting}
-            className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-mint to-emerald-400 text-white font-outfit font-black text-lg hover:from-mint/90 hover:to-emerald-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(158,217,204,0.3)] active:shadow-[2px_2px_0px_rgba(158,217,204,0.2)]"
-          >
-            {isStarting ? (
-              <span className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+          <>
+            {playerId === hostPlayerId ? (
+              <button
+                onClick={handleStartClick}
+                disabled={isStarting}
+                className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-r from-mint to-emerald-400 text-white font-outfit font-black text-lg hover:from-mint/90 hover:to-emerald-400/90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:active:scale-100 shadow-[4px_4px_0px_rgba(158,217,204,0.3)] active:shadow-[2px_2px_0px_rgba(158,217,204,0.2)]"
+              >
+                {isStarting ? (
+                  <span className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                ) : (
+                  <Play className="w-5 h-5" />
+                )}
+                {isStarting ? "Starting Game..." : "Start 5×5 Grid Game"}
+                <ChevronRight className="w-5 h-5" />
+              </button>
             ) : (
-              <Play className="w-5 h-5" />
+              <div className="text-center space-y-2">
+                <div className="animate-pulse flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-mint" />
+                  <span className="text-sm font-bold text-warm-gray/70">Draft complete — waiting for host to start...</span>
+                </div>
+              </div>
             )}
-            {isStarting ? "Generating Questions..." : "Start Game"}
-            <ChevronRight className="w-5 h-5" />
-          </button>
+          </>
         )}
 
         {startError && (

@@ -6,6 +6,7 @@ import { store } from "../lib/storage";
 import { Trophy, Zap, XCircle, Eye, Clock, LogOut, WifiOff } from "lucide-react";
 import GameOver from "./GameOver";
 import { GameHeaderButton, GameConnectionBadge } from "./ui";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 interface ArenaBoardProps {
   code: string;
@@ -713,6 +714,7 @@ export default function ArenaBoard({
             ARENA
           </span>
           <span className="text-white/50 font-mono text-sm">{code}</span>
+          <LanguageSwitcher compact variant="dark" />
           {/* Connection indicator */}
           <GameConnectionBadge isConnected={isConnected} onlineCount={Object.keys(presences).length} />
           <GameHeaderButton

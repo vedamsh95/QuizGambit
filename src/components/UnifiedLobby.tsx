@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { smartSelectQuestions } from "../lib/smartSelection";
@@ -14,6 +15,8 @@ import {
   Play, UserPlus, Share2,
 } from "lucide-react";
 import { getAvatar } from "../assets/avatars";
+import LanguageSwitcher from "./ui/LanguageSwitcher";
+import SimultaneousSetup from "./SimultaneousSetup";
 
 // ── Backward compat: legacy mode strings from old lobbies ───────────────────
 
@@ -57,6 +60,7 @@ type LobbyPhase = "MODE_SELECTION" | "SETUP";
 // ── UnifiedLobby ────────────────────────────────────────────────────────────
 
 export default function UnifiedLobby() {
+  const { t } = useTranslation();
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
 
@@ -344,6 +348,22 @@ export default function UnifiedLobby() {
         .single();
       if (!data) return;
 
+      // Status changed to PLAYING — navigate to game board
+      if (
+        ["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(data.status) &&
+        lobbyRef.current?.status !== data.status
+      ) {
+        const ps = derivePlayStyle(data.mode, data.settings);
+        if (isBuzzer5x5(data.mode, ps) && !isHost) {
+          navigate(`/buzzer/${code}`);
+        } else if (data.mode === "SIMULTANEOUS") {
+          navigate(`/play/${code}`);
+        } else {
+          navigate(`/play/${code}`);
+        }
+        return;
+      }
+
       // Mode changed
       if (data.mode && data.mode !== lobbyRef.current?.mode) {
         const nm = normalizeMode(data.mode);
@@ -503,6 +523,108 @@ export default function UnifiedLobby() {
     }
   }, [code, isStarting, lobbyMode, lobbyPlayStyle, lobby, allCategories, isHost, updateLobbySetting, broadcast, navigate]);
 
+  // ── Start Simultaneous Game ──────────────────────────────────────────────
+
+  const handleStartSimultaneousGame = useCallback(async () => {
+    if (!code || isStarting) return;
+    setIsStarting(true);
+    setStartError("");
+
+    try {
+      const s = lobby?.settings || {};
+
+      // ── Build categories with question data ──────────────────────────
+      // (mirrors handleStartGame — categories_library has .data arrays
+      //  with the actual questions; we store them in settings so
+      //  SimultaneousBoard can read them without querying the DB)
+
+      let catsToProcess: { id: string; name: string; round: number }[] = [];
+      const draftPicks: any[] = s.draftPicks || [];
+
+      if (draftPicks.length > 0) {
+        // PLAYER_DRAFT mode — use draft picks
+        const seen = new Set<string>();
+        for (const pick of draftPicks) {
+          if (!seen.has(pick.categoryId)) {
+            seen.add(pick.categoryId);
+            catsToProcess.push({
+              id: pick.categoryId,
+              name: pick.categoryName,
+              round: pick.round || 1,
+            });
+          }
+        }
+      } else {
+        // HOST_PICK mode — use selectedCategories
+        const selCats: Record<number, any[]> = s.selectedCategories || {};
+        const seen = new Set<string>();
+        for (const [roundStr, cats] of Object.entries(selCats)) {
+          const round = parseInt(roundStr) || 1;
+          for (const cat of (cats as any[])) {
+            if (!seen.has(cat.id)) {
+              seen.add(cat.id);
+              catsToProcess.push({ id: cat.id, name: cat.name, round });
+            }
+          }
+        }
+      }
+
+      // Match against allCategories (which carry .data with questions)
+      const simultaneousCategories = catsToProcess.map(({ id, name, round }) => {
+        const fullCat = allCategories.find((c) => c.id === id);
+        return {
+          id,
+          name,
+          round,
+          data: fullCat?.data || [],
+        };
+      });
+
+      // ── Call the start_simultaneous_session RPC to init game state ────
+
+      const { data: sessionResult, error: sessionErr } = await supabase.rpc(
+        "start_simultaneous_session",
+        {
+          p_lobby_code: code,
+          p_settings: {
+            rounds: s.rounds || 1,
+            timer: s.timer || 15,
+            catsPerRound: s.catsPerRound || 5,
+            scoringType: s.scoringType || "RELATIVE",
+            penaltyType: s.penaltyType || "HALF",
+            selectionMode: s.selectionMode || "HOST_PICK",
+            draftPicks: s.draftPicks || [],
+            selectedCategories: s.selectedCategories || {},
+          },
+        }
+      );
+
+      if (sessionErr || sessionResult?.success === false) {
+        const msg = sessionResult?.error || sessionErr?.message || "Failed to initialize game session";
+        setStartError(msg);
+        setIsStarting(false);
+        throw new Error(msg);
+      }
+
+      // Store categories with questions AFTER RPC succeeds (so SimultaneousBoard can read them)
+      await updateLobbySetting("simultaneous_categories", simultaneousCategories);
+
+      // Update lobby mode + status
+      await supabase.from("lobbies").update({
+        mode: "SIMULTANEOUS",
+        status: "PLAYING",
+      }).eq("code", code);
+
+      broadcast("game:start", {});
+      navigate(`/play/${code}`);
+    } catch (err: any) {
+      const msg = err?.message || "Failed to start simultaneous game.";
+      setStartError(msg);
+      setIsStarting(false);
+      throw err;
+    }
+  }, [code, isStarting, lobby, allCategories, updateLobbySetting, broadcast, navigate]);
+
   // ── Helpers ─────────────────────────────────────────────────────────────
 
   const handleCopyCode = () => {
@@ -546,7 +668,7 @@ export default function UnifiedLobby() {
       <div className="min-h-screen bg-clay-cream flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-soft-purple border-t-transparent animate-spin" />
-          <p className="text-sm text-plum/60 font-medium">Loading lobby...</p>
+          <p className="text-sm text-plum/60 font-medium">{t('lobby.loadingLobby')}</p>
         </div>
       </div>
     );
@@ -558,10 +680,10 @@ export default function UnifiedLobby() {
     return (
       <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-8 text-center gap-6">
         <div className="text-6xl">🔍</div>
-        <h1 className="text-2xl font-outfit font-black text-plum">Lobby Not Found</h1>
+        <h1 className="text-2xl font-outfit font-black text-plum">{t('lobby.lobbyNotFound')}</h1>
         <p className="text-plum/60 max-w-sm">{error}</p>
         <ClayButton variant="primary" onClick={() => navigate("/")}>
-          Return Home
+          {t('lobby.returnHome')}
         </ClayButton>
       </div>
     );
@@ -599,13 +721,14 @@ export default function UnifiedLobby() {
           className="flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          Home
+          {t('lobby.home')}
         </button>
 
         <div className="flex items-center gap-3">
+          <LanguageSwitcher compact />
           {/* Phase badge */}
           <span className="text-[10px] font-black uppercase tracking-wider text-warm-gray/60">
-            {phase === "MODE_SELECTION" ? "Choose Mode" : modeLabel}
+            {phase === "MODE_SELECTION" ? t('lobby.chooseMode') : modeLabel}
           </span>
 
           {/* Connection */}
@@ -616,7 +739,7 @@ export default function UnifiedLobby() {
               <WifiOff className="w-3 h-3 text-peach" />
             )}
             <span className={isConnected ? "text-mint" : "text-peach"}>
-              {isConnected ? `${players.length} online` : "Offline"}
+              {isConnected ? t('lobby.online', { count: players.length }) : t('lobby.offline')}
             </span>
           </div>
 
@@ -638,14 +761,14 @@ export default function UnifiedLobby() {
           <ClayCard elevation="elevated" padding="lg" className="text-center space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mint-light text-mint text-[10px] font-black tracking-[0.2em] uppercase">
               {isHost ? <Crown className="w-3 h-3" /> : <Users className="w-3 h-3" />}
-              {isHost ? "Host" : "Player"}
+              {isHost ? t('lobby.host') : t('lobby.player')}
             </div>
             <div onClick={handleCopyCode} className="cursor-pointer group select-all" title="Click to copy">
               <div className="text-4xl sm:text-5xl font-outfit font-black text-plum tracking-[0.15em] group-hover:text-soft-purple transition-colors">
                 {formattedCode}
               </div>
               <div className="text-xs font-bold text-warm-gray/60 mt-1">
-                {copied ? "Copied!" : "Tap to copy"}
+                {copied ? t('lobby.codeCopied') : t('lobby.tapToCopy')}
               </div>
             </div>
             {isHost && (
@@ -653,7 +776,7 @@ export default function UnifiedLobby() {
                 onClick={handleCopyCode}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-warm-white border border-warm-gray/15 text-xs font-bold text-warm-gray/60 hover:text-plum hover:border-soft-purple/30 transition-all"
               >
-                <Share2 className="w-3.5 h-3.5" /> Share Code
+                <Share2 className="w-3.5 h-3.5" /> {t('lobby.shareCode')}
               </button>
             )}
           </ClayCard>
@@ -663,7 +786,7 @@ export default function UnifiedLobby() {
             <div className="flex items-center gap-2 mb-3">
               <Users className="w-4 h-4 text-plum/50" />
               <h3 className="text-xs font-black uppercase tracking-widest text-plum/60">
-                Players ({players.length})
+                {t('lobby.players')} ({players.length})
               </h3>
             </div>
 
@@ -671,7 +794,7 @@ export default function UnifiedLobby() {
               <div className="text-center py-6 space-y-2">
                 <UserPlus className="w-8 h-8 mx-auto text-warm-gray/40" />
                 <p className="text-xs text-warm-gray/60 font-medium">
-                  Waiting for players...
+                  {t('lobby.waitingForPlayers')}
                 </p>
               </div>
             ) : (
@@ -706,7 +829,7 @@ export default function UnifiedLobby() {
                     </span>
                     {p.id === playerId && (
                       <span className="text-[9px] font-black uppercase tracking-wider text-soft-purple">
-                        You
+                        {t('lobby.you')}
                       </span>
                     )}
                     {p.id === lobby?.host_id && (
@@ -793,64 +916,39 @@ export default function UnifiedLobby() {
             </div>
           )}
 
-          {/* ── Standard/multiplayer setup ───────────────────────────────── */}
+          {/* ── Simultaneous Multiplayer (5×5 Grid) setup ───────────────── */}
           {phase === "SETUP" && is5x5 && isStandard && (
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-soft-purple-light text-soft-purple text-[10px] font-black tracking-[0.2em] uppercase">
-                  🌐 Multiplayer
+                  🌐 5×5 Grid Multiplayer
                 </div>
-                <span className="text-xs text-warm-gray/70 font-medium">
-                  Standard quiz game
-                </span>
+                {isHost ? (
+                  <span className="text-xs text-warm-gray/70 font-medium">
+                    Configure game settings & categories
+                  </span>
+                ) : (
+                  <span className="text-xs text-warm-gray/70 font-medium">
+                    Host is setting up the game...
+                  </span>
+                )}
               </div>
 
-              {isHost ? (
-                <div className="clay p-8 text-center space-y-6">
-                  <h2 className="font-outfit font-black text-xl text-plum">
-                    Ready to Start
-                  </h2>
-                  <p className="text-sm text-warm-gray/70 max-w-md mx-auto">
-                    {players.length} player{players.length !== 1 ? "s" : ""} connected. Categories will be selected on the game board.
-                  </p>
-
-                  {startError && (
-                    <p className="text-xs font-bold text-peach bg-peach-light/30 px-4 py-2 rounded-xl">
-                      {startError}
-                    </p>
-                  )}
-
-                  <ClayButton
-                    variant="primary"
-                    size="lg"
-                    icon={isStarting ? undefined : <Play className="w-5 h-5" />}
-                    loading={isStarting}
-                    onClick={handleStartGame}
-                    className="w-full max-w-sm"
-                    disabled={players.length < 1}
-                  >
-                    Start Game
-                  </ClayButton>
-
-                  {players.length < 1 && (
-                    <p className="text-xs text-warm-gray/60">
-                      Waiting for players to join...
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="clay p-8 text-center space-y-4">
-                  <div className="w-16 h-16 mx-auto rounded-2xl bg-soft-purple-light flex items-center justify-center">
-                    <Play className="w-8 h-8 text-soft-purple" />
-                  </div>
-                  <p className="text-sm font-bold text-warm-gray/70">
-                    Waiting for host to start...
-                  </p>
-                  <p className="text-xs text-warm-gray/60">
-                    {players.length} player{players.length !== 1 ? "s" : ""} in lobby
-                  </p>
-                </div>
-              )}
+              <SimultaneousSetup
+                lobbyCode={code!}
+                players={players}
+                hostPlayerId={lobby?.host_id}
+                hostPlayerName={lobby?.host_name || "Host"}
+                playerId={playerId}
+                playerName={playerName}
+                broadcast={broadcast}
+                onBroadcast={onBroadcast}
+                updateLobbySetting={updateLobbySetting}
+                allCategories={allCategories}
+                catsLoading={catsLoading}
+                initialSettings={lobby?.settings || {}}
+                onStartGame={isHost ? handleStartSimultaneousGame : () => {}}
+              />
             </div>
           )}
 
@@ -986,7 +1084,12 @@ function PlayerSetupView({
 
       {/* Hint */}
       <p className="text-center text-[10px] font-medium text-mint/60">
-        🎮 <strong>{playStyle === "BUZZER" ? "Buzzer game" : "Game"}</strong> — after setup, stay on this screen and press the buzz button when the host opens a question.
+        🎮 <strong>{playStyle === "BUZZER" ? "Buzzer game" : playStyle === "SIMULTANEOUS" ? "Simultaneous game" : "Game"}</strong>
+        {playStyle === "BUZZER"
+          ? " — after setup, stay on this screen and press the buzz button when the host opens a question."
+          : playStyle === "SIMULTANEOUS"
+            ? " — when the game starts, you'll answer questions simultaneously on your device."
+            : " — after setup, the host will manage the game."}
       </p>
     </div>
   );
