@@ -44,6 +44,9 @@ export interface BroadcastEvents {
   'player:leave': { playerId: string }
   'buzz:timestamp': { playerId: string; playerName: string; buzzTime: number }
   'vote:submit': { playerId: string; mode: string }
+  'letter:select': { playerId: string; letter: string; letters: string[]; phase: string }
+  'poison:assign': { playerId: string }
+  'word:claim': { id: string; playerId: string; playerName: string; word: string; points: number }
 }
 
 export type BroadcastEventName = keyof BroadcastEvents

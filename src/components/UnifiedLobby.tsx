@@ -666,6 +666,76 @@ export default function UnifiedLobby() {
     }
   }, [code, isStarting, lobby, allCategories, updateLobbySetting, broadcast, navigate]);
 
+  // ── Start LINKS Game ─────────────────────────────────────────────────
+
+  const handleStartLinksGame = useCallback(async () => {
+    if (!code || isStarting) return;
+    setIsStarting(true);
+    setStartError("");
+
+    try {
+      const s = lobby?.settings || {};
+
+      // ── Nuke stale arena_state from previous game modes BEFORE calling
+      //     the RPC.  The old migration (blacklist) would otherwise "resume"
+      //     a Simultaneous 'PICKING' phase and cause "Unknown phase" on the
+      //     client.  Once the new migration (whitelist) is applied this is
+      //     belt-and-suspenders; until then it is the only thing that works.
+      const { error: nullErr } = await supabase
+        .from("lobbies")
+        .update({ arena_state: null })
+        .eq("code", code);
+      if (nullErr && import.meta.env.DEV) {
+        console.warn("[LINKS] Failed to null stale arena_state:", nullErr.message);
+      }
+
+      const { data: sessionResult, error: sessionErr } = await supabase.rpc(
+        "start_links_game",
+        {
+          p_lobby_code: code,
+          p_settings: {
+            poisonEnabled: s.poisonEnabled !== false,
+            roundDuration: s.roundDuration || 60,
+          },
+        }
+      );
+
+      if (sessionErr || !sessionResult) {
+        if (sessionErr) {
+          if (sessionErr.code === "PGRST202" || sessionErr.message?.includes("404") || sessionErr.message?.includes("not found")) {
+            const msg = "LINKS database functions not deployed. Run the SQL migration in Supabase SQL Editor: supabase/migrations/20260529000004_links_mode.sql";
+            setStartError(msg);
+            setIsStarting(false);
+            return;
+          }
+          setStartError(sessionErr.message || "Failed to initialize game session");
+        } else {
+          setStartError("No response from server — the LINKS database functions may not be deployed. Run the SQL migration in Supabase SQL Editor.");
+        }
+        setIsStarting(false);
+        return;
+      }
+
+      if (sessionResult?.success === false) {
+        setStartError(sessionResult?.error || "Failed to initialize game session");
+        setIsStarting(false);
+        return;
+      }
+
+      // Update lobby mode + status
+      await supabase.from("lobbies").update({
+        mode: "LINKS",
+        status: "PLAYING",
+      }).eq("code", code);
+
+      broadcast("game:start", {});
+      navigate(`/play/${code}`);
+    } catch (err: any) {
+      setStartError(err?.message || "Failed to start LINKS game.");
+      setIsStarting(false);
+    }
+  }, [code, isStarting, lobby, broadcast, navigate]);
+
   // ── Helpers ─────────────────────────────────────────────────────────────
 
   const handleCopyCode = () => {
@@ -990,6 +1060,134 @@ export default function UnifiedLobby() {
                 initialSettings={lobby?.settings || {}}
                 onStartGame={isHost ? handleStartSimultaneousGame : () => {}}
               />
+            </div>
+          )}
+
+          {/* ── LINKS setup ─────────────────────────────────────────── */}
+          {phase === "SETUP" && lobbyMode === "LINKS" && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mint-light text-mint text-[10px] font-black tracking-[0.2em] uppercase">
+                  🔗 LINKS · Vocabulary Duel
+                </div>
+                {isHost ? (
+                  <span className="text-xs text-warm-gray/70 font-medium">
+                    Configure LINKS settings
+                  </span>
+                ) : (
+                  <span className="text-xs text-warm-gray/70 font-medium">
+                    Host is setting up the game...
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-4 max-w-lg">
+                {/* Game description */}
+                <ClayCard padding="md" className="space-y-2">
+                  <h3 className="font-outfit font-black text-plum text-sm">How LINKS Works</h3>
+                  <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
+                    <li>Each player picks a letter — every word must contain ALL letters</li>
+                    <li>Type words as fast as you can — longer words = more points</li>
+                    <li>First to claim a word locks it — opponents can't use it</li>
+                    <li>Poison mode: secretly assign a poison letter to each opponent</li>
+                  </ul>
+                </ClayCard>
+
+                {/* Settings */}
+                <ClayCard padding="md" className="space-y-3">
+                  <h3 className="font-outfit font-black text-plum text-sm">Settings</h3>
+
+                  {/* Round duration */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-warm-gray/70">Round Duration</span>
+                    <select
+                      className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                      value={lobby?.settings?.roundDuration || 60}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        updateLobbySetting("roundDuration", val);
+                        broadcast("settings:update", { roundDuration: val });
+                      }}
+                      disabled={!isHost}
+                    >
+                      <option value={30}>30 seconds</option>
+                      <option value={45}>45 seconds</option>
+                      <option value={60}>60 seconds</option>
+                      <option value={90}>90 seconds</option>
+                      <option value={120}>2 minutes</option>
+                    </select>
+                  </div>
+
+                  {/* Poison toggle */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-medium text-warm-gray/70">Poison Mode</span>
+                      <p className="text-[10px] text-warm-gray/50">Secret poison letters add mind games</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!isHost) return;
+                        const newVal = !(lobby?.settings?.poisonEnabled !== false);
+                        updateLobbySetting("poisonEnabled", newVal);
+                        broadcast("settings:update", { poisonEnabled: newVal });
+                      }}
+                      className={`w-10 h-5 rounded-full transition-colors ${
+                        lobby?.settings?.poisonEnabled !== false ? "bg-mint" : "bg-warm-gray/20"
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                          lobby?.settings?.poisonEnabled !== false ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </ClayCard>
+
+                {/* Player requirement */}
+                <ClayCard padding="md" className="text-center space-y-2">
+                  <p className="text-xs text-warm-gray/60">
+                    {players.length < 2
+                      ? `Need at least 2 players (currently ${players.length})`
+                      : `${players.length} player${players.length !== 1 ? "s" : ""} ready — ${players.length} letters required per word`}
+                  </p>
+                  {players.length < 1 && (
+                    <p className="text-[10px] text-peach font-bold">Waiting for players to join...</p>
+                  )}
+                </ClayCard>
+
+                {/* Start button */}
+                {isHost ? (
+                  <div className="space-y-2">
+                    <ClayButton
+                      variant="primary"
+                      size="lg"
+                      className="w-full"
+                      icon={<Play className="w-4 h-4" />}
+                      onClick={handleStartLinksGame}
+                      disabled={isStarting || players.length < 2}
+                    >
+                      {isStarting
+                        ? "Starting..."
+                        : players.length < 2
+                          ? "Need 2+ Players"
+                          : "Start LINKS Game"}
+                    </ClayButton>
+                    {startError && (
+                      <p className="text-xs text-peach text-center font-bold">{startError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="clay p-5 text-center">
+                    <div className="animate-pulse flex items-center justify-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-butter" />
+                      <span className="text-sm font-bold text-warm-gray/70">
+                        Waiting for host to start...
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

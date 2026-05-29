@@ -14,6 +14,7 @@ import GameResults from "./components/GameResults";
 import GameBoardV2 from "./components/GameBoardV2";
 import ArenaBoard from "./components/ArenaBoard";
 import SimultaneousBoard from "./components/SimultaneousBoard";
+import LinksBoard from "./components/LinksBoard";
 import ArenaLobby from "./components/ArenaLobby";
 import Library from "./components/Library";
 import AIGeneratorView from "./components/AIGeneratorView";
@@ -79,6 +80,17 @@ function PlayRoute() {
   }
 
   const lobby = state.lobby;
+
+  // LINKS mode → LinksBoard
+  if (lobby.mode === "LINKS") {
+    return (
+      <LinksBoard
+        code={code}
+        playerId={playerId}
+        playerName={playerName}
+      />
+    );
+  }
 
   // Simultaneous mode → SimultaneousBoard
   if (lobby.mode === "SIMULTANEOUS") {

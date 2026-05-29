@@ -10,7 +10,7 @@ import clsx from "clsx";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type GameMode = "QUIZ_5X5" | "THE_NUMBER" | "SPELL_IT" | "CROSSWORD" | "ODDSMAKER"
+export type GameMode = "QUIZ_5X5" | "LINKS" | "THE_NUMBER" | "SPELL_IT" | "CROSSWORD" | "ODDSMAKER"
   | "WORD_DUEL" | "ROULETTE" | "CONNECTIONS" | "HIGHER_LOWER" | "ANAGRAMS" | "BLUFF";
 
 export type PlayStyle = "LOCAL" | "MULTIPLAYER" | "BUZZER";
@@ -49,6 +49,22 @@ const GAMES: GameConfig[] = [
     playStyles: ["LOCAL", "MULTIPLAYER", "BUZZER"],
     available: true,
     features: ["5×5 Board", "Point Values", "Category Draft", "Streak Bonuses"],
+  },
+  {
+    id: "LINKS",
+    label: "LINKS",
+    tagline: "Vocabulary duel — first to claim wins",
+    description:
+      "Each player picks a letter. Type words containing ALL chosen letters before opponents claim them. Longer words = more points. Optional poison mode adds psychological warfare — secretly assign letters that damage opponents.",
+    icon: Swords,
+    gradient: "from-emerald-600 via-teal-500 to-cyan-400",
+    cardAccent: "bg-gradient-to-br from-mint-light/40 to-transparent",
+    glowColor: "shadow-emerald-500/20",
+    accentText: "text-emerald-200",
+    accentBg: "bg-emerald-500/20",
+    playStyles: ["MULTIPLAYER"],
+    available: true,
+    features: ["Word Sprint", "Shared Pool", "Poison Mode", "Multiplayer 2-4"],
   },
   {
     id: "THE_NUMBER",
