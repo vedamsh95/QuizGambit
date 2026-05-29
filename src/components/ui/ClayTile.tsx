@@ -58,12 +58,30 @@ export default function ClayTile({
     );
   }
 
+  // Non-clickable unrevealed (e.g. another player is picking) — show numbers but muted
+  if (!onClick) {
+    return (
+      <div
+        className={clsx(
+          "clay py-4 px-2 flex flex-col items-center justify-center text-center",
+          "opacity-60 cursor-default",
+          colorLightMap[color],
+          className,
+        )}
+      >
+        <span className="font-outfit font-black text-xl md:text-2xl text-plum/60">
+          {points}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <button
       onClick={onClick}
       className={clsx(
         "clay py-4 px-2 flex flex-col items-center justify-center text-center",
-        "cursor-pointer transition-transform hover:-translate-y-1",
+        "cursor-pointer transition-transform hover:-translate-y-1 active:scale-95",
         colorLightMap[color],
         className,
       )}

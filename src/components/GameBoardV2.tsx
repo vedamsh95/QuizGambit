@@ -577,7 +577,7 @@ export default function GameBoardV2({
           {onExit && (
             <button
               onClick={onExit}
-              className="flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors"
+              className="flex items-center gap-1.5 text-xs font-bold text-plum hover:text-soft-purple transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Exit</span>
@@ -635,7 +635,7 @@ export default function GameBoardV2({
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen((o) => !o)}
-            className="text-xs font-bold text-warm-gray/60 hover:text-plum"
+            className="text-xs font-bold text-soft-purple hover:text-soft-purple/80 transition-colors"
           >
             {sidebarOpen ? "Hide Scores" : "Scores"}
           </button>

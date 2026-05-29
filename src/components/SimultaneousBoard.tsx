@@ -66,6 +66,10 @@ function getAvatarColor(name: string, idx: number) {
   return colors[idx % colors.length];
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function SimultaneousBoard({
@@ -73,6 +77,33 @@ export default function SimultaneousBoard({
   playerId,
   playerName,
 }: SimultaneousBoardProps) {
+  // ── Stable identity: prefer prop if valid UUID, fallback to store ──
+  // This is the PERMANENT fix — guarantees a valid UUID at all times even if
+  // the prop becomes corrupted due to a yet-unidentified root cause.
+  const [effectivePlayerId] = useState<string>(() => {
+    if (playerId && UUID_RE.test(playerId)) {
+      return playerId;
+    }
+    const fallback = store.ensurePlayerId();
+    if (import.meta.env.DEV) {
+      console.error("[Simul] 🔴 Invalid playerId prop at mount — using stored fallback.", {
+        propValue: playerId,
+        propType: typeof playerId,
+        propLength: playerId?.length,
+        fallback,
+        localStorageRaw: localStorage.getItem("qb_pid"),
+      });
+    }
+    return fallback;
+  });
+
+  // Sync localStorage with resolved identity (keeps initializer pure)
+  useEffect(() => {
+    if (store.getPlayerId() !== effectivePlayerId) {
+      store.setPlayerId(effectivePlayerId);
+    }
+  }, [effectivePlayerId]);
+
   const [lobby, setLobby] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -87,19 +118,45 @@ export default function SimultaneousBoard({
   });
 
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [typedAnswer, setTypedAnswer] = useState("");
   const [submitStatus, setSubmitStatus] = useState<string | null>(null);
   const [answerTimings, setAnswerTimings] = useState<AnswerTiming[]>([]);
   const [isGameOver, setIsGameOver] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [questionError, setQuestionError] = useState("");
 
-
+  // TODO: remove always-on diagnostics once root cause of invalid playerId is found
+  // ── Diagnostic: trace playerId — CRITICAL, always on ──
+  const playerIdRef = useRef(playerId);
+  useEffect(() => {
+    const prev = playerIdRef.current;
+    const isValid = UUID_RE.test(playerId);
+    
+    // Always log if playerId changed or is invalid
+    if (playerId !== prev || !isValid) {
+      console.warn("[Simul] playerId changed or invalid:", {
+        current: playerId,
+        previous: prev,
+        type: typeof playerId,
+        length: playerId?.length,
+        isEmpty: playerId === "",
+        isUndefined: playerId === undefined,
+        isNull: playerId === null,
+        isValidUUID: isValid,
+        storedValue: store.getPlayerId(),
+        localStorageValue: localStorage.getItem("qb_pid"),
+        changed: playerId !== prev,
+      });
+      playerIdRef.current = playerId;
+    }
+  });
 
   // ── Sync state ref for onLobbyChange callback ────────────────────────
   const syncStateRef = useRef({
     lastQuestionId: null as string | null,
     lastBroadcastTick: 0,
     submitGuard: false,
+    closeCalledForQuestion: null as string | null,  // prevent duplicate force_close calls
   });
 
   // ── Realtime channel (single channel for presence + broadcast + postgres_changes) ──
@@ -107,7 +164,7 @@ export default function SimultaneousBoard({
     channelName: `simul:${code}`,
     enablePresence: true,
     presenceData: {
-      playerId,
+      playerId: effectivePlayerId,
       name: playerName || "Player",
       status: "connected" as const,
     },
@@ -126,10 +183,12 @@ export default function SimultaneousBoard({
         setGameState(newData.arena_state);
         if (newData.arena_state.phase === "PICKING") {
           setSelectedAnswer(null);
+          setTypedAnswer("");
           setSubmitStatus(null);
           setAnswerTimings([]);
           setBroadcastedAnswers(new Set());
           syncStateRef.current.submitGuard = false;
+          syncStateRef.current.closeCalledForQuestion = null;
         }
       }
     },
@@ -148,7 +207,7 @@ export default function SimultaneousBoard({
         if (exists) return prev;
         return [...prev, newAnswer].sort((a, b) => a.answer_time_ms - b.answer_time_ms);
       });
-      if (newAnswer.player_id === playerId) {
+      if (newAnswer.player_id === effectivePlayerId) {
         setSubmitStatus(newAnswer.is_correct ? "✅ Correct!" : "❌ Wrong");
       }
     },
@@ -163,13 +222,35 @@ export default function SimultaneousBoard({
     },
   });
 
+  // ── Delayed connection-lost banner (smoother UX than instant flash) ──
+  const [showDisconnected, setShowDisconnected] = useState(false);
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isConnected) {
+      // Only show banner after 5s of continuous disconnection
+      disconnectTimerRef.current = setTimeout(() => setShowDisconnected(true), 5000);
+    } else {
+      // Clear timer and hide banner immediately on reconnect
+      if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+      setShowDisconnected(false);
+    }
+    return () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+    };
+  }, [isConnected]);
+
   // Track broadcasted answers (optimistic, before DB confirmation)
   const [broadcastedAnswers, setBroadcastedAnswers] = useState<Set<string>>(new Set());
 
-  const isHost = lobby?.host_id === playerId;
+  const isHost = lobby?.host_id === effectivePlayerId;
   const cleanId = (id: any) => String(id || "").trim();
   const effectivePickerId = gameState.pickerId || players[0]?.id;
-  const isPicker = cleanId(playerId) === cleanId(effectivePickerId);
+  const isPicker = cleanId(effectivePlayerId) === cleanId(effectivePickerId);
   const pickerName = players.find((p) => cleanId(p.id) === cleanId(effectivePickerId))?.name || "Unknown";
   const activeQ = gameState.activeQuestion;
   const scoringType = gameState.scoringType || "RELATIVE";
@@ -203,6 +284,7 @@ export default function SimultaneousBoard({
     unsubs.push(
       onBroadcast("question:open", () => {
         setSelectedAnswer(null);
+        setTypedAnswer("");
         setSubmitStatus(null);
         setBroadcastedAnswers(new Set());
         syncStateRef.current.submitGuard = false;
@@ -213,10 +295,12 @@ export default function SimultaneousBoard({
       onBroadcast("phase:change", (payload: any) => {
         if (payload.phase === "PICKING") {
           setSelectedAnswer(null);
+          setTypedAnswer("");
           setSubmitStatus(null);
           setAnswerTimings([]);
           setBroadcastedAnswers(new Set());
           syncStateRef.current.submitGuard = false;
+          syncStateRef.current.closeCalledForQuestion = null;
         }
       })
     );
@@ -309,7 +393,7 @@ export default function SimultaneousBoard({
       if (!cancelled && playerData) {
         setPlayers(playerData);
 
-        const myRecord = playerData.find((p: any) => p.id === playerId);
+        const myRecord = playerData.find((p: any) => p.id === effectivePlayerId);
         if (!myRecord) {
           const existingByName = playerData.find(
             (p: any) => p.name.toLowerCase().trim() === (playerName || "").toLowerCase().trim()
@@ -318,7 +402,7 @@ export default function SimultaneousBoard({
             store.setPlayerId(existingByName.id);
           } else {
             await supabase.from("players").upsert(
-              { id: playerId, lobby_code: code, name: playerName || "Player", score: 0, metadata: {} },
+              { id: effectivePlayerId, lobby_code: code, name: playerName || "Player", score: 0, metadata: {} },
               { onConflict: "id" }
             );
           }
@@ -339,13 +423,65 @@ export default function SimultaneousBoard({
     if (!qId || syncStateRef.current.lastQuestionId === qId) return;
     syncStateRef.current.lastQuestionId = qId;
     setSelectedAnswer(null);
+    setTypedAnswer("");
     setSubmitStatus(null);
     setAnswerTimings([]);
     setBroadcastedAnswers(new Set());
     syncStateRef.current.submitGuard = false;
   }, [activeQ?.id]);
 
-  // Hydrate answer timings on RESULTS
+  // ── Polling fallback (only when realtime isn't connected) ───────────
+
+  const isConnectedRef = useRef(isConnected);
+  useEffect(() => { isConnectedRef.current = isConnected; });
+
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      // Skip polling when realtime channel is connected (avoid redundant DB calls)
+      if (isConnectedRef.current) return;
+
+      try {
+        // Fetch lobby state
+        const { data: lobbyData } = await supabase
+          .from("lobbies")
+          .select("*")
+          .eq("code", code)
+          .maybeSingle();
+
+        if (!lobbyData) return;
+
+        setLobby(lobbyData);
+        if (lobbyData.arena_state) setGameState(lobbyData.arena_state);
+
+        // Fetch players
+        const { data: playerData } = await supabase
+          .from("players")
+          .select("*")
+          .eq("lobby_code", code)
+          .order("score", { ascending: false });
+
+        if (playerData) setPlayers(playerData);
+
+        // Fetch answer timings only if in RESULTS phase
+        const qId = lobbyData?.arena_state?.activeQuestion?.id;
+        if (lobbyData?.arena_state?.phase === "RESULTS" && qId) {
+          const { data: answers } = await supabase
+            .from("simultaneous_answers")
+            .select("*")
+            .eq("lobby_code", code)
+            .eq("question_id", qId)
+            .order("rank", { ascending: true });
+          if (answers) setAnswerTimings(answers);
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+    }, 3000);
+
+    return () => clearInterval(poll);
+  }, [code]);
+
+  // Hydrate answer timings on RESULTS (realtime-driven, fast path)
   useEffect(() => {
     if (gameState.phase !== "RESULTS" || !activeQ?.id) return;
 
@@ -403,7 +539,15 @@ export default function SimultaneousBoard({
       }
 
       if (rawRemaining <= -2 && gameState.phase === "OPEN") {
-        await supabase.rpc("force_close_simultaneous_question", { p_lobby_code: code });
+        const qId = gameState.activeQuestion?.id;
+        if (qId && syncStateRef.current.closeCalledForQuestion !== qId) {
+          syncStateRef.current.closeCalledForQuestion = qId;
+          try {
+            await supabase.rpc("force_close_simultaneous_question", { p_lobby_code: code });
+          } catch {
+            // RPC may not exist (migration not run) — don't retry
+          }
+        }
       }
     }, 500);
 
@@ -418,7 +562,7 @@ export default function SimultaneousBoard({
         isPicker,
         phase: gameState.phase,
         pickerId: gameState.pickerId,
-        playerId,
+        playerId: effectivePlayerId,
       });
       return;
     }
@@ -473,22 +617,73 @@ export default function SimultaneousBoard({
     setSelectedAnswer(answer);
     setSubmitStatus("Submitting...");
 
+    const startTime = activeQ.questionStartTime;
+    let clientTimeMs = startTime
+      ? Math.max(0, Date.now() - startTime)
+      : 0;
+    // Safety: ensure clientTimeMs is a valid integer (NaN/Infinity → 0)
+    if (!Number.isFinite(clientTimeMs)) clientTimeMs = 0;
+    clientTimeMs = Math.round(clientTimeMs);
+
+    // ── effectivePlayerId is guaranteed valid (see mount-time initialization) ──
+    // No need for safePlayerId check — use directly.
+
     broadcast("answer:submit", {
-      playerId,
+      playerId: effectivePlayerId,
       questionId: activeQ.id,
     });
 
-    const startTime = activeQ.questionStartTime;
-    const clientTimeMs = startTime
-      ? Math.max(0, Date.now() - startTime)
-      : 0;
+    // ── Log exact RPC parameters — always on for debugging ─────
+    if (import.meta.env.DEV) {
+      console.log("[Simul] 📤 RPC submit_simultaneous_answer params:", {
+        p_lobby_code: code,
+        p_player_id: effectivePlayerId,
+        p_answer_text: answer,
+        p_client_time_ms: clientTimeMs,
+      });
+    }
 
-    const { data, error } = await supabase.rpc("submit_simultaneous_answer", {
-      p_lobby_code: code,
-      p_player_id: playerId,
-      p_answer_text: answer,
-      p_client_time_ms: clientTimeMs,
-    });
+    const callRpc = async (attempt: number): Promise<{ data: any; error: any }> => {
+      // Don't retry if component has reset (guard was cleared externally)
+      if (!syncStateRef.current.submitGuard) {
+        if (import.meta.env.DEV) console.warn("[Simul] RPC aborted — guard cleared");
+        return { data: null, error: { message: "Request cancelled", code: "CANCELLED" } };
+      }
+
+      const result = await supabase.rpc("submit_simultaneous_answer", {
+        p_lobby_code: code,
+        p_player_id: effectivePlayerId,
+        p_answer_text: answer,
+        p_client_time_ms: clientTimeMs,
+      });
+
+      // Log FULL error details — always on (critical for debugging)
+      if (result.error) {
+        console.error("[Simul] ❌ RPC error (attempt " + attempt + "):", {
+          code: result.error.code,
+          message: result.error.message,
+          details: result.error.details,
+          hint: result.error.hint,
+          status: (result as any).status,
+          statusText: (result as any).statusText,
+        });
+      }
+
+      // Retry once on transient errors (network loss, function not found)
+      if (result.error && attempt === 1 && (
+        result.error.code === "PGRST202" ||
+        result.error.message?.includes("fetch failed") ||
+        result.error.message?.includes("Failed to fetch") ||
+        result.error.message?.includes("NetworkError")
+      )) {
+        if (import.meta.env.DEV) console.warn("[Simul] RPC attempt 1 failed, retrying in 500ms...");
+        await new Promise(r => setTimeout(r, 500));
+        return callRpc(2);
+      }
+      return result;
+    };
+
+    const { data, error } = await callRpc(1);
 
     if (error) {
       syncStateRef.current.submitGuard = false;
@@ -498,6 +693,18 @@ export default function SimultaneousBoard({
         setSubmitStatus("Answer received");
         return;
       }
+
+      // 22P02 = invalid input syntax (bad UUID, etc)
+      // CANCELLED = request aborted (component reset during retry)
+      if (error.code === "22P02" || error.code === "PGRST202" || error.message?.includes("Not Found") || error.message?.includes("invalid input")) {
+        setSubmitStatus("Answer failed — please refresh and try again");
+        return;
+      }
+      if (error.code === "CANCELLED") {
+        // Request aborted during retry — silently reset, no error message
+        return;
+      }
+
       setSubmitStatus("Network issue. Try again.");
       return;
     }
@@ -517,7 +724,7 @@ export default function SimultaneousBoard({
   };
 
   const nextTurn = async () => {
-    if (!isPicker && playerId !== answerTimings.find((a) => a.rank === 1)?.player_id) return;
+    if (!isPicker && effectivePlayerId !== answerTimings.find((a) => a.rank === 1)?.player_id) return;
 
     broadcast("phase:change", { phase: "PICKING" });
 
@@ -547,7 +754,7 @@ export default function SimultaneousBoard({
           name: p.name,
           score: p.score || 0,
         }))}
-        playerId={playerId}
+        playerId={effectivePlayerId}
         onPlayAgain={async () => {
           if (isHost) {
             await supabase.rpc("reset_lobby_for_new_game", { p_lobby_code: code });
@@ -555,7 +762,7 @@ export default function SimultaneousBoard({
           window.location.reload();
         }}
         onLeave={async () => {
-          await supabase.from("players").delete().eq("id", playerId).eq("lobby_code", code);
+          await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
           store.clearArenaHostCode();
           window.location.href = "/";
         }}
@@ -565,8 +772,8 @@ export default function SimultaneousBoard({
 
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col">
-      {/* Reconnection Banner */}
-      {!isConnected && (
+      {/* Reconnection Banner — only shown after 3s of disconnection (no flash on brief WebSocket reconnects) */}
+      {showDisconnected && (
         <div className="sticky top-0 z-50 bg-peach-light border-b border-peach/30 px-4 py-3 flex items-center justify-center gap-3">
           <WifiOff className="w-4 h-4 text-peach animate-pulse" />
           <span className="text-peach text-xs font-bold uppercase tracking-widest">
@@ -594,13 +801,13 @@ export default function SimultaneousBoard({
           <button
             onClick={async () => {
               if (confirm("Leave the game?")) {
-                broadcast("player:leave", { playerId });
-                await supabase.from("players").delete().eq("id", playerId).eq("lobby_code", code);
+                broadcast("player:leave", { playerId: effectivePlayerId });
+                await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
                 store.clearArenaHostCode();
                 window.location.href = "/";
               }
             }}
-            className="flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors"
+            className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Leave</span>
@@ -616,16 +823,19 @@ export default function SimultaneousBoard({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Connection status */}
+          {/* Connection status — uses delayed showDisconnected to avoid flashing on brief WebSocket reconnects */}
           <div className="flex items-center gap-1.5 text-[10px] font-bold">
-            {isConnected ? (
-              <Wifi className="w-3.5 h-3.5 text-mint" />
+            {showDisconnected ? (
+              <>
+                <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
+                <span className="text-peach">Reconnecting</span>
+              </>
             ) : (
-              <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
+              <>
+                <Wifi className="w-3.5 h-3.5 text-mint" />
+                <span className="text-mint">{onlineCount} online</span>
+              </>
             )}
-            <span className={isConnected ? "text-mint" : "text-peach"}>
-              {isConnected ? `${onlineCount} online` : "Reconnecting"}
-            </span>
           </div>
 
           {/* Picker indicator */}
@@ -684,43 +894,82 @@ export default function SimultaneousBoard({
                 {/* Question text */}
                 <h2 className="font-outfit font-extrabold text-2xl md:text-3xl text-plum text-center leading-tight">
                   {activeQ.question_text}
-                </h2>
+                </h2>                        {/* MCQ Options (OPEN phase) */}
+                        {gameState.phase === "OPEN" && activeQ.options && Array.isArray(activeQ.options) && activeQ.options.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {activeQ.options.map((opt: string, i: number) => (
+                              <ClayButton
+                                key={i}
+                                variant={selectedAnswer === opt ? "primary" : "secondary"}
+                                className="justify-start gap-2 !font-outfit !font-bold"
+                                onClick={() => handleAnswer(opt)}
+                                disabled={!!selectedAnswer}
+                              >
+                                <span className="opacity-40">{String.fromCharCode(65 + i)}.</span>
+                                {opt}
+                              </ClayButton>
+                            ))}
+                          </div>
+                        ) : gameState.phase === "OPEN" && !selectedAnswer ? (
+                          /* No MCQ options — show text input + Skip button */
+                          <div className="space-y-3">
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={typedAnswer}
+                                onChange={(e) => setTypedAnswer(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter" && typedAnswer.trim()) handleAnswer(typedAnswer.trim()); }}
+                                placeholder="Type your answer..."
+                                className="flex-1 px-4 py-3 rounded-2xl border-2 border-warm-gray/20 bg-warm-white font-outfit font-bold text-plum placeholder:text-warm-gray/40 focus:outline-none focus:border-soft-purple/40 transition-colors"
+                                autoFocus
+                              />
+                              <ClayButton
+                                variant="primary"
+                                onClick={() => typedAnswer.trim() && handleAnswer(typedAnswer.trim())}
+                                disabled={!typedAnswer.trim()}
+                              >
+                                Submit
+                              </ClayButton>
+                            </div>
+                            <button
+                              onClick={() => handleAnswer("[SKIP]")}
+                              className="w-full text-center text-warm-gray/50 hover:text-peach text-xs font-bold uppercase tracking-widest py-1 transition-colors"
+                            >
+                              Skip (Don't Know)
+                            </button>
+                          </div>
+                        ) : null}                        {/* Waiting message */}
+                        {selectedAnswer && gameState.phase === "OPEN" && (
+                          <div className="text-center space-y-3">
+                            <div className="flex items-center justify-center gap-2 text-warm-gray/60 font-medium text-sm">
+                              <Clock className="w-4 h-4" />
+                              {submitStatus || "Waiting for other players..."}
+                            </div>
+                          </div>
+                        )}
 
-                {/* MCQ Options (OPEN phase) */}
-                {gameState.phase === "OPEN" && activeQ.options && Array.isArray(activeQ.options) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {activeQ.options.map((opt: string, i: number) => (
-                      <ClayButton
-                        key={i}
-                        variant={selectedAnswer === opt ? "primary" : "secondary"}
-                        className="justify-start gap-2 !font-outfit !font-bold"
-                        onClick={() => handleAnswer(opt)}
-                        disabled={!!selectedAnswer}
-                      >
-                        <span className="opacity-40">{String.fromCharCode(65 + i)}.</span>
-                        {opt}
-                      </ClayButton>
-                    ))}
-                  </div>
-                )}
-
-                {/* Waiting message */}
-                {selectedAnswer && gameState.phase === "OPEN" && (
-                  <div className="text-center space-y-3">
-                    <div className="flex items-center justify-center gap-2 text-warm-gray/60 font-medium text-sm">
-                      <Clock className="w-4 h-4" />
-                      {submitStatus || "Waiting for other players..."}
-                    </div>
-                    {isHost && timeLeft <= -3 && (
-                      <button
-                        onClick={() => nextTurn()}
-                        className="text-peach text-xs font-bold uppercase tracking-widest border border-peach/30 px-4 py-2 rounded-full hover:bg-peach/10 transition-colors"
-                      >
-                        Force Next Round
-                      </button>
-                    )}
-                  </div>
-                )}
+                        {/* Timer expired — Close button for ALL players */}
+                        {gameState.phase === "OPEN" && timeLeft <= 0 && (
+                          <div className="text-center space-y-2">
+                            <p className="text-peach text-xs font-bold uppercase tracking-widest">
+                              Time's up!
+                            </p>
+                            <ClayButton
+                              variant="secondary"
+                              className="!text-peach !border-peach/30"
+                              onClick={async () => {
+                                try {
+                                  await supabase.rpc("force_close_simultaneous_question", { p_lobby_code: code });
+                                } catch (err: any) {
+                                  console.error("[Simul] force_close error:", err);
+                                  setQuestionError(err?.message || "Failed to close question");
+                                }
+                              }}
+                            >
+                              Close Question
+                            </ClayButton>
+                          </div>
+                        )}
 
                 {/* ── RESULTS ─────────────────────────────────────── */}
                 {gameState.phase === "RESULTS" && (
@@ -734,7 +983,7 @@ export default function SimultaneousBoard({
                       {answerTimings.map((t) => (
                         <ClayCard
                           key={t.player_id}
-                          elevation={t.player_id === playerId ? "elevated" : "flat"}
+                          elevation={t.player_id === effectivePlayerId ? "elevated" : "flat"}
                           padding="sm"
                           className="flex items-center justify-between"
                         >
@@ -759,7 +1008,7 @@ export default function SimultaneousBoard({
                       ))}
                     </div>
 
-                    {(isPicker || playerId === answerTimings.find((a) => a.rank === 1)?.player_id) && (
+                    {(isPicker || effectivePlayerId === answerTimings.find((a) => a.rank === 1)?.player_id) && (
                       <ClayButton
                         variant="primary"
                         className="w-full"
@@ -818,7 +1067,7 @@ export default function SimultaneousBoard({
                           return (
                             <ClayTile
                               key={qId}
-                              state={isRevealed ? "revealed" : canClick ? "unrevealed" : "disabled"}
+                              state={isRevealed ? "revealed" : "unrevealed"}
                               color={color}
                               points={q.points}
                               answer={isRevealed ? (q.answer_text || "").slice(0, 24) : undefined}

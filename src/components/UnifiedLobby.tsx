@@ -343,10 +343,16 @@ export default function UnifiedLobby() {
     pollRef.current = setInterval(async () => {
       const { data } = await supabase
         .from("lobbies")
-        .select("mode, status, settings")
+        .select("*")
         .eq("code", code)
         .single();
       if (!data) return;
+
+      // Always update the full lobby state (fixes stale settings)
+      setLobby((prev: any) => {
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(data)) return data;
+        return prev;
+      });
 
       // Status changed to PLAYING — navigate to game board
       if (
@@ -356,8 +362,6 @@ export default function UnifiedLobby() {
         const ps = derivePlayStyle(data.mode, data.settings);
         if (isBuzzer5x5(data.mode, ps) && !isHost) {
           navigate(`/buzzer/${code}`);
-        } else if (data.mode === "SIMULTANEOUS") {
-          navigate(`/play/${code}`);
         } else {
           navigate(`/play/${code}`);
         }
@@ -383,6 +387,23 @@ export default function UnifiedLobby() {
       }
       if (data.settings?.play_style && data.settings.play_style !== lobbyRef.current?.settings?.play_style) {
         setLobbyPlayStyle(data.settings.play_style);
+      }
+
+      // ── Player polling fallback: re-fetch players list ──────────────
+      // When realtime postgres_changes aren't delivering (e.g. players
+      // not in supabase_realtime), this keeps the host's player list fresh.
+      const { data: playerData } = await supabase
+        .from("players")
+        .select("*")
+        .eq("lobby_code", code);
+      if (playerData) {
+        const sorted = playerData.sort((a: any, b: any) =>
+          (a.joined_at || "").localeCompare(b.joined_at || "")
+        );
+        setPlayers((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(sorted)) return sorted;
+          return prev;
+        });
       }
     }, 3000);
 
@@ -531,18 +552,21 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = lobby?.settings || {};
+      // ── Read settings DIRECTLY from DB (not from stale lobby state) ───
+      const { data: freshLobby } = await supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", code)
+        .single();
+
+      const s = freshLobby?.settings || lobby?.settings || {};
 
       // ── Build categories with question data ──────────────────────────
-      // (mirrors handleStartGame — categories_library has .data arrays
-      //  with the actual questions; we store them in settings so
-      //  SimultaneousBoard can read them without querying the DB)
 
       let catsToProcess: { id: string; name: string; round: number }[] = [];
       const draftPicks: any[] = s.draftPicks || [];
 
       if (draftPicks.length > 0) {
-        // PLAYER_DRAFT mode — use draft picks
         const seen = new Set<string>();
         for (const pick of draftPicks) {
           if (!seen.has(pick.categoryId)) {
@@ -555,7 +579,6 @@ export default function UnifiedLobby() {
           }
         }
       } else {
-        // HOST_PICK mode — use selectedCategories
         const selCats: Record<number, any[]> = s.selectedCategories || {};
         const seen = new Set<string>();
         for (const [roundStr, cats] of Object.entries(selCats)) {
@@ -569,6 +592,8 @@ export default function UnifiedLobby() {
         }
       }
 
+      console.log("[Simul] handleStartSimultaneousGame catsToProcess:", catsToProcess.length, catsToProcess.map(c => c.name));
+
       // Match against allCategories (which carry .data with questions)
       const simultaneousCategories = catsToProcess.map(({ id, name, round }) => {
         const fullCat = allCategories.find((c) => c.id === id);
@@ -579,6 +604,9 @@ export default function UnifiedLobby() {
           data: fullCat?.data || [],
         };
       });
+
+      // ── Store categories FIRST (before RPC — so SimultaneousBoard can read them) ──
+      await updateLobbySetting("simultaneous_categories", simultaneousCategories);
 
       // ── Call the start_simultaneous_session RPC to init game state ────
 
@@ -599,15 +627,29 @@ export default function UnifiedLobby() {
         }
       );
 
-      if (sessionErr || sessionResult?.success === false) {
-        const msg = sessionResult?.error || sessionErr?.message || "Failed to initialize game session";
+      console.log("[Simul] start_simultaneous_session result:", sessionResult);
+
+      if (sessionErr) {
+        // Detect 404 (RPC not deployed — migrations not run)
+        if (sessionErr.code === 'PGRST202' || sessionErr.message?.includes('404') || sessionErr.message?.includes('not found')) {
+          const msg = "Database functions not deployed. Run the SQL migrations in Supabase SQL Editor first.";
+          setStartError(msg);
+          setIsStarting(false);
+          return;
+        }
+        const msg = sessionErr.message || "Failed to initialize game session";
         setStartError(msg);
         setIsStarting(false);
-        throw new Error(msg);
+        return;
       }
 
-      // Store categories with questions AFTER RPC succeeds (so SimultaneousBoard can read them)
-      await updateLobbySetting("simultaneous_categories", simultaneousCategories);
+      if (sessionResult?.success === false) {
+        const msg = sessionResult?.error || "Failed to initialize game session";
+        console.error("[Simul] RPC failed:", msg);
+        setStartError(msg);
+        setIsStarting(false);
+        return;
+      }
 
       // Update lobby mode + status
       await supabase.from("lobbies").update({
@@ -621,7 +663,6 @@ export default function UnifiedLobby() {
       const msg = err?.message || "Failed to start simultaneous game.";
       setStartError(msg);
       setIsStarting(false);
-      throw err;
     }
   }, [code, isStarting, lobby, allCategories, updateLobbySetting, broadcast, navigate]);
 
@@ -718,7 +759,7 @@ export default function UnifiedLobby() {
       <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/80 backdrop-blur-sm">
         <button
           onClick={() => navigate("/")}
-          className="flex items-center gap-1.5 text-xs font-bold text-warm-gray/60 hover:text-plum transition-colors"
+          className="flex items-center gap-1.5 text-xs font-bold text-plum hover:text-soft-purple transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           {t('lobby.home')}
@@ -745,9 +786,9 @@ export default function UnifiedLobby() {
 
           <button
             onClick={handleLeave}
-            className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-plum/50 hover:text-peach transition-colors"
+            className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-peach hover:text-peach/80 transition-colors"
           >
-            <LogOut className="w-3 h-3" />
+            <LogOut className="w-3.5 h-3.5" />
             Leave
           </button>
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Medal, Home, Play, RotateCcw, Clock, Target, Zap } from "lucide-react";
+import { Trophy, Medal, Play, RotateCcw, Clock, Target, Zap, ArrowLeft } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase } from "../lib/supabase";
 
@@ -282,9 +282,9 @@ export default function GameOver({
         {onLeave && (
           <button
             onClick={onLeave}
-            className="px-8 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/5 font-black text-sm uppercase tracking-widest transition-all flex items-center gap-3"
+            className="px-8 py-4 rounded-2xl bg-soft-purple/10 hover:bg-soft-purple/20 text-soft-purple border border-soft-purple/30 font-black text-sm uppercase tracking-widest transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
           >
-            <Home className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" />
             Exit to Home
           </button>
         )}

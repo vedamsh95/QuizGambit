@@ -612,7 +612,7 @@ export default function BuzzerPlayerView() {
           )}
           <span className="text-[10px] font-bold text-warm-gray/60">{code}</span>
           {phase === "PLAY" && (
-            <button onClick={handleLeave} className="text-[10px] font-bold text-warm-gray/60 hover:text-peach transition-colors">
+            <button onClick={handleLeave} className="text-[10px] font-bold text-peach hover:text-peach/80 transition-colors uppercase tracking-wider">
               Leave
             </button>
           )}
@@ -864,7 +864,7 @@ export default function BuzzerPlayerView() {
         <div>
           <button
             onClick={() => setShowLeaderboard((o) => !o)}
-            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-warm-gray/70 hover:text-plum transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-soft-purple hover:text-soft-purple/80 transition-colors uppercase tracking-wider"
           >
             <Trophy className="w-3.5 h-3.5" />
             {showLeaderboard ? "Hide Leaderboard" : `Leaderboard (${players.length})`}

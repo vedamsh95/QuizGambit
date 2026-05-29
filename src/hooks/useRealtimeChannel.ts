@@ -128,6 +128,10 @@ export function useRealtimeChannel(
   )
   // Guard against duplicate subscription setups
   const subscribedRef = useRef(false)
+  // Reconnect tracking — logs warning on rapid close/reconnect loops
+  const reconnectCountRef = useRef(0)
+  // Track intentional cleanup (StrictMode unmount) to suppress CLOSED warnings
+  const isCleaningUpRef = useRef(false)
 
   // ── Callback refs — always dispatch to latest callbacks (fixes stale closures) ──
 
@@ -176,9 +180,8 @@ export function useRealtimeChannel(
         // Queue safe events (player:join, player:leave) for delivery on connect
         if (event === 'player:join' || event === 'player:leave') {
           pendingBroadcastsRef.current.push({ event, payload })
-        } else {
-          console.warn(`[Realtime] Cannot broadcast "${event}" — channel not connected`)
         }
+        // Non-critical broadcasts silently dropped — channel will reconnect shortly
       }
     },
     [] // Stable ref-based, no dependencies needed
@@ -333,8 +336,24 @@ export function useRealtimeChannel(
     // ── Connection lifecycle ─────────────────────────────────────────────
 
     channel.subscribe(async (status: string) => {
-      if (status === 'SUBSCRIBED') {
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // Suppress warning if this close is from our own cleanup (StrictMode unmount)
+        if (isCleaningUpRef.current) {
+          isCleaningUpRef.current = false
+          return
+        }
+        reconnectCountRef.current += 1
+        const count = reconnectCountRef.current
+        if (count <= 5) {
+          console.warn(`[Realtime] Channel "${channelName}" ${status} (reconnect #${count})`)
+        } else if (count % 10 === 0) {
+          console.warn(`[Realtime] Channel "${channelName}" ${status} (reconnect #${count}) — frequent disconnects; check supabase_realtime publication`)
+        }
+        isConnectedRef.current = false
+        setIsConnected(false)
+      } else if (status === 'SUBSCRIBED') {
         console.log(`[Realtime] Channel "${channelName}" connected`)
+        reconnectCountRef.current = 0
         isConnectedRef.current = true
         setIsConnected(true)
 
@@ -351,20 +370,14 @@ export function useRealtimeChannel(
 
         // Re-fetch stale state after reconnection
         onReconnectRef.current?.()
-      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-        console.warn(`[Realtime] Channel "${channelName}" ${status}`)
-        isConnectedRef.current = false
-        setIsConnected(false)
-      } else if (status === 'TIMED_OUT') {
-        console.warn(`[Realtime] Channel "${channelName}" timed out`)
-        isConnectedRef.current = false
-        setIsConnected(false)
       }
     })
 
     return () => {
+      // Mark as intentional cleanup so the CLOSED handler doesn't warn
+      // (handles StrictMode double-mount teardown without console spam)
+      isCleaningUpRef.current = true
       subscribedRef.current = false
-      // Clear stale broadcast handlers and pending queue on channel teardown
       broadcastHandlersRef.current.clear()
       pendingBroadcastsRef.current = []
       isConnectedRef.current = false
