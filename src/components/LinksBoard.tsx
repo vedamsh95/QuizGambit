@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
@@ -85,6 +86,7 @@ const SVG_CIRCUMFERENCE = 2 * Math.PI * 34; // r=34 stroke circle circumference
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function LinksBoard({ code, playerId, playerName }: LinksBoardProps) {
+  const { t } = useTranslation();
   // ── Stable identity ──────────────────────────────────────────────────
   const [effectivePlayerId] = useState<string>(() => {
     if (playerId && UUID_RE.test(playerId)) return playerId;
@@ -546,13 +548,13 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
       const lower = word.toLowerCase().trim();
       if (!/^[a-z]{3,15}$/.test(lower)) {
-        return { type: "invalid" as const, message: "Letters only, 3-15 chars" };
+        return { type: "invalid" as const, message: t('links.lettersOnly') };
       }
 
       // Check required letters
       for (const letter of letters) {
         if (!lower.includes(letter.toLowerCase())) {
-          return { type: "missing" as const, message: `Missing "${letter}"` };
+          return { type: "missing" as const, message: t('links.missingLetter', { letter }) };
         }
       }
 
@@ -561,13 +563,13 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
         const claimer = claimedWords.find((w) => w.word === lower);
         return {
           type: "used" as const,
-          message: claimer ? `${claimer.player_name} already claimed it` : "Already used",
+          message: claimer ? t('links.alreadyClaimedBy', { name: claimer.player_name }) : t('links.alreadyUsed'),
         };
       }
 
       return { type: "valid" as const };
     },
-    [letters, usedWords, claimedWords]
+    [letters, usedWords, claimedWords, t]
   );
 
   // ── Handle typed word changes ────────────────────────────────────────
@@ -596,13 +598,13 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
     });
 
     if (error) {
-      setLetterSelectError(error.message || "Failed to select letter");
+      setLetterSelectError(error.message || t('links.wordSubmitFailed'));
       setSelectedLetter(null);
       return;
     }
 
     if (data?.success === false) {
-      setLetterSelectError(data.error || "Cannot select this letter");
+      setLetterSelectError(data.error || t('links.wordRejected'));
       setSelectedLetter(null);
       return;
     }
@@ -630,7 +632,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
     const targetIds = otherPlayers.map((p) => p.id);
     const missing = targetIds.filter((id) => !poisonAssignments[id]);
     if (missing.length > 0) {
-      setPoisonError("Assign a poison letter for each opponent");
+      setPoisonError(t('links.assignAllPoisons'));
       return;
     }
 
@@ -643,12 +645,12 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
     });
 
     if (error) {
-      setPoisonError(error.message || "Failed to assign poisons");
+      setPoisonError(error.message || t('links.wordSubmitFailed'));
       return;
     }
 
     if (data?.success === false) {
-      setPoisonError(data.error || "Cannot assign poisons");
+      setPoisonError(data.error || t('links.wordRejected'));
       return;
     }
 
@@ -668,7 +670,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
     submitGuardRef.current = true;
     setIsSubmitting(true);
-    setSubmitStatus("Claiming...");
+    setSubmitStatus(t('links.wordClaiming'));
 
     // Optimistic broadcast
     const tempId = `temp-${Date.now()}`;
@@ -702,7 +704,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
       // Remove optimistic word
       setClaimedWords((prev) => prev.filter((w) => w.id !== tempId));
       setTypedWord(word);
-      setSubmitStatus(error.message || "Submit failed");
+      setSubmitStatus(error.message || t('links.wordSubmitFailed'));
       setTimeout(() => setSubmitStatus(null), 3000);
       return;
     }
@@ -712,13 +714,13 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
       setTypedWord(word);
 
       if (data.error_code === "ALREADY_USED") {
-        setWordFeedback({ type: "used", message: "Already claimed!" });
-        setSubmitStatus("Already taken!");
+        setWordFeedback({ type: "used", message: t('links.wordAlreadyClaimed') });
+        setSubmitStatus(t('links.wordAlreadyTaken'));
       } else if (data.error_code === "MISSING_LETTER") {
-        setWordFeedback({ type: "missing", message: data.error || "Missing letter" });
-        setSubmitStatus(data.error || "Missing letter");
+        setWordFeedback({ type: "missing", message: data.error || t('links.wordMissingLetter') });
+        setSubmitStatus(data.error || t('links.wordMissingLetter'));
       } else {
-        setSubmitStatus(data.error || "Rejected");
+        setSubmitStatus(data.error || t('links.wordRejected'));
       }
       setTimeout(() => setSubmitStatus(null), 3000);
       return;
@@ -736,7 +738,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
       setTimeout(() => setPoisonReveal((p) => p && p.show ? { ...p, show: false } : null), 3000);
     }
 
-    setSubmitStatus(data.eliminated ? "💀 Eliminated!" : `+${data.points} pts`);
+    setSubmitStatus(data.eliminated ? t('links.wordEliminated') : t('links.wordPoints', { pts: data.points }));
     setTimeout(() => setSubmitStatus(null), 2000);
 
     // Broadcast word claim
@@ -759,7 +761,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
   // ── Leave handler ────────────────────────────────────────────────────
 
   const handleLeave = async () => {
-    if (confirm("Leave the game?")) {
+    if (confirm(t('links.leaveGame'))) {
       broadcast("player:leave", { playerId: effectivePlayerId });
       await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
       store.clearArenaHostCode();
@@ -799,7 +801,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
   if (!lobby) {
     return (
       <div className="min-h-screen bg-clay-cream flex items-center justify-center">
-        <div className="text-warm-gray/60 font-medium text-sm animate-pulse">Loading LINKS...</div>
+        <div className="text-warm-gray/60 font-medium text-sm animate-pulse">{t('links.loading')}</div>
       </div>
     );
   }
@@ -812,9 +814,8 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
         {/* Header */}
         <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80">
           <button onClick={handleLeave} className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80">
-            <ArrowLeft className="w-3.5 h-3.5" /> Leave
-          </button>
-          <span className="font-outfit font-black text-lg text-plum">🔗 LINKS</span>
+            <ArrowLeft className="w-3.5 h-3.5" /> {t('links.leaveGame')}
+          </button>                <span className="font-outfit font-black text-lg text-plum">🔗 {t('links.title')}</span>
           <span className="text-[10px] font-mono text-warm-gray/50">{code}</span>
         </div>
 
@@ -822,10 +823,10 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
           {/* Trophy */}
           <div className="text-center space-y-2">
             <Trophy className="w-16 h-16 mx-auto text-butter" />
-            <h1 className="font-outfit font-black text-3xl text-plum">Game Over!</h1>
+            <h1 className="font-outfit font-black text-3xl text-plum">{t('gameOver.title')}</h1>
             <p className="text-sm text-warm-gray/60">
-              Letters: {letters.join(" + ")}
-              {poisonEnabled && " · Poison Mode"}
+              {t('links.letters')} {letters.join(" + ")}
+              {poisonEnabled && ` · ${t('links.poisonOn')}`}
             </p>
           </div>
 
@@ -851,7 +852,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                   <div className="flex-1 min-w-0">
                     <p className="font-outfit font-bold text-sm text-plum truncate">{p.name}</p>
                     <p className="text-[10px] text-warm-gray/50">
-                      {words.length} word{words.length !== 1 ? "s" : ""}
+                      {words.length} {words.length === 1 ? t('links.word') : t('links.words')}
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -872,7 +873,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
           {/* Word cloud */}
           <div className="w-full max-w-md">
-            <h3 className="text-xs font-black text-warm-gray/60 uppercase tracking-widest mb-3">All Words</h3>
+            <h3 className="text-xs font-black text-warm-gray/60 uppercase tracking-widest mb-3">{t('links.allWords')}</h3>
             <div className="flex flex-wrap gap-2">
               {claimedWords.map((w) => {
                 const color = getPlayerColorByName(w.player_id, players);
@@ -900,7 +901,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               window.location.href = `/lobby/${code}?from=game`;
             }}
           >
-            Return to Lobby
+            {t('links.returnToLobby')}
           </ClayButton>
         </div>
       </div>
@@ -916,7 +917,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
         <div className="sticky top-0 z-50 bg-peach-light border-b border-peach/30 px-4 py-3 flex items-center justify-center gap-3">
           <WifiOff className="w-4 h-4 text-peach animate-pulse" />
           <span className="text-peach text-xs font-bold uppercase tracking-widest">
-            Connection lost — reconnecting...
+            {t('links.connectionLost')}
           </span>
         </div>
       )}
@@ -934,9 +935,9 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
             className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Leave</span>
+            <span className="hidden sm:inline">{t('lobby.leave')}</span>
           </button>
-          <span className="font-outfit font-black text-lg text-plum">🔗 LINKS</span>
+          <span className="font-outfit font-black text-lg text-plum">🔗 {t('links.title')}</span>
           <span className="text-[10px] font-mono text-warm-gray/50 hidden sm:inline">{code}</span>
         </div>
 
@@ -946,12 +947,12 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
             {showDisconnected ? (
               <>
                 <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
-                <span className="text-peach">Reconnecting</span>
+                <span className="text-peach">{t('game.reconnecting')}</span>
               </>
             ) : (
               <>
                 <Wifi className="w-3.5 h-3.5 text-mint" />
-                <span className="text-mint">{onlineCount} online</span>
+                <span className="text-mint">{t('links.online', { count: onlineCount })}</span>
               </>
             )}
           </div>
@@ -959,12 +960,12 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
           {/* Phase badge */}
           <ClayBadge color="purple" dot>
             {phase === "LETTER_SELECT"
-              ? "Pick Letter"
+              ? t('links.phaseLetterSelect')
               : phase === "POISON_SETUP"
-                ? "Set Poison"
+                ? t('links.phasePoisonSetup')
                 : phase === "PLAYING"
-                  ? "Playing"
-                  : "Results"}
+                  ? t('links.phasePlaying')
+                  : t('links.phaseResults')}
           </ClayBadge>
         </div>
       </div>
@@ -985,11 +986,10 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
         {phase !== "LETTER_SELECT" && phase !== "POISON_SETUP" && phase !== "PLAYING" && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4 text-center">
             <p className="text-sm text-warm-gray/50">
-              Unknown phase: <code className="text-peach font-mono text-xs">{JSON.stringify(phase)}</code>
+              {t('links.unknownPhase')} <code className="text-peach font-mono text-xs">{JSON.stringify(phase)}</code>
             </p>
             <p className="text-xs text-warm-gray/40">
-              If you see this, arena_state may not be parsed correctly.
-              Open the browser console for diagnostics.
+              {t('links.unknownPhaseDesc')}
             </p>
             <div className="flex gap-2">
               <ClayButton
@@ -997,7 +997,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                 size="sm"
                 onClick={() => window.location.reload()}
               >
-                Reload Page
+                {t('links.reloadPage')}
               </ClayButton>
               {isHost && (
                 <ClayButton
@@ -1011,9 +1011,8 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                         roundDuration,
                       },
                     });
-                  }}
-                >
-                  Force Restart
+                  }}                  >
+                  {t('links.forceRestart')}
                 </ClayButton>
               )}
             </div>
@@ -1056,20 +1055,20 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                 }`}>
                   {letterSelectTimeLeft}
                 </span>
-                <span className="text-[9px] font-bold text-warm-gray/40 uppercase tracking-wider">sec</span>
+                <span className="text-[9px] font-bold text-warm-gray/40 uppercase tracking-wider">{t('links.sec')}</span>
               </div>
             </div>
 
             <div className="text-center space-y-2">
-              <h1 className="font-outfit font-black text-3xl text-plum">Pick Your Letter</h1>
+              <h1 className="font-outfit font-black text-3xl text-plum">{t('links.pickYourLetter')}</h1>
               <p className="text-sm text-warm-gray/60 max-w-sm">
-                Choose one letter. Every word you type must contain ALL chosen letters.
-                {players.length > 2 && ` ${players.length} players means ${players.length} letters required per word!`}
+                {t('links.pickLetterDesc')}
+                {players.length > 2 && ` ${t('links.playersLettersHint', { count: players.length })}`}
               </p>
               {lsTimerUrgent && !selectedLetter && (
                 <p className={`text-xs font-black mt-1 animate-pulse ${lsTimerCritical ? "text-peach" : "text-butter"}`}>
                   <Clock className="w-3 h-3 inline mr-1" />
-                  {lsTimerCritical ? "HURRY UP! Almost out of time!" : "Time is running out — pick quickly!"}
+                  {lsTimerCritical ? t('links.hurryUp') : t('links.timeRunningOut')}
                 </p>
               )}
             </div>
@@ -1082,11 +1081,11 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
             {selectedLetter ? (
               <div className="text-center space-y-4">
-                <p className="text-warm-gray/60 text-sm">You picked:</p>
+                <p className="text-warm-gray/60 text-sm">{t('links.youPicked')}</p>
                 <div className="w-24 h-24 rounded-3xl bg-soft-purple flex items-center justify-center shadow-lg animate-clay-pop mx-auto">
                   <span className="text-5xl font-outfit font-black text-white">{selectedLetter}</span>
                 </div>
-                <p className="text-xs text-warm-gray/50">Waiting for other players...</p>
+                <p className="text-xs text-warm-gray/50">{t('links.waitingOtherPlayers')}</p>
               </div>
             ) : (
               <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 max-w-lg">
@@ -1113,7 +1112,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
             {/* Selected letters so far — with reveal animation */}
             {Object.keys(playerLetters).length > 0 && (
               <div className="flex flex-wrap items-center gap-2 justify-center">
-                <span className="text-xs font-bold text-warm-gray/50">Letters:</span>
+                <span className="text-xs font-bold text-warm-gray/50">{t('links.letters')}</span>
                 {Object.entries(playerLetters).map(([pid, letter], i) => {
                   const p = players.find((pl) => pl.id === pid);
                   const color = getPlayerColorByName(pid, players);
@@ -1138,17 +1137,17 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
           <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6 overflow-y-auto">
             <div className="text-center space-y-2">
               <div className="text-4xl mb-2">☣️</div>
-              <h1 className="font-outfit font-black text-2xl text-plum">Poison Phase</h1>
+              <h1 className="font-outfit font-black text-2xl text-plum">{t('links.poisonPhase')}</h1>
               <p className="text-sm text-warm-gray/60 max-w-md">
-                Secretly assign a poison letter to each opponent. If they type a word containing it, they lose a heart.
+                {t('links.poisonPhaseDesc')}
                 <br />
-                <span className="text-[10px] text-warm-gray/50">They won't know what you picked!</span>
+                <span className="text-[10px] text-warm-gray/50">{t('links.poisonPhaseHint')}</span>
               </p>
             </div>
 
             {/* Required letters reminder */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-warm-gray/50">Required:</span>
+              <span className="text-xs font-bold text-warm-gray/50">{t('links.required')}</span>
               {letters.map((l) => (
                 <span key={l} className="px-3 py-1 rounded-full bg-soft-purple-light text-soft-purple text-sm font-black">
                   {l}
@@ -1175,7 +1174,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                       <span className="font-outfit font-bold text-sm text-plum">{op.name}</span>
                     </div>
                     <p className="text-[10px] text-warm-gray/50">
-                      Pick a poison letter for {op.name} (not one of the required letters)
+                      {t('links.pickPoisonFor', { name: op.name })}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => {
@@ -1206,7 +1205,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                     </div>
                     {myPoison && (
                       <p className={`text-[10px] font-bold ${opColor.text}`}>
-                        Poison: {myPoison} → {op.name} loses ❤️ when they use it
+                        {t('links.poisonAssigned', { letter: myPoison, name: op.name })}
                       </p>
                     )}
                   </ClayCard>
@@ -1221,11 +1220,11 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               onClick={handleAssignPoison}
               disabled={otherPlayers.some((op) => !poisonAssignments[op.id])}
             >
-              Lock In Poisons
+              {t('links.lockInPoisons')}
             </ClayButton>
 
             <p className="text-[10px] text-warm-gray/50 text-center">
-              {Object.keys(poisonAssignments).length} / {otherPlayers.length} opponents assigned
+              {t('links.opponentsAssigned', { count: Object.keys(poisonAssignments).length, total: otherPlayers.length })}
             </p>
           </div>
         )}
@@ -1243,7 +1242,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               <div className="flex items-center gap-3 flex-wrap">
                 <div className={`px-3 py-1.5 rounded-full ${myColor.bgLight} ${myColor.text} text-xs font-black flex items-center gap-2`}>
                   <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-                  YOU
+                  {t('links.you')}
                 </div>
 
                 {/* Hearts */}
@@ -1260,12 +1259,12 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
                 {/* Score */}
                 <span className="font-mono font-bold text-sm text-soft-purple">
-                  {myWords.reduce((sum, w) => sum + (w.is_poisoned ? 0 : w.points), 0)} pts
+                  {t('game.points', { pts: myWords.reduce((sum, w) => sum + (w.is_poisoned ? 0 : w.points), 0) })}
                 </span>
 
                 {/* Word count */}
                 <span className="text-[10px] text-warm-gray/50">
-                  {myWords.length} word{myWords.length !== 1 ? "s" : ""}
+                  {myWords.length} {myWords.length === 1 ? t('links.word') : t('links.words')}
                 </span>
               </div>
 
@@ -1274,9 +1273,9 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                 <div className="bg-peach-light border border-peach/30 rounded-2xl p-3 flex items-center gap-3 animate-clay-pop">
                   <Skull className="w-5 h-5 text-peach" />
                   <div>
-                    <p className="text-peach text-sm font-black">POISON HIT!</p>
+                    <p className="text-peach text-sm font-black">{t('links.poisonHit')}</p>
                     <p className="text-peach/70 text-xs font-medium">
-                      You used letter "{poisonReveal.letter}" — lost a heart!
+                      {t('links.poisonUsedLetter', { letter: poisonReveal.letter })}
                     </p>
                   </div>
                 </div>
@@ -1299,7 +1298,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                     value={typedWord}
                     onChange={handleWordChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={`Type a word with ${letters.join(" + ")}...`}
+                    placeholder={t('links.typeWordWith', { letters: letters.join(' + ') })}
                     className={`w-full px-5 py-4 rounded-2xl border-2 bg-warm-white font-outfit font-bold text-lg text-plum placeholder:text-warm-gray/40 outline-none transition-all ${
                       wordFeedback.type === "valid"
                         ? `${myColor.border} ${myColor.ring} ring-2`
@@ -1322,7 +1321,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                         isSubmitting ? "bg-warm-gray/40 cursor-wait" : `${myColor.bg} hover:opacity-90 active:scale-95`
                       }`}
                     >
-                      {isSubmitting ? "..." : "⚡ CLAIM"}
+                      {isSubmitting ? "..." : `⚡ ${t('links.claim')}`}
                     </button>
                   )}
                 </div>
@@ -1331,7 +1330,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                 <div className="h-5">
                   {wordFeedback.type === "valid" && (
                     <p className={`text-xs font-bold ${myColor.text} animate-clay-pop`}>
-                      ✓ {calculatePoints(typedWord.length)} points — press Enter or CLAIM
+                      {t('links.pointsPressEnter', { points: calculatePoints(typedWord.length) })}
                     </p>
                   )}
                   {wordFeedback.type === "missing" && (
@@ -1348,7 +1347,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
               {/* Required letters */}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold text-warm-gray/50 uppercase">Required:</span>
+                <span className="text-[10px] font-bold text-warm-gray/50 uppercase">{t('links.required')}:</span>
                 {letters.map((l) => (
                   <span
                     key={l}
@@ -1366,10 +1365,10 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               {/* Your word stack */}
               <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
                 <h4 className="text-[10px] font-black text-warm-gray/50 uppercase tracking-wider sticky top-0 bg-clay-cream py-1">
-                  Your Words ({myWords.length})
+                  {t('links.yourWords', { count: myWords.length })}
                 </h4>
                 {myWords.length === 0 ? (
-                  <p className="text-xs text-warm-gray/40 py-4 text-center">No words yet — start typing!</p>
+                  <p className="text-xs text-warm-gray/40 py-4 text-center">{t('links.noWordsStart')}</p>
                 ) : (
                   myWords.map((w) => (
                     <div
@@ -1420,13 +1419,13 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               {/* Opponent view toggle */}
               <div className="flex items-center justify-between">
                 <h4 className="text-[10px] font-black text-warm-gray/50 uppercase tracking-wider">
-                  Opponents
+                  {t('links.opponents')}
                 </h4>
                 <button
                   onClick={() => setOpponentView(opponentView === "full" ? "recent" : "full")}
                   className="text-[9px] font-bold text-warm-gray/40 hover:text-warm-gray/60 transition-colors"
                 >
-                  {opponentView === "full" ? "Show Recent" : "Show All"}
+                  {opponentView === "full" ? t('links.showRecent') : t('links.showAll')}
                 </button>
               </div>
 
@@ -1468,7 +1467,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                       {/* Words */}
                       <div className="space-y-1 max-h-48 overflow-y-auto">
                         {displayWords.length === 0 ? (
-                          <p className="text-xs text-warm-gray/40 py-2 text-center">No words yet</p>
+                          <p className="text-xs text-warm-gray/40 py-2 text-center">{t('links.noWordsYet')}</p>
                         ) : (
                           displayWords.map((w) => (
                             <div
@@ -1488,21 +1487,21 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
                         )}
                         {opponentView === "recent" && opWords.length > 5 && (
                           <p className="text-[9px] text-warm-gray/40 text-center">
-                            +{opWords.length - 5} more words
+                            {t('links.moreWords', { count: opWords.length - 5 })}
                           </p>
                         )}
                       </div>
 
                       {/* Word count */}
                       <p className="text-[10px] text-warm-gray/40 text-right">
-                        {opWords.length} word{opWords.length !== 1 ? "s" : ""} · {opLetter(op.id)}
+                        {opWords.length} {opWords.length === 1 ? t('links.word') : t('links.words')} · {opLetter(op.id)}
                       </p>
                     </ClayCard>
                   );
 
                   function opLetter(pid: string) {
                     const l = playerLetters[pid];
-                    return l ? `Letter: ${l}` : "";
+                    return l ? t('links.opponentLetter', { letter: l }) : "";
                   }
                 })}
               </div>
@@ -1513,9 +1512,9 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
       {/* ── Footer ──────────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 py-2 border-t border-warm-gray/10 bg-warm-white/80 flex items-center justify-between text-[10px] text-warm-gray/50">
-        <span>🔤 Required: {letters.join(" + ") || "—"}</span>
-        <span>{phase === "PLAYING" ? `⏱ ${timeLeft}s` : `📋 ${claimedWords.length} words claimed`}</span>
-        <span>{poisonEnabled ? "☣️ Poison ON" : "🛡️ Poison OFF"}</span>
+        <span>🔤 {t('links.required')} {letters.join(' + ') || '—'}</span>
+        <span>{phase === 'PLAYING' ? `⏱ ${timeLeft}s` : `📋 ${claimedWords.length} ${t('links.wordsClaimed')}`}</span>
+        <span>{poisonEnabled ? `☣️ ${t('links.poisonOn')}` : `🛡️ ${t('links.poisonOff')}`}</span>
       </div>
     </div>
   );

@@ -124,6 +124,7 @@ export default function CodeInput({
               type="text"
               maxLength={1}
               value={chars[i] || ""}
+              readOnly
               disabled={disabled}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
@@ -156,6 +157,7 @@ export default function CodeInput({
               type="text"
               maxLength={1}
               value={chars[i + 3] || ""}
+              readOnly
               disabled={disabled}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Heart, Zap } from "lucide-react";
 import { ClayAvatar } from "./ui";
 
@@ -39,6 +40,7 @@ export default function LinksStickyScoreboard({
   compact = false,
   className = "",
 }: LinksStickyScoreboardProps) {
+  const { t } = useTranslation();
   const sorted = useMemo(
     () => [...players].sort((a, b) => b.score - a.score),
     [players]
@@ -52,7 +54,7 @@ export default function LinksStickyScoreboard({
     >
       {/* Label */}
       <span className="text-[9px] font-black text-warm-gray/40 uppercase tracking-widest flex-shrink-0 mr-1">
-        LIVE
+        {t('links.live')}
       </span>
 
       {/* Player chips */}
