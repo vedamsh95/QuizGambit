@@ -20,6 +20,7 @@ import {
   Check,
   X,
 } from "lucide-react";
+import FrayLogo from "./ui/FrayLogo";
 
 // ── Category type ──────────────────────────────────────────────────────
 interface Category {
@@ -269,16 +270,13 @@ export default function HomeScreen() {
         <SettingsPanel />
       </div>
 
-      {/* ── Branding ───────────────────────────────────────────────── */}
-      <div className="animate-clay-pop flex flex-col items-center gap-2">
-        <div className="clay-avatar w-16 h-16 rounded-2xl flex items-center justify-center bg-soft-purple">
-          <span className="text-white text-2xl font-black font-outfit">QG</span>
-        </div>
-        <h1 className="font-outfit font-black text-3xl sm:text-4xl text-plum tracking-tight">
-          {t('home.title')}
-        </h1>
-        <p className="text-xs text-plum/60 font-medium">{t('home.tagline')}</p>
-      </div>
+      {/* ── Branding: PlayFray ────────────────────────────────────── */}
+      <FrayLogo size="lg" showTagline={false} />
+
+      {/* ── Tagline ──────────────────────────────────────────────── */}
+      <p className="text-base sm:text-lg font-outfit font-bold text-transparent bg-clip-text bg-gradient-to-r from-soft-purple via-lavender to-soft-purple/70 tracking-[0.06em]">
+        {t('home.tagline')}
+      </p>
 
       {/* ── Name Input with Avatar Beside ─────────────────────────── */}
       <div className="w-full max-w-md flex items-center gap-3">
