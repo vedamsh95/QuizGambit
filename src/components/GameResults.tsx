@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import ClayButton from "./ui/ClayButton";
 import ClayCard from "./ui/ClayCard";
-import { Trophy, Medal, Home, RotateCcw } from "lucide-react";
+import { Trophy, Medal, Home, RotateCcw, ArrowLeft } from "lucide-react";
 import confetti from "canvas-confetti";
 import LanguageSwitcher from "./ui/LanguageSwitcher";
 
@@ -58,6 +58,10 @@ export default function GameResults() {
     fetchResults();
   }, [code]);
 
+  const handleReturnToLobby = () => {
+    navigate(`/lobby/${code}?from=results`);
+  };
+
   const handlePlayAgain = async () => {
     if (!code) return;
     // Reset scores
@@ -69,12 +73,12 @@ export default function GameResults() {
     // Reset lobby status
     await supabase.from("lobbies").update({ status: "LOBBY" }).eq("code", code);
 
-    navigate(`/lobby/${code}`);
+    navigate(`/lobby/${code}?from=results`);
   };
 
   const handleHome = () => {
     store.clearHostLobbyCode();
-    navigate("/");
+    navigate(`/lobby/${code}?from=results`);
   };
 
   if (loading) {
@@ -205,24 +209,33 @@ export default function GameResults() {
       </ClayCard>
 
       {/* Actions */}
-      <div className="flex gap-3 w-full max-w-sm">
-        <ClayButton
-          variant="secondary"
-          size="md"
-          icon={<Home className="w-4 h-4" />}
-          onClick={handleHome}
-          className="flex-1"
-        >
-          {t('gameOver.home')}
-        </ClayButton>
+      <div className="flex gap-3 w-full max-w-sm flex-wrap">
         <ClayButton
           variant="primary"
+          size="md"
+          icon={<ArrowLeft className="w-4 h-4" />}
+          onClick={handleReturnToLobby}
+          className="flex-1"
+        >
+          Return to Lobby
+        </ClayButton>
+        <ClayButton
+          variant="secondary"
           size="md"
           icon={<RotateCcw className="w-4 h-4" />}
           onClick={handlePlayAgain}
           className="flex-1"
         >
           {t('gameOver.playAgain')}
+        </ClayButton>
+        <ClayButton
+          variant="secondary"
+          size="md"
+          icon={<Home className="w-4 h-4" />}
+          onClick={handleHome}
+          className="w-full"
+        >
+          {t('gameOver.home')}
         </ClayButton>
       </div>
     </div>

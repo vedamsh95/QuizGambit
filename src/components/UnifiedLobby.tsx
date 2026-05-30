@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
@@ -63,6 +63,10 @@ export default function UnifiedLobby() {
   const { t } = useTranslation();
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fromParam = searchParams.get("from"); // 'game' | 'results' — means user just left a game
+  const fromParamRef = useRef(fromParam);
+  useEffect(() => { fromParamRef.current = fromParam; });
 
   // ── Identity ────────────────────────────────────────────────────────────
 
@@ -147,8 +151,13 @@ export default function UnifiedLobby() {
         }
       }
 
-      // Status transition: lobby → playing
-      if (["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(updated.status)) {
+      // Clear the ?from= gate once the old game ends (status → LOBBY)
+      if (fromParamRef.current && updated.status === "LOBBY") {
+        setSearchParams({});
+      }
+
+      // Status transition: lobby → playing (skip if user just left a game)
+      if (!fromParamRef.current && ["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(updated.status)) {
         const ps = derivePlayStyle(updated.mode, updated.settings);
         if (isBuzzer5x5(updated.mode, ps) && !isHost) {
           navigate(`/buzzer/${code}`);
@@ -199,8 +208,8 @@ export default function UnifiedLobby() {
       setLobbyPlayStyle(ps);
       setPhase(nm ? "SETUP" : "MODE_SELECTION");
 
-      // Reset lobby status on re-entry
-      if (lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {
+      // Only reset lobby status on re-entry if coming from outside (not from a game)
+      if (!fromParamRef.current && lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {
         supabase
           .from("lobbies")
           .update({ status: "LOBBY", buzzed_player_id: null })
@@ -354,8 +363,14 @@ export default function UnifiedLobby() {
         return prev;
       });
 
-      // Status changed to PLAYING — navigate to game board
+      // Clear the ?from= gate once the old game ends (status → LOBBY)
+      if (fromParamRef.current && data.status === "LOBBY") {
+        setSearchParams({});
+      }
+
+      // Status changed to PLAYING — navigate to game board (skip if user just left a game)
       if (
+        !fromParamRef.current &&
         ["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(data.status) &&
         lobbyRef.current?.status !== data.status
       ) {
@@ -863,6 +878,33 @@ export default function UnifiedLobby() {
           </button>
         </div>
       </header>
+
+      {/* ── Active Game Reconnection Banner (hidden when user just left a game) ── */}
+      {!fromParamRef.current && ["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(lobby?.status) && (
+        <div className="shrink-0 px-4 py-3 bg-mint-light/80 border-b border-mint/20">
+          <div className="flex items-center justify-between max-w-4xl mx-auto gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-2 h-2 rounded-full bg-mint animate-pulse flex-shrink-0" />
+              <span className="text-xs sm:text-sm font-bold text-mint truncate">
+                🎮 A game is in progress — you can reconnect!
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                const ps = lobbyPlayStyle || derivePlayStyle(lobby?.mode, lobby?.settings);
+                if (isBuzzer5x5(lobby?.mode, ps) && !isHost) {
+                  navigate(`/buzzer/${code}`);
+                } else {
+                  navigate(`/play/${code}`);
+                }
+              }}
+              className="flex-shrink-0 px-4 py-1.5 rounded-xl bg-mint text-white text-xs font-black uppercase tracking-wider hover:bg-mint/90 transition-colors"
+            >
+              Rejoin Game
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Main content ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col lg:flex-row">

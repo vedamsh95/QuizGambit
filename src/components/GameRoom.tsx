@@ -212,7 +212,7 @@ export default function GameRoom() {
         .eq("id", playerId)
         .eq("lobby_code", code!);
       store.clearArenaHostCode();
-      navigate("/");
+      navigate(`/lobby/${code}`);
     }
   };
 

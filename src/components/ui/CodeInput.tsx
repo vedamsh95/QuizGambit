@@ -93,11 +93,17 @@ export default function CodeInput({
       .filter((c) => VALID_CHARS.includes(c))
       .join("");
 
-    onChange(filtered);
-
-    // Focus the next empty cell or the last cell
-    const nextIdx = Math.min(filtered.length, length - 1);
-    inputRefs.current[nextIdx]?.focus();
+    // If pasted code is exactly 6 chars, fill all cells starting from 0
+    if (filtered.length === length) {
+      onChange(filtered);
+      // Focus the last cell
+      inputRefs.current[length - 1]?.focus();
+    } else {
+      onChange(filtered);
+      // Focus the next empty cell or the last cell
+      const nextIdx = Math.min(filtered.length, length - 1);
+      inputRefs.current[nextIdx]?.focus();
+    }
   };
 
   return (
@@ -124,7 +130,7 @@ export default function CodeInput({
               onKeyDown={(e) => handleKeyDown(i, e)}
               onPaste={handlePaste}
               className={clsx(
-                "clay-input w-14 h-16 sm:w-16 sm:h-18 text-center text-2xl sm:text-3xl font-black p-0",
+                "clay-input w-8 h-10 sm:w-10 sm:h-12 text-center text-lg sm:text-xl font-black p-0",
                 "uppercase tracking-widest font-outfit",
                 "select-none caret-transparent",
                 focused && "ring-2 ring-soft-purple/20",
@@ -156,7 +162,7 @@ export default function CodeInput({
               onKeyDown={(e) => handleKeyDown(i + 3, e)}
               onPaste={handlePaste}
               className={clsx(
-                "clay-input w-14 h-16 sm:w-16 sm:h-18 text-center text-2xl sm:text-3xl font-black p-0",
+                "clay-input w-8 h-10 sm:w-10 sm:h-12 text-center text-lg sm:text-xl font-black p-0",
                 "uppercase tracking-widest font-outfit",
                 "select-none caret-transparent",
                 focused && "ring-2 ring-soft-purple/20",

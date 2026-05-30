@@ -578,7 +578,7 @@ q_type: "MCQ", // All questions are now MCQ only
         onNewGame={deleteLobby}
         onLeave={() => {
           setShowGameOver(false);
-          navigate("/");
+          navigate(`/lobby/${lobby.code}`);
         }}
       />
     );

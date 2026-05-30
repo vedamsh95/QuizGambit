@@ -677,7 +677,7 @@ export default function ArenaBoard({
               .eq("lobby_code", code);
           }
           store.clearArenaHostCode();
-          navigate("/");
+          navigate(`/lobby/${code}`);
         }}
         onNewGame={isHost ? () => {
           store.clearArenaHostCode();
@@ -741,7 +741,7 @@ export default function ArenaBoard({
                 }
 
                 store.clearArenaHostCode();
-                navigate("/");
+                navigate(`/lobby/${code}`);
               }
             }}
             className="ml-2"

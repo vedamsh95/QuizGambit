@@ -763,7 +763,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
       broadcast("player:leave", { playerId: effectivePlayerId });
       await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
       store.clearArenaHostCode();
-      window.location.href = "/";
+      window.location.href = `/lobby/${code}`;
     }
   };
 
@@ -897,10 +897,10 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               if (isHost) {
                 supabase.rpc("end_links_round", { p_lobby_code: code }).then(() => {}, () => {});
               }
-              window.location.href = "/";
+              window.location.href = `/lobby/${code}`;
             }}
           >
-            Return Home
+            Return to Lobby
           </ClayButton>
         </div>
       </div>

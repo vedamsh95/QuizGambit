@@ -47,6 +47,7 @@ export interface BroadcastEvents {
   'letter:select': { playerId: string; letter: string; letters: string[]; phase: string }
   'poison:assign': { playerId: string }
   'word:claim': { id: string; playerId: string; playerName: string; word: string; points: number }
+  'player:penalized': { playerId: string; heartsRemaining: number; phase: string }
 }
 
 export type BroadcastEventName = keyof BroadcastEvents

@@ -311,8 +311,64 @@ export default function HomeScreen() {
         />
       </div>
 
-      {/* ── Game Mode Grid (2x2) ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full max-w-md">
+      {/* ── Game Mode Grid (2x2) or Join Panel ────────────────────── */}
+      <div className="w-full max-w-md relative min-h-[200px]">
+        {/* Join panel slides in over the grid */}
+        <div className={`transition-all duration-500 ease-out ${
+          showJoin ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-4 scale-95 pointer-events-none absolute inset-0"
+        }`}>
+          <div className="clay-elevated p-5 w-full flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-outfit font-black text-sm text-plum">
+                {t('home.joinGameTitle')}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowJoin(false);
+                  setJoinCode("");
+                }}
+                className="flex items-center gap-1 text-xs font-bold text-plum/50 hover:text-plum transition-colors"
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+            </div>
+            <CodeInput value={joinCode} onChange={setJoinCode} length={6} />
+            <div className="flex gap-2">
+              <ClayButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setShowJoin(false);
+                  setJoinCode("");
+                }}
+                className="flex-1"
+              >
+                {t('common.cancel')}
+              </ClayButton>
+              <ClayButton
+                variant="primary"
+                size="sm"
+                disabled={!joinValid || !nameValid || isJoining}
+                loading={isJoining}
+                onClick={handleJoin}
+                className="flex-1"
+              >
+                {t('home.join')}
+              </ClayButton>
+            </div>
+            {joinStatus && (
+              <p className="text-center text-[10px] font-bold text-soft-purple animate-pulse">
+                {joinStatus}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* 2x2 Grid — fades out when join panel is open */}
+        <div className={`grid grid-cols-2 gap-3 sm:gap-4 transition-all duration-500 ease-out ${
+          showJoin ? "opacity-0 scale-95 pointer-events-none" : "opacity-100 scale-100"
+        }`}>
         {/* Host Card */}
         <button
           onClick={() => {
@@ -394,56 +450,10 @@ export default function HomeScreen() {
             {t('home.aiGenDesc')}
           </p>
         </button>
+        </div>
       </div>
 
-      {/* ── Join Panel ───────────────────────────────────────────────── */}
-      {showJoin && (
-        <div className="clay-elevated p-5 w-full max-w-md flex flex-col gap-4 animate-clay-pop">
-          <div className="flex items-center justify-between">
-            <h3 className="font-outfit font-black text-sm text-plum">
-              {t('home.joinGameTitle')}
-            </h3>
-            <button
-              onClick={() => {
-                setShowJoin(false);
-                setJoinCode("");
-              }}
-              className="p-1 text-plum/50 hover:text-plum transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <CodeInput value={joinCode} onChange={setJoinCode} length={6} />
-          <div className="flex gap-2">
-            <ClayButton
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setShowJoin(false);
-                setJoinCode("");
-              }}
-              className="flex-1"
-            >
-              {t('common.cancel')}
-            </ClayButton>
-            <ClayButton
-              variant="primary"
-              size="sm"
-              disabled={!joinValid || !nameValid || isJoining}
-              loading={isJoining}
-              onClick={handleJoin}
-              className="flex-1"
-            >
-              {t('home.join')}
-            </ClayButton>
-          </div>
-          {joinStatus && (
-            <p className="text-center text-[10px] font-bold text-soft-purple animate-pulse">
-              {joinStatus}
-            </p>
-          )}
-        </div>
-      )}
+      {/* ...no more join panel below the grid */}
 
       {/* ── Solo Setup Panel ─────────────────────────────────────────── */}
       {showSolo && (

@@ -392,6 +392,27 @@ h3 { font-family: 'Outfit', sans-serif; font-size: var(--text-h3); }
     50% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--clay-focus-ring) 0%, transparent); }
 }
 
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    14% { transform: scale(1.12); }
+    28% { transform: scale(1); }
+    42% { transform: scale(1.12); }
+    56% { transform: scale(1); }
+}
+
+@keyframes slide-up-fade {
+    0% { transform: translateY(12px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes life-lost {
+    0% { transform: scale(1); filter: brightness(1); }
+    25% { transform: scale(1.15); filter: brightness(1.5); }
+    50% { transform: scale(0.9); filter: brightness(0.6); }
+    75% { transform: scale(1.05); filter: brightness(1.1); }
+    100% { transform: scale(1); filter: brightness(1); }
+}
+
 /* ── Utility Animation Classes ───────────────────────────────────────── */
 .animate-float        { animation: clay-float 3s ease-in-out infinite; }
 .animate-clay-pop     { animation: clay-pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -400,6 +421,9 @@ h3 { font-family: 'Outfit', sans-serif; font-size: var(--text-h3); }
 .animate-toast-in     { animation: toast-slide-in 0.3s ease-out both; }
 .animate-toast-out    { animation: toast-slide-out 0.2s ease-in both; }
 .animate-buzzer-pulse { animation: buzzer-pulse 1.5s ease-in-out infinite; }
+.animate-heartbeat { animation: heartbeat 1s ease-in-out infinite; }
+.animate-slide-up-fade { animation: slide-up-fade 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.animate-life-lost { animation: life-lost 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Mobile-First Utilities

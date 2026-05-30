@@ -355,7 +355,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
               .delete()
               .eq("id", playerId)
               .eq("lobby_code", code);
-            navigate("/");
+            navigate(`/lobby/${code}`);
           }
         }}
         className="absolute top-4 right-4"

@@ -14,13 +14,13 @@ import GameResults from "./components/GameResults";
 import GameBoardV2 from "./components/GameBoardV2";
 import ArenaBoard from "./components/ArenaBoard";
 import SimultaneousBoard from "./components/SimultaneousBoard";
-import LinksBoard from "./components/LinksBoard";
 import ArenaLobby from "./components/ArenaLobby";
 import Library from "./components/Library";
 import AIGeneratorView from "./components/AIGeneratorView";
 import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
+import LinksBoardPrototype from "./components/LinksBoardPrototype";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
 
 // ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
@@ -81,10 +81,10 @@ function PlayRoute() {
 
   const lobby = state.lobby;
 
-  // LINKS mode → LinksBoard
+  // LINKS mode → LinksBoardPrototype (new clay design with full backend integration)
   if (lobby.mode === "LINKS") {
     return (
-      <LinksBoard
+      <LinksBoardPrototype
         code={code}
         playerId={playerId}
         playerName={playerName}
@@ -120,7 +120,7 @@ function PlayRoute() {
   };
 
   const handleReturnToLobby = () => {
-    navigate(`/lobby/${code}`);
+    navigate(`/lobby/${code}?from=game`);
   };
 
   return (
@@ -257,6 +257,7 @@ export default function App() {
 
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
+            <Route path="/prototype-links" element={<LinksBoardPrototype />} />
           </Routes>
         </div>
       </ToastProvider>
