@@ -783,9 +783,7 @@ export default function UnifiedLobby() {
     }
   }, [code, playerId, isHost, navigate, broadcast]);
 
-  const formattedCode = code
-    ? `${code.slice(0, 3)}-${code.slice(3, 6)}`
-    : "";
+
 
   function getMedal(rank: number) {
     if (rank === 1) return "🥇";
@@ -924,8 +922,8 @@ export default function UnifiedLobby() {
               {isHost ? t('lobby.host') : t('lobby.player')}
             </div>
             <div onClick={handleCopyCode} className="cursor-pointer group select-all" title="Click to copy">
-              <div className="text-4xl sm:text-5xl font-outfit font-black text-plum tracking-[0.15em] group-hover:text-soft-purple transition-colors">
-                {formattedCode}
+              <div className="text-4xl sm:text-5xl font-outfit font-black text-plum tracking-wide group-hover:text-soft-purple transition-colors whitespace-nowrap">
+                {code}
               </div>
               <div className="text-xs font-bold text-warm-gray/60 mt-1">
                 {copied ? t('lobby.codeCopied') : t('lobby.tapToCopy')}
