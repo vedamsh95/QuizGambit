@@ -29,7 +29,8 @@ const BG_GRADIENTS = [
 
 export default function GameResults() {
   const { t } = useTranslation();
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
   const [players, setPlayers] = useState<PlayerResult[]>([]);
   const [loading, setLoading] = useState(true);

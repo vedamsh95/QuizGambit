@@ -23,9 +23,27 @@ import ClayPrototype from "./components/ClayPrototype";
 import LinksBoardPrototype from "./components/LinksBoardPrototype";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
 
+// ── CodeRedirect: /<6-char-code> → /lobby/<code> ──────────────────────
+function CodeRedirect() {
+  const { code: rawCode } = useParams<{ code: string }>();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const code = rawCode?.toUpperCase();
+    if (code && /^[A-Z0-9]{6}$/.test(code)) {
+      navigate(`/lobby/${code}`, { replace: true });
+    } else {
+      navigate("/", { replace: true });
+    }
+  }, [rawCode, navigate]);
+
+  return null;
+}
+
 // ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
 function PlayRoute() {
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
 
   const [state, setState] = useState<{
@@ -258,6 +276,9 @@ export default function App() {
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
             <Route path="/prototype-links" element={<LinksBoardPrototype />} />
+
+            {/* ── Catch-all: /<code> → redirect to lobby ────────── */}
+            <Route path="/:code" element={<CodeRedirect />} />
           </Routes>
         </div>
       </ToastProvider>

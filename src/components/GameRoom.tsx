@@ -25,7 +25,8 @@ import LanguageSwitcher from "./ui/LanguageSwitcher";
  * Only leave when they explicitly click "Leave" or the host deletes the lobby.
  */
 export default function GameRoom() {
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
 
   // ── Phase: loading → join → lobby → play ───────────────────────────────

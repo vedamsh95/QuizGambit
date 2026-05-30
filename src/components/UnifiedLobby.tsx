@@ -61,7 +61,8 @@ type LobbyPhase = "MODE_SELECTION" | "SETUP";
 
 export default function UnifiedLobby() {
   const { t } = useTranslation();
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromParam = searchParams.get("from"); // 'game' | 'results' — means user just left a game

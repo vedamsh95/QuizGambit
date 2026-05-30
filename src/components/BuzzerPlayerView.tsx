@@ -13,7 +13,8 @@ type BuzzState = "idle" | "buzzing-open" | "buzzed-success" | "buzzed-too-slow" 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function BuzzerPlayerView() {
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
 
   // ── Join state ──────────────────────────────────────────────────────────

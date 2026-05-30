@@ -21,7 +21,8 @@ import LanguageSwitcher from "./ui/LanguageSwitcher";
  * Delegates settings/start logic to mode-specific child components.
  */
 export default function HostLobby() {
-  const { code } = useParams<{ code: string }>();
+  const { code: rawCode } = useParams<{ code: string }>();
+  const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
 
   const [lobby, setLobby] = useState<any>(null);
