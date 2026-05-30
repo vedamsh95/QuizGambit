@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { smartSelectQuestions } from "../lib/smartSelection";
+import { pickLobbyCode } from "../lib/lobbyCodes";
 import AvatarPicker from "./ui/AvatarPicker";
 import CodeInput from "./ui/CodeInput";
 import ClayButton from "./ui/ClayButton";
@@ -107,15 +108,10 @@ export default function HomeScreen() {
     const playerId = store.ensurePlayerId();
 
     try {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-
       let code = "";
       let success = false;
       for (let attempt = 0; attempt < 5; attempt++) {
-        code = "";
-        for (let i = 0; i < 6; i++) {
-          code += chars[Math.floor(Math.random() * chars.length)];
-        }
+        code = await pickLobbyCode();
 
         const { error } = await supabase.from("lobbies").insert({
           code,

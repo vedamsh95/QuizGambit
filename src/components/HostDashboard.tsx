@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
+import { pickLobbyCode } from "../lib/lobbyCodes";
 import {
   Sparkles,
   Loader2,
@@ -156,7 +157,7 @@ export default function HostDashboard() {
 
     // Retry up to 5 times if code conflicts
     for (let attempt = 0; attempt < 5; attempt++) {
-      const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const code = await pickLobbyCode();
 
       const { data, error } = await supabase
         .from("lobbies")

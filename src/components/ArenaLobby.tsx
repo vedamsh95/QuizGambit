@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
+import { pickLobbyCode } from "../lib/lobbyCodes";
 import {
   Users,
   Copy,
@@ -162,7 +163,7 @@ export default function ArenaLobby() {
 
     store.setPlayerName(hostName);
 
-    const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const code = await pickLobbyCode();
     const { error } = await supabase.from("lobbies").insert({
       code,
       host_id: userId,
