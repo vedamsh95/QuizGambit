@@ -764,7 +764,7 @@ export default function SimultaneousBoard({
         onLeave={async () => {
           await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
           store.clearArenaHostCode();
-          window.location.href = `/lobby/${code}`;
+          window.location.href = `/lobby/${code}?from=game`;
         }}
       />
     );
@@ -804,7 +804,7 @@ export default function SimultaneousBoard({
                 broadcast("player:leave", { playerId: effectivePlayerId });
                 await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
                 store.clearArenaHostCode();
-                window.location.href = `/lobby/${code}`;
+                window.location.href = `/lobby/${code}?from=game`;
               }
             }}
             className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
