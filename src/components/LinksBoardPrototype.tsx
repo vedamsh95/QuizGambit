@@ -1731,7 +1731,7 @@ export default function LinksBoardPrototype({
         broadcast("player:leave", { playerId: effectivePlayerId });
         await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", gameCode);
         store.clearArenaHostCode();
-        window.location.href = `/lobby/${gameCode}`;
+        window.location.href = `/lobby/${gameCode}?from=game`;
       } else {
         window.location.href = "/";
       }

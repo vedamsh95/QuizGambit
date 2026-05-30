@@ -206,7 +206,13 @@ export default function UnifiedLobby() {
       const ps = derivePlayStyle(lobbyData.mode, lobbyData.settings);
       setLobbyMode(nm);
       setLobbyPlayStyle(ps);
-      setPhase(nm ? "SETUP" : "MODE_SELECTION");
+      // When returning from a finished game, show ModeSelection so the user
+      // can pick a game mode again — don't auto-advance to SETUP even if mode is set
+      if (fromParamRef.current) {
+        setPhase("MODE_SELECTION");
+      } else {
+        setPhase(nm ? "SETUP" : "MODE_SELECTION");
+      }
 
       // Only reset lobby status on re-entry if coming from outside (not from a game)
       if (!fromParamRef.current && lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {

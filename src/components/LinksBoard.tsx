@@ -897,7 +897,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               if (isHost) {
                 supabase.rpc("end_links_round", { p_lobby_code: code }).then(() => {}, () => {});
               }
-              window.location.href = `/lobby/${code}`;
+              window.location.href = `/lobby/${code}?from=game`;
             }}
           >
             Return to Lobby
