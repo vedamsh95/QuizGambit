@@ -9,8 +9,8 @@ export interface CodeInputProps {
   className?: string;
 }
 
-/** Valid characters for room codes (no O/I/0/1 for readability) */
-const VALID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+/** Valid characters for room codes (A-Z, 2-9; no 0/1 for readability) */
+const VALID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789";
 
 export default function CodeInput({
   value,
@@ -83,8 +83,6 @@ export default function CodeInput({
       .getData("text/plain")
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "")
-      .replace(/[O0]/g, "Q")
-      .replace(/[I1]/g, "L")
       .slice(0, length);
 
     // Filter to valid chars

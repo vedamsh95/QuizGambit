@@ -133,8 +133,8 @@ export default function UnifiedLobby() {
       }
       setLobby(updated);
 
-      // Mode changed — advance to setup
-      if (updated.mode && !lobbyRef.current?.mode) {
+      // Mode changed — advance to setup (skip if user just returned from a game)
+      if (updated.mode && !lobbyRef.current?.mode && !fromParamRef.current) {
         const nm = normalizeMode(updated.mode);
         setLobbyMode(nm);
         setLobbyPlayStyle(derivePlayStyle(updated.mode, updated.settings));
@@ -185,6 +185,11 @@ export default function UnifiedLobby() {
 
   useEffect(() => {
     if (!code) return;
+    // ── Capture fromParam synchronously BEFORE any async ops ──────────
+    // The polling interval (3s) can clear fromParam while we're awaiting
+    // DB fetches, causing the host re-insert fix to be skipped. Capturing
+    // here ensures we use the correct value throughout the init.
+    const isReturningFromGame = !!fromParam;
     const init = async () => {
       setLoading(true);
 
@@ -205,18 +210,21 @@ export default function UnifiedLobby() {
       setIsHost(lobbyData.host_id === playerId);
       const nm = normalizeMode(lobbyData.mode);
       const ps = derivePlayStyle(lobbyData.mode, lobbyData.settings);
-      setLobbyMode(nm);
-      setLobbyPlayStyle(ps);
       // When returning from a finished game, show ModeSelection so the user
       // can pick a game mode again — don't auto-advance to SETUP even if mode is set
-      if (fromParamRef.current) {
+      // Also clear lobbyMode so ModeSelection doesn't show frozen "X selected!" page
+      if (isReturningFromGame) {
+        setLobbyMode(null);
+        setLobbyPlayStyle(null);
         setPhase("MODE_SELECTION");
       } else {
+        setLobbyMode(nm);
+        setLobbyPlayStyle(ps);
         setPhase(nm ? "SETUP" : "MODE_SELECTION");
       }
 
       // Only reset lobby status on re-entry if coming from outside (not from a game)
-      if (!fromParamRef.current && lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {
+      if (!isReturningFromGame && lobbyData.status !== "LOBBY" && lobbyData.status !== "IN_PROGRESS") {
         supabase
           .from("lobbies")
           .update({ status: "LOBBY", buzzed_player_id: null })
@@ -240,6 +248,48 @@ export default function UnifiedLobby() {
             (a.joined_at || "").localeCompare(b.joined_at || "")
           )
         );
+      }
+
+      // ── Fix: Re-insert host into players table when returning from a game ──
+      // The game's handleLeave deletes the host's player record, but the auto-join
+      // skips hosts (isHost=true). Without this, the host stays invisible in the lobby.
+      // Use the captured `isReturningFromGame` (not fromParamRef.current) to avoid
+      // a race condition where polling clears the ref during async ops.
+      if (isReturningFromGame && lobbyData.host_id === playerId) {
+        const hostInPlayers = playerData?.some((p: any) => p.id === playerId);
+        if (!hostInPlayers) {
+          try {
+            const { error: upsertErr } = await supabase.from("players").upsert(
+              {
+                id: playerId,
+                lobby_code: code,
+                name: playerName,
+                score: 0,
+                joined_at: new Date().toISOString(),
+                metadata: { avatar: store.getPlayerAvatar() },
+              },
+              { onConflict: "id" }
+            );
+            if (upsertErr) {
+              console.error("[UNIFIED LOBBY] Host re-insert failed:", upsertErr.message);
+            } else {
+              // Re-fetch players after successful insert
+              const { data: reFetched } = await supabase
+                .from("players")
+                .select("*")
+                .eq("lobby_code", code);
+              if (reFetched) {
+                setPlayers(
+                  reFetched.sort((a: any, b: any) =>
+                    (a.joined_at || "").localeCompare(b.joined_at || "")
+                  )
+                );
+              }
+            }
+          } catch (reinsertErr: any) {
+            console.error("[UNIFIED LOBBY] Host re-insert exception:", reinsertErr?.message || reinsertErr);
+          }
+        }
       }
 
       // Fetch categories
@@ -390,8 +440,8 @@ export default function UnifiedLobby() {
         return;
       }
 
-      // Mode changed
-      if (data.mode && data.mode !== lobbyRef.current?.mode) {
+      // Mode changed (skip if user just returned from a game)
+      if (data.mode && data.mode !== lobbyRef.current?.mode && !fromParamRef.current) {
         const nm = normalizeMode(data.mode);
         const ps = derivePlayStyle(data.mode, data.settings);
         setLobbyMode(nm);
@@ -754,6 +804,72 @@ export default function UnifiedLobby() {
       navigate(`/play/${code}`);
     } catch (err: any) {
       setStartError(err?.message || "Failed to start LINKS game.");
+      setIsStarting(false);
+    }
+  }, [code, isStarting, lobby, broadcast, navigate]);
+
+  // ── Start LINKS Sprint Game ───────────────────────────────────────────
+
+  const handleStartLinksSprintGame = useCallback(async () => {
+    if (!code || isStarting) return;
+    setIsStarting(true);
+    setStartError("");
+
+    try {
+      const s = lobby?.settings || {};
+
+      // Nuke stale arena_state before calling RPC
+      const { error: nullErr } = await supabase
+        .from("lobbies")
+        .update({ arena_state: null })
+        .eq("code", code);
+      if (nullErr && import.meta.env.DEV) {
+        console.warn("[SPRINT] Failed to null stale arena_state:", nullErr.message);
+      }
+
+      const { data: sessionResult, error: sessionErr } = await supabase.rpc(
+        "start_links_sprint_game",
+        {
+          p_lobby_code: code,
+          p_settings: {
+            waves: s.sprintWaves || 3,
+            waveDuration: s.sprintWaveDuration || 60,
+          },
+        }
+      );
+
+      if (sessionErr || !sessionResult) {
+        if (sessionErr) {
+          if (sessionErr.code === "PGRST202" || sessionErr.message?.includes("404") || sessionErr.message?.includes("not found")) {
+            const msg = "LINKS Sprint database functions not deployed. Run the SQL migration in Supabase SQL Editor: supabase/migrations/20260531000000_links_sprint.sql";
+            setStartError(msg);
+            setIsStarting(false);
+            return;
+          }
+          setStartError(sessionErr.message || "Failed to initialize Sprint game");
+        } else {
+          setStartError("No response from server — the LINKS Sprint database functions may not be deployed.");
+        }
+        setIsStarting(false);
+        return;
+      }
+
+      if (sessionResult?.success === false) {
+        setStartError(sessionResult?.error || "Failed to initialize Sprint game");
+        setIsStarting(false);
+        return;
+      }
+
+      // Update lobby mode + status
+      await supabase.from("lobbies").update({
+        mode: "LINKS_SPRINT",
+        status: "PLAYING",
+      }).eq("code", code);
+
+      broadcast("game:start", {});
+      navigate(`/play/${code}`);
+    } catch (err: any) {
+      setStartError(err?.message || "Failed to start LINKS Sprint game.");
       setIsStarting(false);
     }
   }, [code, isStarting, lobby, broadcast, navigate]);
@@ -1129,74 +1245,203 @@ export default function UnifiedLobby() {
               </div>
 
               <div className="space-y-4 max-w-lg">
-                {/* Game description */}
-                <ClayCard padding="md" className="space-y-2">
-                  <h3 className="font-outfit font-black text-plum text-sm">How LINKS Works</h3>
-                  <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
-                    <li>Each player picks a letter — every word must contain ALL letters</li>
-                    <li>Type words as fast as you can — longer words = more points</li>
-                    <li>First to claim a word locks it — opponents can't use it</li>
-                    <li>Poison mode: secretly assign a poison letter to each opponent</li>
-                  </ul>
-                </ClayCard>
-
-                {/* Settings */}
+                {/* ── Sub-mode picker: Classic vs Sprint ─────────────── */}
                 <ClayCard padding="md" className="space-y-3">
-                  <h3 className="font-outfit font-black text-plum text-sm">Settings</h3>
-
-                  {/* Round duration */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-warm-gray/70">Round Duration</span>
-                    <select
-                      className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                      value={lobby?.settings?.roundDuration || 60}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        updateLobbySetting("roundDuration", val);
-                        broadcast("settings:update", { roundDuration: val });
-                      }}
-                      disabled={!isHost}
-                    >
-                      <option value={30}>30 seconds</option>
-                      <option value={45}>45 seconds</option>
-                      <option value={60}>60 seconds</option>
-                      <option value={90}>90 seconds</option>
-                      <option value={120}>2 minutes</option>
-                    </select>
-                  </div>
-
-                  {/* Poison toggle */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-medium text-warm-gray/70">Poison Mode</span>
-                      <p className="text-[10px] text-warm-gray/50">Secret poison letters add mind games</p>
-                    </div>
+                  <h3 className="font-outfit font-black text-plum text-sm">Game Variant</h3>
+                  <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
                         if (!isHost) return;
-                        const newVal = !(lobby?.settings?.poisonEnabled !== false);
-                        updateLobbySetting("poisonEnabled", newVal);
-                        broadcast("settings:update", { poisonEnabled: newVal });
+                        updateLobbySetting("linksSubMode", "CLASSIC");
+                        broadcast("settings:update", { linksSubMode: "CLASSIC" });
                       }}
-                      className={`w-10 h-5 rounded-full transition-colors ${
-                        lobby?.settings?.poisonEnabled !== false ? "bg-mint" : "bg-warm-gray/20"
+                      disabled={!isHost}
+                      className={`p-4 rounded-2xl border-2 text-left transition-all ${
+                        (lobby?.settings?.linksSubMode || "CLASSIC") === "CLASSIC"
+                          ? "border-soft-purple bg-soft-purple-light/50 shadow-md"
+                          : "border-warm-gray/15 bg-warm-white hover:border-soft-purple/30"
                       }`}
                     >
-                      <div
-                        className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                          lobby?.settings?.poisonEnabled !== false ? "translate-x-5" : "translate-x-0.5"
-                        }`}
-                      />
+                      <div className="text-xl mb-1">⚔️</div>
+                      <div className="font-outfit font-black text-sm text-plum">Classic</div>
+                      <div className="text-[10px] text-warm-gray/50 mt-1">Pick letters, set poisons, last-one-standing word duel</div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!isHost) return;
+                        updateLobbySetting("linksSubMode", "SPRINT");
+                        broadcast("settings:update", { linksSubMode: "SPRINT" });
+                      }}
+                      disabled={!isHost}
+                      className={`p-4 rounded-2xl border-2 text-left transition-all ${
+                        lobby?.settings?.linksSubMode === "SPRINT"
+                          ? "border-mint bg-mint-light/50 shadow-md"
+                          : "border-warm-gray/15 bg-warm-white hover:border-mint/30"
+                      }`}
+                    >
+                      <div className="text-xl mb-1">⚡</div>
+                      <div className="font-outfit font-black text-sm text-plum">Sprint</div>
+                      <div className="text-[10px] text-warm-gray/50 mt-1">Computer letters, hidden targets, wave-based pure scoring</div>
                     </button>
                   </div>
                 </ClayCard>
+
+                {/* ── Classic-specific description & settings ────────── */}
+                {(lobby?.settings?.linksSubMode || "CLASSIC") === "CLASSIC" && (
+                  <>
+                    <ClayCard padding="md" className="space-y-2">
+                      <h3 className="font-outfit font-black text-plum text-sm">How LINKS Classic Works</h3>
+                      <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
+                        <li>Each player picks a letter — every word must contain ALL letters</li>
+                        <li>Type words as fast as you can — longer words = more points</li>
+                        <li>First to claim a word locks it — opponents can't use it</li>
+                        <li>Poison mode: secretly assign a poison letter to each opponent</li>
+                      </ul>
+                    </ClayCard>
+
+                    <ClayCard padding="md" className="space-y-3">
+                      <h3 className="font-outfit font-black text-plum text-sm">Settings</h3>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-warm-gray/70">Round Duration</span>
+                        <select
+                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                          value={lobby?.settings?.roundDuration || 60}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            updateLobbySetting("roundDuration", val);
+                            broadcast("settings:update", { roundDuration: val });
+                          }}
+                          disabled={!isHost}
+                        >
+                          <option value={30}>30 seconds</option>
+                          <option value={45}>45 seconds</option>
+                          <option value={60}>60 seconds</option>
+                          <option value={90}>90 seconds</option>
+                          <option value={120}>2 minutes</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-medium text-warm-gray/70">Poison Mode</span>
+                          <p className="text-[10px] text-warm-gray/50">Secret poison letters add mind games</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!isHost) return;
+                            const newVal = !(lobby?.settings?.poisonEnabled !== false);
+                            updateLobbySetting("poisonEnabled", newVal);
+                            broadcast("settings:update", { poisonEnabled: newVal });
+                          }}
+                          className={`w-10 h-5 rounded-full transition-colors ${
+                            lobby?.settings?.poisonEnabled !== false ? "bg-mint" : "bg-warm-gray/20"
+                          }`}
+                        >
+                          <div
+                            className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                              lobby?.settings?.poisonEnabled !== false ? "translate-x-5" : "translate-x-0.5"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </ClayCard>
+                  </>
+                )}
+
+                {/* ── Sprint-specific description & settings ─────────── */}
+                {lobby?.settings?.linksSubMode === "SPRINT" && (
+                  <>
+                    <ClayCard padding="md" className="space-y-2">
+                      <h3 className="font-outfit font-black text-plum text-sm">How LINKS Sprint Works</h3>
+                      <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
+                        <li>Computer assigns shared letters — everyone uses the same set</li>
+                        <li>3-5 waves of increasing difficulty — pure scoring, no elimination</li>
+                        <li>5 hidden target words per wave with escalating bonus points</li>
+                        <li>Hit a target → bonus points + special highlight in your word history</li>
+                        <li>At wave end, all targets are revealed — race to find them next wave!</li>
+                      </ul>
+                    </ClayCard>
+
+                    <ClayCard padding="md" className="space-y-2">
+                      <h3 className="font-outfit font-black text-peach text-sm">⚠️ Shuffle Penalties</h3>
+                      <p className="text-xs text-warm-gray/60">Stuck? Shuffle costs you time, points, <strong className="text-peach">and your target-word eligibility</strong>:</p>
+                      <ul className="text-xs space-y-1.5">
+                        <li className="flex items-start gap-2">
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-peach-light text-peach border border-peach/20 shrink-0 mt-0.5">ALL</span>
+                          <span className="text-warm-gray/60"><strong>Shuffle all letters:</strong> -5s + -25% of total points (1st shuffle). 2nd+ shuffle: -5s + -50% of total points. <strong className="text-peach">You forfeit target-word bonuses for this wave.</strong></span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-butter-light text-butter border border-butter/20 shrink-0 mt-0.5">SINGLE</span>
+                          <span className="text-warm-gray/60"><strong>Shuffle one letter:</strong> -3s + -25% of total points (every shuffle). <strong className="text-peach">You forfeit target-word bonuses for this wave.</strong></span>
+                        </li>
+                      </ul>
+                    </ClayCard>
+
+                    <ClayCard padding="md" className="space-y-3">
+                      <h3 className="font-outfit font-black text-plum text-sm">Sprint Settings</h3>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-warm-gray/70">Letters per Wave</span>
+                        <select
+                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                          value={lobby?.settings?.sprintLetterCount || 2}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            updateLobbySetting("sprintLetterCount", val);
+                            broadcast("settings:update", { sprintLetterCount: val });
+                          }}
+                          disabled={!isHost}
+                        >
+                          <option value={2}>2 letters</option>
+                          <option value={3}>3 letters</option>
+                          <option value={4}>4 letters</option>
+                          <option value={5}>5 letters</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-warm-gray/70">Waves</span>
+                        <select
+                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                          value={lobby?.settings?.sprintWaves || 3}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            updateLobbySetting("sprintWaves", val);
+                            broadcast("settings:update", { sprintWaves: val });
+                          }}
+                          disabled={!isHost}
+                        >
+                          <option value={3}>3 waves</option>
+                          <option value={4}>4 waves</option>
+                          <option value={5}>5 waves</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-warm-gray/70">Wave Duration</span>
+                        <select
+                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                          value={lobby?.settings?.sprintWaveDuration || 60}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            updateLobbySetting("sprintWaveDuration", val);
+                            broadcast("settings:update", { sprintWaveDuration: val });
+                          }}
+                          disabled={!isHost}
+                        >
+                          <option value={30}>30 seconds</option>
+                          <option value={45}>45 seconds</option>
+                          <option value={60}>60 seconds</option>
+                          <option value={90}>90 seconds</option>
+                          <option value={120}>2 minutes</option>
+                        </select>
+                      </div>
+                    </ClayCard>
+                  </>
+                )}
 
                 {/* Player requirement */}
                 <ClayCard padding="md" className="text-center space-y-2">
                   <p className="text-xs text-warm-gray/60">
                     {players.length < 2
                       ? `Need at least 2 players (currently ${players.length})`
-                      : `${players.length} player${players.length !== 1 ? "s" : ""} ready — ${players.length} letters required per word`}
+                      : `${players.length} player${players.length !== 1 ? "s" : ""} ready`}
                   </p>
                   {players.length < 1 && (
                     <p className="text-[10px] text-peach font-bold">Waiting for players to join...</p>
@@ -1211,14 +1456,23 @@ export default function UnifiedLobby() {
                       size="lg"
                       className="w-full"
                       icon={<Play className="w-4 h-4" />}
-                      onClick={handleStartLinksGame}
+                      onClick={() => {
+                        const subMode = lobby?.settings?.linksSubMode || "CLASSIC";
+                        if (subMode === "SPRINT") {
+                          handleStartLinksSprintGame();
+                        } else {
+                          handleStartLinksGame();
+                        }
+                      }}
                       disabled={isStarting || players.length < 2}
                     >
                       {isStarting
                         ? "Starting..."
                         : players.length < 2
                           ? "Need 2+ Players"
-                          : "Start LINKS Game"}
+                          : (lobby?.settings?.linksSubMode || "CLASSIC") === "SPRINT"
+                            ? "Start LINKS Sprint"
+                            : "Start LINKS Classic"}
                     </ClayButton>
                     {startError && (
                       <p className="text-xs text-peach text-center font-bold">{startError}</p>

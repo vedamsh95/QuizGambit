@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
-import { smartSelectQuestions } from "../lib/smartSelection";
 import { pickLobbyCode } from "../lib/lobbyCodes";
 import AvatarPicker from "./ui/AvatarPicker";
 import CodeInput from "./ui/CodeInput";
@@ -11,26 +10,15 @@ import ClayButton from "./ui/ClayButton";
 import SettingsPanel from "./ui/SettingsPanel";
 import { AVATARS, getAvatar } from "../assets/avatars";
 import {
-  Play,
   Users,
   User,
   LogIn,
   Sparkles,
   BookOpen,
   Swords,
-  Check,
   X,
 } from "lucide-react";
 import FrayLogo from "./ui/FrayLogo";
-
-// ── Category type ──────────────────────────────────────────────────────
-interface Category {
-  id: string;
-  name: string;
-  data?: any[];
-  main_category?: string;
-  tags?: string[];
-}
 
 // ── HomeScreen ─────────────────────────────────────────────────────────
 export default function HomeScreen() {
@@ -51,39 +39,10 @@ export default function HomeScreen() {
   const [playerName, setPlayerName] = useState(() => store.getPlayerName());
   const [joinCode, setJoinCode] = useState("");
   const [showJoin, setShowJoin] = useState(false);
-  const [showSolo, setShowSolo] = useState(false);
   const [isHosting, setIsHosting] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinStatus, setJoinStatus] = useState("");
-
-  // Solo setup state
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [fetchingCats, setFetchingCats] = useState(false);
-  const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
-  const [soloRounds, setSoloRounds] = useState(3);
-  const [soloTimer, setSoloTimer] = useState(15);
-  const [isStartingSolo, setIsStartingSolo] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
-
-  // ── Fetch categories when solo panel opens ──────────────────────────
-  const openSolo = useCallback(async () => {
-    setShowSolo(true);
-    setShowJoin(false);
-    if (categories.length > 0) return;
-    setFetchingCats(true);
-    const { data } = await supabase.from("categories_library").select("*");
-    if (data) setCategories(data);
-    setFetchingCats(false);
-  }, [categories.length]);
-
-  const toggleCategory = useCallback((id: string) => {
-    setSelectedCats((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   // ── Handlers ────────────────────────────────────────────────────────
   const handleAvatarSelect = useCallback((key: string) => {
@@ -161,11 +120,7 @@ export default function HomeScreen() {
   const handleJoin = useCallback(async () => {
     const cleanCode = joinCode
       .toUpperCase()
-      .replace(/O/g, "Q")
-      .replace(/0/g, "Q")
-      .replace(/I/g, "L")
-      .replace(/1/g, "L")
-      .replace(/[^A-Z0-9]/g, "");
+      .replace(/[^A-Z]/g, "");
     if (cleanCode.length !== 6) return;
     if (!playerName.trim()) return;
 
@@ -208,55 +163,7 @@ export default function HomeScreen() {
 
   const joinValid = joinCode.replace(/[^A-Z0-9]/g, "").length === 6;
 
-  // ── Solo Start ──────────────────────────────────────────────────────
-  const handleSoloStart = useCallback(async () => {
-    if (selectedCats.size === 0 || !playerName.trim()) return;
-    setIsStartingSolo(true);
 
-    try {
-      store.setPlayerName(playerName.trim());
-      store.ensurePlayerId();
-
-      const chosenCategories = categories.filter((c) => selectedCats.has(c.id));
-
-      // Process each category through smart selection
-      const processedCategories: Record<number, any[]> = {};
-      for (let r = 1; r <= soloRounds; r++) {
-        const roundCats = [];
-        for (const cat of chosenCategories) {
-          const questions = await smartSelectQuestions(
-            cat.data || [],
-            cat.name,
-            5,
-            "qb_solo_history",
-          );
-          roundCats.push({ ...cat, data: questions });
-        }
-        processedCategories[r] = roundCats;
-      }
-
-      const settings = {
-        rounds: soloRounds,
-        categoriesPerRound: chosenCategories.length,
-        timer: soloTimer,
-        players: [
-          {
-            id: crypto.randomUUID(),
-            name: playerName.trim(),
-            score: 0,
-          },
-        ],
-        round_categories: processedCategories,
-      };
-
-      store.setLocalGameSettings(settings);
-      navigate("/local");
-    } catch (err) {
-      console.error("Solo start error:", err);
-    } finally {
-      setIsStartingSolo(false);
-    }
-  }, [selectedCats, playerName, categories, soloRounds, soloTimer, navigate]);
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
@@ -367,7 +274,6 @@ export default function HomeScreen() {
         <button
           onClick={() => {
             setShowJoin(false);
-            setShowSolo(false);
             handleHost();
           }}
           disabled={!nameValid || isHosting}
@@ -393,7 +299,6 @@ export default function HomeScreen() {
         <button
           onClick={() => {
             setShowJoin((p) => !p);
-            setShowSolo(false);
           }}
           className={`clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all animate-clay-pop
@@ -412,11 +317,13 @@ export default function HomeScreen() {
 
         {/* Play Solo Card */}
         <button
-          onClick={openSolo}
-          className={`clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
+          onClick={() => {
+            setShowJoin(false);
+            navigate("/solo");
+          }}
+          className="clay p-5 flex flex-col items-center gap-3 text-center cursor-pointer
                      hover:-translate-y-1 transition-all animate-clay-pop
-                     bg-gradient-to-br from-mint-light/40 to-transparent
-                     ${showSolo ? "ring-2 ring-mint shadow-lg shadow-mint/20" : ""}`}
+                     bg-gradient-to-br from-mint-light/40 to-transparent"
           style={{ animationDelay: "100ms" }}
         >
           <div className="w-11 h-11 rounded-xl bg-mint flex items-center justify-center">
@@ -449,107 +356,7 @@ export default function HomeScreen() {
 
       {/* ...no more join panel below the grid */}
 
-      {/* ── Solo Setup Panel ─────────────────────────────────────────── */}
-      {showSolo && (
-        <div className="clay-elevated p-5 w-full max-w-md flex flex-col gap-4 animate-clay-pop">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <h3 className="font-outfit font-black text-sm text-plum">
-              {t('home.soloSetup')}
-            </h3>
-            <button
-              onClick={() => {
-                setShowSolo(false);
-                setSelectedCats(new Set());
-              }}
-              className="p-1 text-plum/50 hover:text-plum transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
 
-          {/* Settings sliders */}
-          <div className="flex gap-4">
-            <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
-                {t('home.roundsLabel', { count: soloRounds })}
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                value={soloRounds}
-                onChange={(e) => setSoloRounds(Number(e.target.value))}
-                className="w-full accent-mint"
-              />
-            </div>
-            <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
-                {t('home.timerLabel', { count: soloTimer })}
-              </label>
-              <input
-                type="range"
-                min={5}
-                max={30}
-                step={5}
-                value={soloTimer}
-                onChange={(e) => setSoloTimer(Number(e.target.value))}
-                className="w-full accent-mint"
-              />
-            </div>
-          </div>
-
-          {/* Category grid */}
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-wider text-plum/60 mb-2">
-              {t('home.pickCategories')} ({t('home.selected', { count: selectedCats.size })})
-            </p>
-            {fetchingCats ? (
-              <div className="grid grid-cols-2 gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-12 clay-skeleton rounded-xl" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto smooth-scroll">
-                {categories.map((cat) => {
-                  const isSelected = selectedCats.has(cat.id);
-                  return (
-                    <button
-                      key={cat.id}
-                      onClick={() => toggleCategory(cat.id)}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all text-xs font-bold
-                        ${
-                          isSelected
-                            ? "bg-mint text-white shadow-lg shadow-mint/20"
-                            : "bg-cream text-plum/50 hover:text-plum border border-clay-border/50"
-                        }`}
-                    >
-                      <span className="truncate flex-1">
-                        {cat.name.replace(" (Arena)", "")}
-                      </span>
-                      {isSelected && <Check className="w-3 h-3 flex-shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Start button */}
-          <ClayButton
-            variant="primary"
-            size="md"
-            disabled={selectedCats.size === 0 || isStartingSolo}
-            loading={isStartingSolo}
-            icon={<Play className="w-4 h-4" />}
-            onClick={handleSoloStart}
-            className="w-full bg-mint hover:bg-mint/90"
-          >
-            {t('home.startSoloGame')}
-          </ClayButton>
-        </div>
-      )}
 
       {/* ── Avatar Selection Modal ─────────────────────────────────── */}
       {showAvatarModal && (

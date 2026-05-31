@@ -21,7 +21,15 @@ import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
 import LinksBoardPrototype from "./components/LinksBoardPrototype";
+import LinksSprintBoard from "./components/LinksSprintBoard";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
+
+// ── Solo Mode Components ──────────────────────────────────────────────
+import SoloModeSelection from "./components/SoloModeSelection";
+import Solo5x5Setup from "./components/solomode/Solo5x5Setup";
+import Solo5x5Board from "./components/solomode/Solo5x5Board";
+import SoloLinksSetup from "./components/solomode/SoloLinksSetup";
+import SoloLinksBoard from "./components/solomode/SoloLinksBoard";
 
 // ── CodeRedirect: /<6-char-code> → /lobby/<code> ──────────────────────
 function CodeRedirect() {
@@ -103,6 +111,17 @@ function PlayRoute() {
   if (lobby.mode === "LINKS") {
     return (
       <LinksBoardPrototype
+        code={code}
+        playerId={playerId}
+        playerName={playerName}
+      />
+    );
+  }
+
+  // LINKS_SPRINT mode → LinksSprintBoard (wave-based target word sprint)
+  if (lobby.mode === "LINKS_SPRINT") {
+    return (
+      <LinksSprintBoard
         code={code}
         playerId={playerId}
         playerName={playerName}
@@ -276,6 +295,13 @@ export default function App() {
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
             <Route path="/prototype-links" element={<LinksBoardPrototype />} />
+
+            {/* ── Solo Modes ────────────────────────────────────── */}
+            <Route path="/solo" element={<SoloModeSelection />} />
+            <Route path="/solo/5x5" element={<Solo5x5Setup />} />
+            <Route path="/solo/5x5/play" element={<Solo5x5Board />} />
+            <Route path="/solo/links" element={<SoloLinksSetup />} />
+            <Route path="/solo/links/play" element={<SoloLinksBoard />} />
 
             {/* ── Catch-all: /<code> → redirect to lobby ────────── */}
             <Route path="/:code" element={<CodeRedirect />} />
