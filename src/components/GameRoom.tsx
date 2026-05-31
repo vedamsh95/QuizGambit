@@ -7,7 +7,7 @@ import SimultaneousBoard from "./SimultaneousBoard";
 import GameBoard from "./GameBoard";
 import PlayerView from "./PlayerView";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
-import { GameHeaderButton } from "./ui";
+import { GameHeaderButton, ConfirmModal } from "./ui";
 import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 /**
@@ -38,6 +38,7 @@ export default function GameRoom() {
   const [tempName, setTempName] = useState(playerName);
   const [playerId, setPlayerId] = useState<string>(() => store.ensurePlayerId());
   const [joining, setJoining] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
   const initialFetchDoneRef = useRef(false);
 
   // ── Presence: track this player's online status ────────────────────────
@@ -206,15 +207,14 @@ export default function GameRoom() {
 
   // ── Handle leave ───────────────────────────────────────────────────────
   const handleLeave = async () => {
-    if (confirm("Leave this game room?")) {
-      await supabase
-        .from("players")
-        .delete()
-        .eq("id", playerId)
-        .eq("lobby_code", code!);
-      store.clearArenaHostCode();
-      navigate(`/lobby/${code}`);
-    }
+    setShowLeaveModal(false);
+    await supabase
+      .from("players")
+      .delete()
+      .eq("id", playerId)
+      .eq("lobby_code", code!);
+    store.clearArenaHostCode();
+    navigate(`/lobby/${code}`);
   };
 
   // ── RENDER: Loading ────────────────────────────────────────────────────
@@ -354,11 +354,23 @@ export default function GameRoom() {
 
           <GameHeaderButton
             variant="danger"
-            onClick={handleLeave}
+            onClick={() => setShowLeaveModal(true)}
           >
             Leave Room
           </GameHeaderButton>
         </div>
+
+        {/* ── Leave Confirmation Modal ───────────────────────────────── */}
+        <ConfirmModal
+          open={showLeaveModal}
+          onClose={() => setShowLeaveModal(false)}
+          onConfirm={handleLeave}
+          title="Leave this game room?"
+          message="You'll be removed from the lobby. You can rejoin later with the same code."
+          confirmLabel="Leave"
+          cancelLabel="Stay"
+          variant="default"
+        />
       </div>
     );
   }

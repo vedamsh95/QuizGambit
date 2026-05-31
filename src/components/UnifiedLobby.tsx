@@ -7,6 +7,7 @@ import { smartSelectQuestions } from "../lib/smartSelection";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import ClayButton from "./ui/ClayButton";
 import ClayCard from "./ui/ClayCard";
+import ConfirmModal from "./ui/ConfirmModal";
 import ModeSelection from "./ModeSelection";
 import type { GameMode, PlayStyle } from "./ModeSelection";
 import BuzzerSetup from "./BuzzerSetup";
@@ -105,6 +106,7 @@ export default function UnifiedLobby() {
 
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState("");
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
 
   // ── Refs for latest values ──────────────────────────────────────────────
 
@@ -768,6 +770,7 @@ export default function UnifiedLobby() {
           p_settings: {
             poisonEnabled: s.poisonEnabled !== false,
             roundDuration: s.roundDuration || 60,
+            linksLetterCount: s.linksLetterCount || 3,
           },
         }
       );
@@ -884,19 +887,18 @@ export default function UnifiedLobby() {
   };
 
   const handleLeave = useCallback(async () => {
-    if (confirm("Leave this lobby?")) {
-      broadcast("player:leave", { playerId });
-      await supabase
-        .from("players")
-        .delete()
-        .eq("id", playerId)
-        .eq("lobby_code", code!);
-      if (isHost) {
-        await supabase.from("lobbies").delete().eq("code", code!);
-        store.clearHostLobbyCode();
-      }
-      navigate("/");
+    setShowLeaveModal(false);
+    broadcast("player:leave", { playerId });
+    await supabase
+      .from("players")
+      .delete()
+      .eq("id", playerId)
+      .eq("lobby_code", code!);
+    if (isHost) {
+      await supabase.from("lobbies").delete().eq("code", code!);
+      store.clearHostLobbyCode();
     }
+    navigate("/");
   }, [code, playerId, isHost, navigate, broadcast]);
 
 
@@ -964,7 +966,7 @@ export default function UnifiedLobby() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/80 backdrop-blur-sm">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => setShowLeaveModal(true)}
           className="flex items-center gap-1.5 text-xs font-bold text-plum hover:text-soft-purple transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -991,7 +993,7 @@ export default function UnifiedLobby() {
           </div>
 
           <button
-            onClick={handleLeave}
+            onClick={() => setShowLeaveModal(true)}
             className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-peach hover:text-peach/80 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -1302,6 +1304,25 @@ export default function UnifiedLobby() {
                     <ClayCard padding="md" className="space-y-3">
                       <h3 className="font-outfit font-black text-plum text-sm">Settings</h3>
                       <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-medium text-warm-gray/70">Letters per Word</span>
+                          <p className="text-[10px] text-warm-gray/50">2–3 letters for 3+ players (auto-picked)</p>
+                        </div>
+                        <select
+                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
+                          value={lobby?.settings?.linksLetterCount || 3}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            updateLobbySetting("linksLetterCount", val);
+                            broadcast("settings:update", { linksLetterCount: val });
+                          }}
+                          disabled={!isHost}
+                        >
+                          <option value={2}>2 letters</option>
+                          <option value={3}>3 letters</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between">
                         <span className="text-xs font-medium text-warm-gray/70">Round Duration</span>
                         <select
                           className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
@@ -1518,6 +1539,24 @@ export default function UnifiedLobby() {
           )}
         </div>
       </div>
+
+      {/* ── Leave Confirmation Modal ───────────────────────────────────────────── */}
+      <ConfirmModal
+        open={showLeaveModal}
+        onClose={() => setShowLeaveModal(false)}
+        onConfirm={handleLeave}
+        title="Leave this lobby?"
+        message={
+          isHost && lobby?.status !== "LOBBY"
+            ? "A game is in progress. Leaving will end the game and remove all players."
+            : isHost
+              ? "You're the host. Leaving will close this lobby for everyone."
+              : "You'll be removed from the lobby. You can rejoin later with the same code."
+        }
+        confirmLabel={isHost && lobby?.status !== "LOBBY" ? "End Game & Leave" : isHost ? "Close & Leave" : "Leave"}
+        cancelLabel="Stay"
+        variant={isHost && lobby?.status !== "LOBBY" ? "danger" : "default"}
+      />
     </div>
   );
 }

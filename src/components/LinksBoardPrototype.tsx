@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
-import { Heart, Zap, Sparkles, ArrowLeftRight, Palette, Users, List, LayoutGrid, Trophy, Wifi, WifiOff, ArrowLeft, Clock, Shield, Skull } from "lucide-react";
+import { Heart, Zap, Sparkles, ArrowLeftRight, Palette, Users, List, LayoutGrid, Trophy, Wifi, WifiOff, ArrowLeft, Clock, Shield } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
@@ -230,8 +230,19 @@ const ActivePlayerPanel = memo(function ActivePlayerPanel({
   const TIMER_CIRCUMFERENCE = 2 * Math.PI * 20;
   const isUsed = wordFeedback?.type === "used";
 
+  const prevHeartsRef = useRef(hearts);
+  const [lifeLost, setLifeLost] = useState(false);
+  useEffect(() => {
+    if (hearts < prevHeartsRef.current) {
+      setLifeLost(true);
+      const t = setTimeout(() => setLifeLost(false), 600);
+      return () => clearTimeout(t);
+    }
+    prevHeartsRef.current = hearts;
+  }, [hearts]);
+
   return (
-    <div className="flex-1 flex flex-col relative overflow-hidden min-h-0" style={bgStyle}>
+    <div className={`flex-1 flex flex-col relative overflow-hidden min-h-0 ${lifeLost ? "animate-life-lost" : ""}`} style={bgStyle}>
       {isClay && (
         <div className="absolute top-0 left-4 right-4 h-[1px] pointer-events-none"
           style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)" }} />
@@ -251,24 +262,6 @@ const ActivePlayerPanel = memo(function ActivePlayerPanel({
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Per-player timer ring */}
-            {!eliminated && timerTotal > 0 && timerSeconds !== undefined && timerSeconds > 0 && (
-              <div className="relative w-10 h-10 flex-shrink-0">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 48 48">
-                  <circle cx="24" cy="24" r="20" fill="none" stroke={isClay ? "rgba(255,255,255,0.12)" : "#e8e4df"} strokeWidth="4" />
-                  <circle cx="24" cy="24" r="20" fill="none" stroke={timerStrokeColor} strokeWidth="4" strokeLinecap="round"
-                    strokeDasharray={TIMER_CIRCUMFERENCE}
-                    strokeDashoffset={TIMER_CIRCUMFERENCE * (1 - timerPercent / 100)}
-                    className={`transition-all duration-300 ${timerCritical ? "animate-pulse" : ""}`} />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className={`font-mono font-black text-[10px] tabular-nums leading-none ${timerCritical ? "animate-pulse text-peach" : timerUrgent ? "text-butter" : ""}`}
-                    style={{ color: timerCritical ? undefined : timerUrgent ? undefined : textColor }}>
-                    {timerSeconds}
-                  </span>
-                </div>
-              </div>
-            )}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border"
               style={{ backgroundColor: pillBg, borderColor: pillBorder, boxShadow: isClay ? clayShadowElevated(color.fill) : undefined }}>
               <Zap className="w-3.5 h-3.5" style={{ color: pillText }} />
@@ -285,16 +278,6 @@ const ActivePlayerPanel = memo(function ActivePlayerPanel({
         </div>
       </div>
 
-      {/* Poison warning badge */}
-      {poisonWarning && (
-        <div className="relative z-10 px-4 sm:px-6 mb-1">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-peach-light/80 border border-peach/20 animate-slide-up-fade"
-            style={{ maxWidth: "fit-content", margin: "0 auto" }}>
-            <Skull className="w-3 h-3 text-peach" />
-            <span className="text-[10px] font-black text-peach uppercase tracking-wider">{poisonWarning}</span>
-          </div>
-        </div>
-      )}
 
       {/* Submit status flash */}
       {submitStatus && (
@@ -309,6 +292,28 @@ const ActivePlayerPanel = memo(function ActivePlayerPanel({
 
       {/* Input area */}
       <div key={shakeKey} className={`relative flex-1 flex flex-col items-center justify-center z-10 px-4 sm:px-8 gap-3 min-h-0 ${isUsed ? "animate-shake" : ""}`}>
+        {/* Per-player timer ring — centered above input */}
+        {!eliminated && timerTotal > 0 && timerSeconds !== undefined && timerSeconds > 0 && (
+          <div className="flex flex-col items-center justify-center mb-1">
+            <div className="relative w-14 h-14 flex-shrink-0">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="20" fill="none" stroke={isClay ? "rgba(255,255,255,0.12)" : "#e8e4df"} strokeWidth="4" />
+                <circle cx="24" cy="24" r="20" fill="none" stroke={timerStrokeColor} strokeWidth="4" strokeLinecap="round"
+                  strokeDasharray={TIMER_CIRCUMFERENCE}
+                  strokeDashoffset={TIMER_CIRCUMFERENCE * (1 - timerPercent / 100)}
+                  className={`transition-all duration-300 ${timerCritical ? "animate-pulse" : ""}`} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className={`font-mono font-black text-lg tabular-nums leading-none ${timerCritical ? "animate-pulse text-peach" : timerUrgent ? "text-butter" : ""}`}
+                  style={{ color: timerCritical ? undefined : timerUrgent ? undefined : textColor }}>
+                  {timerSeconds}
+                </span>
+              </div>
+            </div>
+            <span className="text-[10px] font-black mt-1 tracking-widest opacity-60" style={{ color: textColor }}>TIME</span>
+          </div>
+        )}
+
         {/* "Claimed by X" overlay */}
         {isUsed && wordFeedback?.message && (
           <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-center">
@@ -768,7 +773,7 @@ const PoisonSetupPhase = memo(function PoisonSetupPhase({
   letters,
   poisonAssignments,
   error,
-  otherPlayers,
+  poisonTarget,
   playerColors,
   onAssignPoison,
   onSetPoisonLetter,
@@ -778,7 +783,7 @@ const PoisonSetupPhase = memo(function PoisonSetupPhase({
   letters: string[];
   poisonAssignments: Record<string, string>;
   error: string;
-  otherPlayers: any[];
+  poisonTarget: any;
   playerColors: Record<string, PlayerColor>;
   onAssignPoison: () => void;
   onSetPoisonLetter: (targetId: string, letter: string) => void;
@@ -789,7 +794,7 @@ const PoisonSetupPhase = memo(function PoisonSetupPhase({
         <div className="text-4xl mb-2">☣️</div>
         <h1 className="font-outfit font-black text-2xl text-plum">Poison Phase</h1>
         <p className="text-sm text-warm-gray/60 max-w-md">
-          Secretly assign a poison letter to each opponent. If they type a word containing it, they lose a heart.
+          Secretly assign a poison letter to your target opponent.
           <br />
           <span className="text-[10px] text-warm-gray/50">They won't know what you picked!</span>
         </p>
@@ -811,60 +816,65 @@ const PoisonSetupPhase = memo(function PoisonSetupPhase({
       )}
 
       <div className="w-full max-w-md space-y-3">
-        {otherPlayers.map((op: any) => {
+        {(() => {
+          if (!poisonTarget) return null;
+          const op = poisonTarget;
           const c = playerColors[op.id] || PLAYER_COLORS[0];
           const myPoison = poisonAssignments[op.id] || "";
 
           return (
-            <div key={op.id} className="rounded-2xl p-4 space-y-2"
-              style={{ backgroundColor: c.fillLight + "80", border: `1.5px solid ${c.pillBorder}` }}>
-              <div className="flex items-center gap-2">
-                <span className="font-outfit font-bold text-sm" style={{ color: c.fill }}>{op.name}</span>
+            <div key={op.id} className="rounded-3xl p-6 space-y-4"
+              style={{ backgroundColor: c.fillLight + "80", border: `1.5px solid ${c.pillBorder}`, boxShadow: `0 8px 32px color-mix(in srgb, ${c.fill} 15%, transparent)` }}>
+              <div className="flex flex-col items-center gap-2 text-center">
+                <h2 className="font-outfit font-black text-xl" style={{ color: c.fill }}>Poison {op.name}</h2>
+                <p className="text-[11px] font-bold text-warm-gray/50">
+                  Pick a letter to sabotage them!
+                </p>
               </div>
-              <p className="text-[10px] text-warm-gray/50">
-                Pick a poison letter for {op.name} (not one of the required letters)
-              </p>
-              <div className="flex flex-wrap gap-1.5">
+              
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => {
                   const isRequired = letters.includes(l);
                   const isSelected = myPoison === l;
                   return (
                     <button key={l}
                       onClick={() => { if (!isRequired) onSetPoisonLetter(op.id, l); }}
-                      className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${
+                      className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-sm font-black transition-all duration-200 ${
                         isRequired
-                          ? "bg-warm-gray/10 text-warm-gray/20 cursor-not-allowed"
+                          ? "opacity-30 cursor-not-allowed"
                           : isSelected
-                            ? "text-white shadow-md scale-110"
-                            : "bg-warm-white border border-warm-gray/15 text-warm-gray/60 hover:border-soft-purple/30 hover:text-plum"
+                            ? "scale-110"
+                            : "hover:scale-105 active:scale-95"
                       }`}
-                      style={{ backgroundColor: isSelected ? c.fill : undefined }}>
+                      style={{
+                        backgroundColor: isSelected ? c.fill : "rgba(0,0,0,0.05)",
+                        color: isSelected ? "#fff" : c.fill,
+                        boxShadow: isSelected 
+                          ? `4px 4px 14px ${c.fill}4D, inset 1px 1px 0px rgba(255,255,255,0.35), inset -1px -1px 0px rgba(0,0,0,0.08)` 
+                          : "inset 2px 2px 6px rgba(0,0,0,0.05), inset -1px -1px 0px rgba(255,255,255,0.20)",
+                      }}>
                       {l}
                     </button>
                   );
                 })}
               </div>
               {myPoison && (
-                <p className="text-[10px] font-bold" style={{ color: c.fill }}>
-                  Poison: {myPoison} → {op.name} loses ❤️ when they use it
+                <p className="text-[12px] font-black text-center animate-clay-pop pt-2" style={{ color: c.fill }}>
+                  Poison Locked: {myPoison}
                 </p>
               )}
             </div>
           );
-        })}
+        })()}
       </div>
 
       <button onClick={onAssignPoison}
-        disabled={otherPlayers.some((op: any) => !poisonAssignments[op.id])}
+        disabled={!poisonTarget || !poisonAssignments[poisonTarget.id]}
         className="px-8 py-3 rounded-2xl font-outfit font-black text-sm tracking-widest uppercase transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 flex items-center gap-2"
         style={{ backgroundColor: "#7C5CFC", color: "#fff", boxShadow: "0 6px 24px rgba(124,92,252,0.35)" }}>
         <Shield className="w-4 h-4" />
         Lock In Poisons
       </button>
-
-      <p className="text-[10px] text-warm-gray/50 text-center">
-        {Object.keys(poisonAssignments).length} / {otherPlayers.length} opponents assigned
-      </p>
     </div>
   );
 });
@@ -1067,7 +1077,10 @@ export default function LinksBoardPrototype({
   const [leaderboardMode, setLeaderboardMode] = useState(false);
 
   // ── Derived: real mode ───────────────────────────────────────────────
-  const phase = gameState.phase;
+  const autoLetters = gameState.autoLetters === true;
+  const phase = (autoLetters && gameState.phase === "LETTER_SELECT") 
+    ? (gameState.poisonEnabled !== false ? "POISON_SETUP" : "PLAYING") 
+    : gameState.phase;
   const letters: string[] = gameState.letters || DEMO_LETTERS;
   const playerLettersState: Record<string, string> = gameState.playerLetters || {};
   const poisonLettersState: Record<string, Record<string, string>> = gameState.poisonLetters || {};
@@ -1226,6 +1239,19 @@ export default function LinksBoardPrototype({
       onBroadcast("player:leave", (payload: any) => {
         if (payload.playerId) {
           setRealPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+          setLiveInputs((prev) => {
+            const next = { ...prev };
+            delete next[payload.playerId];
+            return next;
+          });
+        }
+      })
+    );
+
+    unsubs.push(
+      onBroadcast("player:typing", (payload: any) => {
+        if (payload.playerId && payload.input !== undefined) {
+          setLiveInputs((prev) => ({ ...prev, [payload.playerId]: payload.input }));
         }
       })
     );
@@ -1516,8 +1542,32 @@ export default function LinksBoardPrototype({
   // ── Typed word state ─────────────────────────────────────────────────
   const [typedWord, setTypedWord] = useState("");
   const [wordFeedback, setWordFeedback] = useState<{ type: string; message?: string }>({ type: "typing" });
+  const [liveInputs, setLiveInputs] = useState<Record<string, string>>({});
 
   useEffect(() => { typedWordRef.current = typedWord; });
+
+  // ── Live typing broadcast (throttled) ────────────────────────────────────
+  useEffect(() => {
+    if (!isRealMode || phase !== "PLAYING") return;
+    const now = Date.now();
+    if (now - lastBroadcastTick.current >= 200) {
+      lastBroadcastTick.current = now;
+      broadcast("player:typing", { playerId: effectivePlayerId, input: typedWord });
+    } else {
+      const t = setTimeout(() => {
+        lastBroadcastTick.current = Date.now();
+        broadcast("player:typing", { playerId: effectivePlayerId, input: typedWord });
+      }, 200 - (now - lastBroadcastTick.current));
+      return () => clearTimeout(t);
+    }
+  }, [typedWord, isRealMode, phase, broadcast, effectivePlayerId]);
+
+  // ── Clear liveInputs when phase changes away from PLAYING ────────────
+  useEffect(() => {
+    if (isRealMode && phase !== "PLAYING") {
+      setLiveInputs({});
+    }
+  }, [phase, isRealMode]);
 
   // ── Adapter for ActivePlayerPanel which calls setInput(string) ──
   const handleSetInput = useCallback((v: string) => {
@@ -1527,7 +1577,6 @@ export default function LinksBoardPrototype({
     } else {
       const fb = validateWord(v);
       setWordFeedback(fb);
-      if (fb.type === "used") setShakeKey(k => k + 1);
     }
   }, [validateWord]);
 
@@ -1597,10 +1646,10 @@ export default function LinksBoardPrototype({
   const handleAssignPoison = async () => {
     if (!isRealMode) return;
     if (phase !== "POISON_SETUP") return;
-    const targetIds = otherPlayers.map((p: any) => p.id);
-    const missing = targetIds.filter((id) => !poisonAssignments[id]);
-    if (missing.length > 0) {
-      setPoisonError("Assign a poison letter for each opponent");
+    const pairing = gameState.poisonPairings?.[effectivePlayerId];
+    const targetId = pairing?.target || otherPlayers[0]?.id;
+    if (targetId && !poisonAssignments[targetId]) {
+      setPoisonError("Assign a poison letter for your target");
       return;
     }
     setPoisonError("");
@@ -1628,7 +1677,12 @@ export default function LinksBoardPrototype({
 
   const handleSubmitWord = async (wordParam?: string) => {
     if (phase !== "PLAYING" || submitGuardRef.current || isSubmitting) return;
-    if (wordFeedback.type !== "valid") return;
+    if (wordFeedback.type !== "valid") {
+      if (wordFeedback.type === "used") {
+        setShakeKey(k => k + 1);
+      }
+      return;
+    }
     if (myHearts <= 0) return; // eliminated — can't submit
 
     const word = (wordParam || typedWord).trim().toLowerCase();
@@ -1970,7 +2024,7 @@ export default function LinksBoardPrototype({
           </button>
 
           {/* View toggle: Grid vs Leaderboard */}
-          {effectivePlayerCount >= 4 && (
+          {effectivePlayerCount >= 2 && (
             <button onClick={() => setLeaderboardMode(!leaderboardMode)}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-[10px] sm:text-xs font-bold transition-all ${leaderboardMode ? "bg-soft-purple border-soft-purple text-white shadow-md" : "bg-warm-gray/5 border-warm-gray/10 text-plum/40 hover:text-plum/70 hover:bg-warm-gray/10"}`}>
               {leaderboardMode ? <List className="w-3 h-3" /> : <LayoutGrid className="w-3 h-3" />}
@@ -2032,7 +2086,7 @@ export default function LinksBoardPrototype({
             letters={letters}
             poisonAssignments={poisonAssignments}
             error={poisonError}
-            otherPlayers={otherPlayers}
+            poisonTarget={(() => { const pairing = gameState.poisonPairings?.[effectivePlayerId]; return pairing ? otherPlayers.find(p => p.id === pairing.target) : otherPlayers[0]; })()}
             playerColors={Object.fromEntries(
               realPlayers.map((p: any, i: number) => [p.id, getPlayerColorByIndex(i)])
             )}
@@ -2102,7 +2156,7 @@ export default function LinksBoardPrototype({
                       score={realScores[otherPlayers[0]?.id] || 0}
                       hearts={playerHearts[otherPlayers[0]?.id] ?? 3}
                       words={opponentClaimedWords.filter(w => w.player_id === otherPlayers[0]?.id).map(w => ({ id: w.id, word: w.word, points: w.points, isPoisoned: w.is_poisoned, claimedAt: new Date(w.created_at) }))}
-                      liveInput={""}
+                      liveInput={liveInputs[otherPlayers[0]?.id || ""] || ""}
                       playerLetter={playerLettersState[otherPlayers[0]?.id] || ""}
                       timerSeconds={getOpponentTimer(otherPlayers[0]?.id || "")}
                       clayMode={clayMode}
@@ -2124,10 +2178,10 @@ export default function LinksBoardPrototype({
               </div>
             )}
 
-            {/* 3 PLAYERS */}
-            {effectivePlayerCount === 3 && (
+            {/* 3+ PLAYERS */}
+            {effectivePlayerCount >= 3 && (
               <div className="flex-1 flex flex-col md:flex-row min-h-0">
-                <div className="flex-1 min-h-0 flex flex-col md:flex-none md:w-[50%]">
+                <div className="h-[55vh] md:h-auto flex-1 min-h-0 flex flex-col md:flex-none md:w-[50%]">
                   {isRealMode ? (
                     <ActivePlayerPanel
                       color={getPlayerColorByName(effectivePlayerId, realPlayers)}
@@ -2167,9 +2221,25 @@ export default function LinksBoardPrototype({
                   </div>
                 </div>
                 <div className="md:hidden h-[2px] bg-gradient-to-r from-warm-white/80 via-warm-gray/15 to-warm-white/80 relative shrink-0" />
-                <div className="flex-1 min-h-0 flex flex-col md:flex-none md:w-[50%]">
+                <div className="flex-1 min-h-0 flex flex-col md:flex-none md:w-[50%] overflow-y-auto">
                   {(() => {
                     const opps = isRealMode ? otherPlayers : opponentIndices.map(i => ({ id: `demo-${i}`, name: `P${i + 1}` }));
+                    const leaderboardOpponents = opps.map((op: any, idx: number) => {
+                      const oi = isRealMode ? realPlayers.findIndex((p: any) => p.id === op.id) : opponentIndices[idx];
+                      return {
+                        index: idx,
+                        label: op.name || `P${oi + 1}`,
+                        score: isRealMode ? (realScores[op.id] || 0) : demoScores[oi],
+                        hearts: isRealMode ? (playerHearts[op.id] ?? 3) : demoHearts[oi],
+                        wordCount: isRealMode ? opponentClaimedWords.filter(w => w.player_id === op.id).length : demoAllWords[oi].length,
+                        words: isRealMode ? opponentClaimedWords.filter(w => w.player_id === op.id).map(w => ({ id: w.id, word: w.word, points: w.points, isPoisoned: w.is_poisoned, claimedAt: new Date(w.created_at) })) : demoAllWords[oi],
+                        color: isRealMode ? getPlayerColorByName(op.id, realPlayers) : PLAYER_COLORS[demoAllColors[oi]],
+                        avatarSrc: AVATARS[(oi + 1) % AVATARS.length].src,
+                      };
+                    });
+                    if (leaderboardMode) {
+                      return <OpponentLeaderboard opponents={leaderboardOpponents} liveInput={demoLiveInput} clayMode={clayMode} />;
+                    }
                     return opps.map((op: any, idx: number) => {
                       const oi = isRealMode ? realPlayers.findIndex((p: any) => p.id === op.id) : opponentIndices[idx];
                       return (
@@ -2182,7 +2252,7 @@ export default function LinksBoardPrototype({
                               score={realScores[op.id] || 0}
                               hearts={playerHearts[op.id] ?? 3}
                               words={opponentClaimedWords.filter(w => w.player_id === op.id).map(w => ({ id: w.id, word: w.word, points: w.points, isPoisoned: w.is_poisoned, claimedAt: new Date(w.created_at) }))}
-                              liveInput={typedWord}
+                              liveInput={liveInputs[op.id] || ""}
                               playerLetter={playerLettersState[op.id] || ""}
                       timerSeconds={getOpponentTimer(op.id)}
                               clayMode={clayMode}
@@ -2208,8 +2278,8 @@ export default function LinksBoardPrototype({
               </div>
             )}
 
-            {/* 4 PLAYERS */}
-            {effectivePlayerCount === 4 && (leaderboardMode ? (
+            {/* 4 PLAYERS — now handled by 3+ layout above */}
+            {false && effectivePlayerCount === 4 && (leaderboardMode ? (
               <div className="flex-1 flex flex-col md:flex-row min-h-0">
                 <div className="flex-[3] md:flex-[11] min-h-0 flex">
                   {isRealMode ? (
@@ -2424,7 +2494,7 @@ export default function LinksBoardPrototype({
             ))}
 
             {/* 5 PLAYERS */}
-            {effectivePlayerCount === 5 && (leaderboardMode ? (
+            {false && effectivePlayerCount === 5 && (leaderboardMode ? (
               <div className="flex-1 flex flex-col md:flex-row min-h-0">
                 <div className="flex-[3] md:flex-[11] min-h-0 flex">
                   {isRealMode ? (
@@ -2637,7 +2707,7 @@ export default function LinksBoardPrototype({
             ))}
 
             {/* 6 PLAYERS */}
-            {effectivePlayerCount === 6 && (leaderboardMode ? (
+            {false && effectivePlayerCount === 6 && (leaderboardMode ? (
               <div className="flex-1 flex flex-col md:flex-row min-h-0">
                 <div className="flex-[5] md:flex-[11] min-h-0 flex">
                   {isRealMode ? (

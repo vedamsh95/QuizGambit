@@ -1572,7 +1572,12 @@ export default function LinksSprintBoard({ code, playerId, playerName }: LinksSp
   // ── Submit word ──────────────────────────────────────────────────────
   const handleSubmitWord = useCallback(async (wordParam?: string) => {
     if (phase !== "PLAYING" || submitGuardRef.current || isSubmitting) return;
-    if (wordFeedback.type !== "valid") return;
+    if (wordFeedback.type !== "valid") {
+      if (wordFeedback.type === "used") {
+        setShakeKey(k => k + 1);
+      }
+      return;
+    }
 
     const word = (wordParam || typedWord).trim();
     if (!word || word.length < 3) return;

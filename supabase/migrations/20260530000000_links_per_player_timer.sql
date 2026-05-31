@@ -5,6 +5,7 @@
 -- heart. Submitting a correct word resets their timer. No global timer.
 -- Winner = most points when all players are eliminated.
 -- Sudden death: each subsequent word slightly reduces the timer duration.
+-- Supports up to 6 players.
 -- ============================================================================
 
 -- ── 1. Update start_links_game: use playerTimers instead of timerEndTime ──

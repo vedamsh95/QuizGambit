@@ -1,7 +1,7 @@
 -- ============================================================================
 -- LINKS Game Mode — Vocabulary Duel
 -- ============================================================================
--- 2-4 players each pick a letter. Words must contain ALL chosen letters.
+-- 2-6 players each pick a letter. Words must contain ALL chosen letters.
 -- Shared word pool — first to claim a word locks it for everyone.
 -- Optional Poison Variant: each player secretly assigns a poison letter to
 -- each opponent. Using it costs 1 of 3 hearts.

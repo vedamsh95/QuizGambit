@@ -142,6 +142,9 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
     show: boolean;
   } | null>(null);
 
+  // ── Shake animation key (bumps on Enter for "used" words) ────────────
+  const [shakeKey, setShakeKey] = useState(0);
+
   // ── Connection state ─────────────────────────────────────────────────
   const [showDisconnected, setShowDisconnected] = useState(false);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -663,7 +666,12 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
 
   const handleSubmitWord = async () => {
     if (phase !== "PLAYING" || submitGuardRef.current || isSubmitting) return;
-    if (wordFeedback.type !== "valid") return;
+    if (wordFeedback.type !== "valid") {
+      if (wordFeedback.type === "used") {
+        setShakeKey(k => k + 1);
+      }
+      return;
+    }
 
     const word = typedWord.trim().toLowerCase();
     if (!word || word.length < 3) return;
@@ -1291,7 +1299,7 @@ export default function LinksBoard({ code, playerId, playerName }: LinksBoardPro
               )}
 
               {/* Word input */}
-              <div className="space-y-2">
+              <div key={shakeKey} className={`space-y-2 ${wordFeedback?.type === "used" ? "animate-shake" : ""}`}>
                 <div className="relative">
                   <input
                     type="text"

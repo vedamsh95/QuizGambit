@@ -64,7 +64,7 @@ const GAMES: GameConfig[] = [
     accentBg: "bg-emerald-500/20",
     playStyles: ["MULTIPLAYER"],
     available: true,
-    features: ["Word Sprint", "Shared Pool", "Poison Mode", "Multiplayer 2-4"],
+        features: ["Word Sprint", "Shared Pool", "Poison Mode", "Multiplayer 2-6"],
   },
   {
     id: "THE_NUMBER",

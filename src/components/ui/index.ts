@@ -30,6 +30,9 @@ export { default as CodeInput } from "./CodeInput";
 export { default as GameHeaderButton } from "./GameHeaderButton";
 export { default as GameConnectionBadge } from "./GameConnectionBadge";
 
+// ── Modal ───────────────────────────────────────────────────────────────────
+export { default as ConfirmModal } from "./ConfirmModal";
+
 // ── Re-export types for consumers ───────────────────────────────────────────
 export type { ClayButtonProps } from "./ClayButton";
 export type { ClayCardProps } from "./ClayCard";
@@ -45,3 +48,4 @@ export type { AvatarPickerProps } from "./AvatarPicker";
 export type { CodeInputProps } from "./CodeInput";
 export type { GameHeaderButtonProps } from "./GameHeaderButton";
 export type { GameConnectionBadgeProps } from "./GameConnectionBadge";
+export type { ConfirmModalProps } from "./ConfirmModal";
