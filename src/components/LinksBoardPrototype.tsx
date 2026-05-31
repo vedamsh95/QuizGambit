@@ -6,7 +6,7 @@ import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import { AVATARS } from "../assets/avatars";
 
 // ── Avatar SVG component (black icon, works on any background) ─────────────
-const AvatarIcon = memo(function AvatarIcon({ src, size }: { src: string; size: string }) {
+export const AvatarIcon = memo(function AvatarIcon({ src, size }: { src: string; size: string }) {
   return (
     <img
       src={src}
@@ -19,7 +19,7 @@ const AvatarIcon = memo(function AvatarIcon({ src, size }: { src: string; size: 
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-interface WordEntry {
+export interface WordEntry {
   id: string;
   word: string;
   points: number;
@@ -27,7 +27,7 @@ interface WordEntry {
   claimedAt: Date;
 }
 
-interface PlayerColor {
+export interface PlayerColor {
   name: string;
   label: string;
   fill: string;
@@ -58,7 +58,7 @@ interface ClaimedWord {
 
 // ── Color palette ───────────────────────────────────────────────────────────
 
-const PLAYER_COLORS: PlayerColor[] = [
+export const PLAYER_COLORS: PlayerColor[] = [
   { name: "purple", label: "Purple", fill: "#7C5CFC", fillLight: "#EDE9FE", pillBg: "#F3EFFF", pillBorder: "#C4B5FD", mutedText: "#8B7EC8" },
   { name: "peach", label: "Peach", fill: "#FF6B8A", fillLight: "#FFE5EB", pillBg: "#FFF0F3", pillBorder: "#FFB8C8", mutedText: "#D48A9A" },
   { name: "sky", label: "Sky", fill: "#60A5FA", fillLight: "#DBEAFE", pillBg: "#EFF6FF", pillBorder: "#93C5FD", mutedText: "#7B9EC8" },
@@ -71,9 +71,9 @@ const PLAYER_COLORS: PlayerColor[] = [
 
 // ── Demo data ───────────────────────────────────────────────────────────────
 
-const DEMO_LETTERS = ["A", "K", "R"];
+export const DEMO_LETTERS = ["A", "K", "R"];
 
-const DEMO_WORDS: WordEntry[][] = [
+export const DEMO_WORDS: WordEntry[][] = [
   [{ id: "w1", word: "SPARK", points: 75, isPoisoned: false, claimedAt: new Date() },
    { id: "w2", word: "REACT", points: 60, isPoisoned: false, claimedAt: new Date() },
    { id: "w3", word: "TRICK", points: 75, isPoisoned: false, claimedAt: new Date() }],
@@ -92,18 +92,18 @@ const DEMO_WORDS: WordEntry[][] = [
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const calcPoints = (length: number) =>
+export const calcPoints = (length: number) =>
   length <= 4 ? 10 * length : length <= 6 ? 15 * length : 20 * length;
 
-const needsDarkText = (fill: string) => fill === "#FBBF24" || fill === "#2DD4BF";
+export const needsDarkText = (fill: string) => fill === "#FBBF24" || fill === "#2DD4BF";
 
-const clayShadow = (fill: string) =>
+export const clayShadow = (fill: string) =>
   `6px 6px 20px ${fill}38, inset 1px 1px 0px rgba(255,255,255,0.30), inset -1px -1px 0px rgba(0,0,0,0.10)`;
 
-const clayShadowElevated = (fill: string) =>
+export const clayShadowElevated = (fill: string) =>
   `4px 4px 14px ${fill}4D, inset 1px 1px 0px rgba(255,255,255,0.35), inset -1px -1px 0px rgba(0,0,0,0.08)`;
 
-const clayShadowPressed = (fill: string) =>
+export const clayShadowPressed = (fill: string) =>
   `inset 2px 2px 6px ${fill}33, inset -1px -1px 0px rgba(255,255,255,0.20)`;
 
 /** Parse arena_state — Supabase may return JSONB as string from realtime */
@@ -116,11 +116,11 @@ function parseArenaState(raw: any): any {
   return raw;
 }
 
-function getPlayerColorByIndex(index: number): PlayerColor {
+export function getPlayerColorByIndex(index: number): PlayerColor {
   return PLAYER_COLORS[index % PLAYER_COLORS.length];
 }
 
-function getPlayerColorByName(playerId: string, players: any[]): PlayerColor {
+export function getPlayerColorByName(playerId: string, players: any[]): PlayerColor {
   const idx = players.findIndex((p: any) => p.id === playerId);
   return getPlayerColorByIndex(idx >= 0 ? idx : 0);
 }
@@ -132,7 +132,7 @@ const SVG_CIRCUMFERENCE = 2 * Math.PI * 34;
 
 // ── ActivePlayerPanel (module-level — fixes input focus bug) ────────────────
 
-const ActivePlayerPanel = memo(function ActivePlayerPanel({
+export const ActivePlayerPanel = memo(function ActivePlayerPanel({
   color,
   input,
   setInput,
@@ -396,7 +396,7 @@ const ActivePlayerPanel = memo(function ActivePlayerPanel({
 
 // ── OpponentPanel (module-level — stable identity) ──────────────────────────
 
-const OpponentPanel = memo(function OpponentPanel({
+export const OpponentPanel = memo(function OpponentPanel({
   color,
   playerLabel,
   score,
@@ -544,7 +544,7 @@ const OpponentPanel = memo(function OpponentPanel({
 
 // ── OpponentLeaderboard (compact list view for small screens) ───────────────
 
-const OpponentLeaderboard = memo(function OpponentLeaderboard({
+export const OpponentLeaderboard = memo(function OpponentLeaderboard({
   opponents,
   liveInput,
   clayMode: isClay,
