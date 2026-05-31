@@ -8,6 +8,7 @@ import ClayInput from "./ui/ClayInput";
 import { PLAYER_COLORS, calcPoints, DEMO_LETTERS } from "./LinksBoardPrototype";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
+import ActivityFeed from "./ui/ActivityFeed";
 
 export interface WordEntry {
   id: string;
@@ -72,6 +73,8 @@ export default function LinksBoardPrototypeV3() {
 
   const [timeLeft, setTimeLeft] = useState(60);
   const [shakeInput, setShakeInput] = useState(false);
+
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'leaderboard' | 'feed'>('leaderboard');
 
   useEffect(() => {
     const int = setInterval(() => setTimeLeft(t => (t > 0 ? t - 1 : 60)), 1000);
@@ -238,33 +241,49 @@ export default function LinksBoardPrototypeV3() {
           </section>
         </div>
 
-        {/* Right Side: Opponents (Minimalist List) ── */}
+        {/* Right Side: Tabbed Sidebar ── */}
         <div className="w-full md:w-80 flex flex-col gap-4">
-          <h2 className="text-sm font-bold text-plum/50 uppercase tracking-widest pl-2">Opponents</h2>
-          {opponents.map((opp) => (
-            <ClayCard 
-              key={opp.index} 
-              elevation="flat" 
-              padding="sm"
-              className={`flex flex-col gap-3 cursor-pointer transition-all ${expandedOpponent === opp.index ? 'ring-2 ring-offset-2 ring-offset-clay-cream' : 'hover:bg-black/5'}`}
-              onClick={() => setExpandedOpponent(expandedOpponent === opp.index ? null : opp.index)}
-              style={expandedOpponent === opp.index ? { '--tw-ring-color': opp.color.fill } as React.CSSProperties : undefined}
+          <div className="flex bg-white/50 p-1 rounded-2xl border border-black/5 shadow-inner">
+            <button 
+              className={`flex-1 py-2 text-sm font-bold uppercase tracking-widest rounded-xl transition-all ${activeSidebarTab === 'leaderboard' ? 'bg-white shadow-sm text-plum' : 'text-plum/50 hover:bg-white/50'}`}
+              onClick={() => setActiveSidebarTab('leaderboard')}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner"
-                    style={{ backgroundColor: opp.color.fillLight }}
-                  >
-                    <AvatarIcon src={opp.avatar} size="28px" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-md leading-tight text-plum">Player {opp.index + 1}</div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <Heart 
-                          key={i} 
-                          className={`w-3 h-3 ${i < opp.hearts ? 'fill-peach text-peach' : 'fill-warm-gray text-warm-gray opacity-30'}`} 
+              Leaderboard
+            </button>
+            <button 
+              className={`flex-1 py-2 text-sm font-bold uppercase tracking-widest rounded-xl transition-all ${activeSidebarTab === 'feed' ? 'bg-white shadow-sm text-plum' : 'text-plum/50 hover:bg-white/50'}`}
+              onClick={() => setActiveSidebarTab('feed')}
+            >
+              Live Feed
+            </button>
+          </div>
+
+          {activeSidebarTab === 'leaderboard' ? (
+            <div className="flex flex-col gap-4">
+              {opponents.map((opp) => (
+                <ClayCard 
+                  key={opp.index} 
+                  elevation="flat" 
+                  padding="sm"
+                  className={`flex flex-col gap-3 cursor-pointer transition-all ${expandedOpponent === opp.index ? 'ring-2 ring-offset-2 ring-offset-clay-cream' : 'hover:bg-black/5'}`}
+                  onClick={() => setExpandedOpponent(expandedOpponent === opp.index ? null : opp.index)}
+                  style={expandedOpponent === opp.index ? { '--tw-ring-color': opp.color.fill } as React.CSSProperties : undefined}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner"
+                        style={{ backgroundColor: opp.color.fillLight }}
+                      >
+                        <AvatarIcon src={opp.avatar} size="28px" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-md leading-tight text-plum">Player {opp.index + 1}</div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {Array.from({ length: 3 }).map((_, i) => (
+                            <Heart 
+                              key={i} 
+                              className={`w-3 h-3 ${i < opp.hearts ? 'fill-peach text-peach' : 'fill-warm-gray text-warm-gray opacity-30'}`}  
                         />
                       ))}
                       <span 
@@ -296,6 +315,10 @@ export default function LinksBoardPrototypeV3() {
               )}
             </ClayCard>
           ))}
+            </div>
+          ) : (
+            <ActivityFeed />
+          )}
         </div>
 
       </div>

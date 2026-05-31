@@ -7,6 +7,7 @@ import { AVATARS } from "../assets/avatars";
 import ClayCard from "./ui/ClayCard";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
+import ActivityFeed from "./ui/ActivityFeed";
 import { PLAYER_COLORS } from "./LinksBoardPrototype";
 
 // ── Shared UI Utilities ───────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ export default function LinksSprintBoardPrototypeV3() {
 
   const [timeLeft, setTimeLeft] = useState(45);
   const [shakeInput, setShakeInput] = useState(false);
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'leaderboard' | 'feed'>('leaderboard');
 
   useEffect(() => {
     const int = setInterval(() => setTimeLeft(t => (t > 0 ? t - 1 : 45)), 1000);
@@ -272,9 +274,25 @@ export default function LinksSprintBoardPrototypeV3() {
           </section>
         </div>
 
-        {/* Right Side: Opponents (Minimalist List) ── */}
+        {/* Right Side: Tabbed Sidebar ── */}
         <div className="w-full md:w-80 flex flex-col gap-4">
-          <h2 className="text-sm font-bold text-plum/50 uppercase tracking-widest pl-2">Sprint Leaderboard</h2>
+          <div className="flex bg-white/50 p-1 rounded-2xl border border-black/5 shadow-inner">
+            <button 
+              className={`flex-1 py-2 text-sm font-bold uppercase tracking-widest rounded-xl transition-all ${activeSidebarTab === 'leaderboard' ? 'bg-white shadow-sm text-plum' : 'text-plum/50 hover:bg-white/50'}`}
+              onClick={() => setActiveSidebarTab('leaderboard')}
+            >
+              Leaderboard
+            </button>
+            <button 
+              className={`flex-1 py-2 text-sm font-bold uppercase tracking-widest rounded-xl transition-all ${activeSidebarTab === 'feed' ? 'bg-white shadow-sm text-plum' : 'text-plum/50 hover:bg-white/50'}`}
+              onClick={() => setActiveSidebarTab('feed')}
+            >
+              Live Feed
+            </button>
+          </div>
+
+          {activeSidebarTab === 'leaderboard' ? (
+            <div className="flex flex-col gap-4">
           {opponents.sort((a,b) => b.score - a.score).map((opp) => (
             <ClayCard 
               key={opp.index} 
@@ -282,7 +300,7 @@ export default function LinksSprintBoardPrototypeV3() {
               padding="sm"
               className={`flex flex-col gap-3 cursor-pointer transition-all ${expandedOpponent === opp.index ? 'ring-2 ring-offset-2 ring-offset-clay-cream' : 'hover:bg-black/5'}`}
               onClick={() => setExpandedOpponent(expandedOpponent === opp.index ? null : opp.index)}
-              style={expandedOpponent === opp.index ? { ringColor: opp.color.fill } : undefined}
+              style={expandedOpponent === opp.index ? { '--tw-ring-color': opp.color.fill } as React.CSSProperties: undefined}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -319,6 +337,10 @@ export default function LinksSprintBoardPrototypeV3() {
               )}
             </ClayCard>
           ))}
+            </div>
+          ) : (
+            <ActivityFeed />
+          )}
         </div>
 
       </div>
