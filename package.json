@@ -23,7 +23,6 @@
   },
   "homepage": "https://github.com/vedamsh95/QuizGambit#readme",
   "dependencies": {
-    "@fontsource/outfit": "^5.2.8",
     "@supabase/supabase-js": "^2.89.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@vitejs/plugin-react": "^5.1.2",

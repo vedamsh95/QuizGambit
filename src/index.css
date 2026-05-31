@@ -6,13 +6,7 @@
    Switch via: document.documentElement.classList.add("theme-dark") / "theme-multi"
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Outfit font via @fontsource ─────────────────────────────────────── */
-@import "@fontsource/outfit/400.css";
-@import "@fontsource/outfit/500.css";
-@import "@fontsource/outfit/600.css";
-@import "@fontsource/outfit/700.css";
-@import "@fontsource/outfit/800.css";
-@import "@fontsource/outfit/900.css";
+/* ── Outfit font via Google Fonts (index.html) ────────────────────────── */
 
 /* ═══════════════════════════════════════════════════════════════════════════
    THEME: Light (default, no class needed)
