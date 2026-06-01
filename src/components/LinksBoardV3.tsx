@@ -375,20 +375,6 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     return Math.max(0, Math.ceil(endTime - Date.now() / 1000));
   };
 
-  // ── Poison warning ───────────────────────────────────────────────────
-  const poisonWarning = useMemo(() => {
-    if (phase !== "PLAYING") return null;
-    const myPoisons: string[] = [];
-    for (const [, assignments] of Object.entries(poisonLettersState)) {
-      if (typeof assignments === "object" && (assignments as any)[effectivePlayerId]) {
-        myPoisons.push((assignments as any)[effectivePlayerId]);
-      }
-    }
-    if (myPoisons.length === 0) return null;
-    return `☠️ Avoid: ${myPoisons.join(", ")}`;
-  }, [phase, poisonLettersState, effectivePlayerId]);
-
-
   // ── Realtime channel ─────────────────────────────────────────────────
   const { isConnected, broadcast, onBroadcast } = useRealtimeChannel({
     channelName: `links:${gameCode}`,
@@ -550,7 +536,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     const lower = word.toLowerCase().trim();
     if (!/^[a-z]{3,15}$/.test(lower)) return { type: "invalid" as const, message: "Letters only, 3-15 chars" };
     for (const letter of letters) { if (!lower.includes(letter.toLowerCase())) return { type: "missing" as const, message: `Missing "${letter}"` }; }
-    if (validWordCache && !validWordCache.has(lower)) return { type: "invalid" as const, message: "Not a real word" };
+    if (validWordCache && !validWordCache.has(lower)) return { type: "invalid" as const, message: "Not in dictionary — names/places may be missing" };
     if (usedWords.includes(lower) || claimedWords.some((w) => w.word === lower)) {
       const claimer = claimedWords.find((w) => w.word === lower);
       return { type: "used" as const, message: claimer ? `${claimer.player_name} already claimed it` : "Already used" };
@@ -735,7 +721,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
           <button onClick={handleLeave} className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /><span className="hidden sm:inline">Leave</span>
           </button>
-          {phase === "PLAYING" && <TensionTimer timeLeft={myTimerSeconds} maxTime={roundDuration} defaultColor="#A78BFA" />}
+
         </div>
 
         <div className="flex items-center gap-2">
@@ -767,12 +753,15 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
 
       {phase === "PLAYING" && (
         <div className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 pb-8 flex flex-col md:flex-row gap-8 items-start">
-          {/* ── Left: Pool & Active Player ── */}
+          {/* ── Left: Active Player ── */}
           <div className="flex-1 w-full space-y-8">
-            <LetterPool letters={letters} inputText={typedWord} title="Required Letters" subtitle="Your word must contain ALL of these letters" />
+            {/* Timer centered above card */}
+            <div className="flex justify-center">
+              <TensionTimer timeLeft={myTimerSeconds} maxTime={roundDuration} defaultColor="#A78BFA" />
+            </div>
 
-            <section className="mt-8">
-              <ClayCard elevation="elevated" className="p-6 relative overflow-hidden" style={{ backgroundColor: '#EDE9FE', borderColor: '#C4B5FD' }}>
+            <section>
+              <ClayCard elevation="flat" padding="md" className="relative overflow-hidden">
                 {/* Player header */}
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center gap-4">
@@ -780,7 +769,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
                       <AvatarIcon src={AVATARS[0].src} size="100%" />
                     </div>
                     <div>
-                      <div className="font-bold text-lg leading-tight text-soft-purple">{playerName || "You"}</div>
+                      <div className="font-bold text-lg leading-tight text-plum">{playerName || "You"}</div>
                       <div className="flex items-center gap-1 mt-1">
                         {Array.from({ length: 3 }).map((_, i) => (
                           <Heart key={i} className={`w-4 h-4 ${i < myHearts ? 'fill-peach text-peach' : 'opacity-30'}`} />
@@ -789,25 +778,15 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-black text-2xl text-soft-purple">{myScore}</div>
-                    <div className="text-xs font-bold uppercase tracking-widest opacity-60 text-soft-purple">Points</div>
+                    <div className="font-black text-2xl text-plum">{myScore}</div>
+                    <div className="text-xs font-bold uppercase tracking-widest opacity-60 text-plum">Points</div>
                   </div>
                 </div>
 
-                {/* Required letters */}
-                <div className="mb-4 flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-bold opacity-70 text-soft-purple">Required:</span>
-                  {letters.map((l) => (
-                    <span key={l} className={`px-3 py-1 rounded-lg font-black text-lg shadow-sm transition-all text-soft-purple ${typedWord.toUpperCase().includes(l) ? 'bg-white scale-110' : 'bg-white/50 opacity-50'}`}>{l}</span>
-                  ))}
+                {/* Letter pool inside card */}
+                <div className="flex justify-center">
+                  <LetterPool letters={letters} inputText={typedWord} title="" subtitle="These letters must be included in your word" />
                 </div>
-
-                {/* Poison warning */}
-                {poisonWarning && (
-                  <div className="mb-3 bg-peach-light border border-peach/30 rounded-xl p-2 text-center">
-                    <span className="text-xs font-black text-peach">{poisonWarning}</span>
-                  </div>
-                )}
 
                 {/* Submit status */}
                 {submitStatus && <div className={`text-center text-xs font-bold mb-2 animate-clay-pop ${submitStatus.includes("+") ? "text-mint" : submitStatus.includes("💀") ? "text-peach" : "text-warm-gray/60"}`}>{submitStatus}</div>}
@@ -825,14 +804,11 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
                   <input
                     type="text" value={typedWord}
                     onChange={(e) => handleSetInput(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
-                    placeholder={`Word must include ${letters.join(", ")}`}
-                    className={`w-full bg-white text-soft-purple text-2xl font-black font-mono tracking-[0.1em] rounded-2xl py-4 pl-6 pr-16 border-2 border-[#C4B5FD] outline-none focus:ring-4 focus:ring-soft-purple/20 transition-all ${wordFeedback.type === 'valid' ? '!border-mint/50 !ring-mint/20' : wordFeedback.type === 'missing' || wordFeedback.type === 'used' || wordFeedback.type === 'invalid' ? '!border-peach/50 !ring-peach/20' : ''}`}
+                    placeholder="Type word"
+                  className={`w-full bg-warm-white text-plum text-2xl font-black font-mono tracking-[0.1em] rounded-2xl py-4 pl-6 pr-6 border-2 border-warm-gray/15 outline-none focus:border-soft-purple/40 focus:ring-2 focus:ring-soft-purple/20 transition-all ${wordFeedback.type === 'valid' ? '!border-mint/50 !ring-mint/20' : wordFeedback.type === 'missing' || wordFeedback.type === 'used' || wordFeedback.type === 'invalid' ? '!border-peach/50 !ring-peach/20' : ''}`}
                     autoFocus autoComplete="off" disabled={myHearts <= 0}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSubmitWord(); } }}
                   />
-                  <button type="submit" disabled={!typedWord.trim() || isSubmitting} className="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center rounded-xl transition-all disabled:opacity-50 bg-soft-purple text-white">
-                    <Zap className="w-5 h-5 fill-current" />
-                  </button>
                 </form>
 
                 {/* Word feedback */}
@@ -871,7 +847,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
             {activeSidebarTab === 'leaderboard' ? (
               <div className="flex flex-col gap-4">
                 {/* You — always first */}
-                <ClayCard elevation="flat" padding="sm" className="flex items-center justify-between ring-2 ring-soft-purple/30 ring-offset-2 ring-offset-clay-cream" style={{ backgroundColor: myColor.fillLight }}>
+                <ClayCard elevation="flat" padding="sm" className="flex items-center justify-between ring-2 ring-warm-gray/20 ring-offset-2 ring-offset-clay-cream" style={{ backgroundColor: myColor.fillLight }}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner" style={{ backgroundColor: myColor.fillLight }}>
                       <AvatarIcon src={AVATARS[0].src} size="28px" />
