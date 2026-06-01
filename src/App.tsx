@@ -20,11 +20,11 @@ import AIGeneratorView from "./components/AIGeneratorView";
 import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
-import LinksBoardPrototype from "./components/LinksBoardPrototype";
+import LinksBoardV3 from "./components/LinksBoardV3";
 import LinksBoardPrototypeClay from "./components/LinksBoardPrototypeClay";
 import LinksBoardPrototypeV3 from "./components/LinksBoardPrototypeV3";
 import LinksSprintBoardPrototypeV3 from "./components/LinksSprintBoardPrototypeV3";
-import LinksSprintBoard from "./components/LinksSprintBoard";
+import LinksSprintBoardV3 from "./components/LinksSprintBoardV3";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
 
 // ── Solo Mode Components ──────────────────────────────────────────────
@@ -110,10 +110,10 @@ function PlayRoute() {
 
   const lobby = state.lobby;
 
-  // LINKS mode → LinksBoardPrototype (new clay design with full backend integration)
+  // LINKS mode → LinksBoardV3 (new centered V3 layout with full backend integration)
   if (lobby.mode === "LINKS") {
     return (
-      <LinksBoardPrototype
+      <LinksBoardV3
         code={code}
         playerId={playerId}
         playerName={playerName}
@@ -121,10 +121,10 @@ function PlayRoute() {
     );
   }
 
-  // LINKS_SPRINT mode → LinksSprintBoard (wave-based target word sprint)
+  // LINKS_SPRINT mode → LinksSprintBoardV3 (V3 centered layout)
   if (lobby.mode === "LINKS_SPRINT") {
     return (
-      <LinksSprintBoard
+      <LinksSprintBoardV3
         code={code}
         playerId={playerId}
         playerName={playerName}
@@ -302,7 +302,7 @@ export default function App() {
 
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
-            <Route path="/prototype-links" element={<LinksBoardPrototype />} />
+            <Route path="/prototype-links" element={<LinksBoardV3 />} />
             <Route path="/prototype-links-v2" element={<LinksBoardPrototypeClay />} />
 
             {/* ── Solo Modes ────────────────────────────────────── */}
