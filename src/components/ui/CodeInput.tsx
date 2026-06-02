@@ -4,6 +4,7 @@ import clsx from "clsx";
 export interface CodeInputProps {
   value: string;
   onChange: (code: string) => void;
+  onSubmit?: () => void;
   length?: number;
   disabled?: boolean;
   className?: string;
@@ -15,6 +16,7 @@ const VALID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789";
 export default function CodeInput({
   value,
   onChange,
+  onSubmit,
   length = 6,
   disabled = false,
   className,
@@ -32,6 +34,9 @@ export default function CodeInput({
 
   const handleKeyDown = (idx: number, e: KeyboardEvent<HTMLInputElement>) => {
     const current = chars[idx];
+
+    // Allow Cmd/Ctrl shortcuts (paste, copy, select-all, etc.) to pass through
+    if (e.metaKey || e.ctrlKey) return;
 
     if (e.key === "Backspace") {
       e.preventDefault();
@@ -60,6 +65,12 @@ export default function CodeInput({
     if (e.key === "ArrowRight" && idx < length - 1) {
       e.preventDefault();
       inputRefs.current[idx + 1]?.focus();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onSubmit?.();
       return;
     }
 
@@ -122,10 +133,10 @@ export default function CodeInput({
               type="text"
               maxLength={1}
               value={chars[i] || ""}
-              readOnly
               disabled={disabled}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              onChange={() => {}}
               onKeyDown={(e) => handleKeyDown(i, e)}
               onPaste={handlePaste}
               className={clsx(
@@ -141,9 +152,6 @@ export default function CodeInput({
           ))}
         </div>
 
-        {/* Separator */}
-        <span className="text-2xl font-black text-plum/20 select-none">-</span>
-
         {/* Second chunk: DEF */}
         <div className="flex gap-2">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -155,10 +163,10 @@ export default function CodeInput({
               type="text"
               maxLength={1}
               value={chars[i + 3] || ""}
-              readOnly
               disabled={disabled}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              onChange={() => {}}
               onKeyDown={(e) => handleKeyDown(i + 3, e)}
               onPaste={handlePaste}
               className={clsx(

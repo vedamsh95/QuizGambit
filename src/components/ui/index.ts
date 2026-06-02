@@ -32,6 +32,8 @@ export { default as GameConnectionBadge } from "./GameConnectionBadge";
 
 // ── Modal ───────────────────────────────────────────────────────────────────
 export { default as ConfirmModal } from "./ConfirmModal";
+export { default as PillSelector } from "./PillSelector";
+export type { PillOption } from "./PillSelector";
 
 // ── Re-export types for consumers ───────────────────────────────────────────
 export type { ClayButtonProps } from "./ClayButton";

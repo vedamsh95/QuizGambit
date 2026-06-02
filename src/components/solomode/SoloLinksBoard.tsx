@@ -4,18 +4,21 @@ import { useTranslation } from "react-i18next";
 import { store } from "../../lib/storage";
 import {
   ArrowLeft, Zap, Flame, Clock, Shuffle, Sparkles, Play, Pause,
-  ArrowRight, RefreshCw, Send,
+  RefreshCw, Send,
 } from "lucide-react";
 import ClayButton from "../ui/ClayButton";
 import ClayCard from "../ui/ClayCard";
 import ClayBadge from "../ui/ClayBadge";
 import SoloEndScreen from "./SoloEndScreen";
+import { fetchWordFile, countPoolLettersInWord, generateLetterPool } from "../../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 interface GameSettings {
   letterCount: number;
   waveTimer: number;
+  totalWaves: number;
+  letterShifts: number;
   targetMode: boolean;
 }
 
@@ -33,7 +36,7 @@ interface WaveStats {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const TOTAL_WAVES = 3;
+// TOTAL_WAVES is now dynamic from settings
 
 function calculatePoints(wordLength: number): number {
   if (wordLength <= 4) return 10 * wordLength;
@@ -51,6 +54,25 @@ const LETTER_COLORS = [
   { accent: "peach", bg: "bg-peach-light", border: "border-peach/30", text: "text-peach", shadow: "shadow-peach/20" },
   { accent: "butter", bg: "bg-butter-light", border: "border-butter/30", text: "text-butter", shadow: "shadow-butter/20" },
 ];
+
+// ── Shared helper: build valid word set (union + ≥2 pool letters) ───────────
+
+async function buildValidWordSet(poolLetters: string[]): Promise<Set<string>> {
+  const allWords = new Set<string>();
+  for (const letter of poolLetters) {
+    const words = await fetchWordFile(letter);
+    for (const w of words) { if (w.length >= 2 && w.length <= 15) allWords.add(w); }
+  }
+  const poolLower = poolLetters.map((l) => l.toLowerCase());
+  const valid = new Set<string>();
+  for (const word of allWords) {
+    const lower = word.toLowerCase();
+    let hits = 0;
+    for (const l of poolLower) { if (lower.includes(l)) { hits++; if (hits >= 2) break; } }
+    if (hits >= 2) valid.add(word);
+  }
+  return valid;
+}
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -91,6 +113,18 @@ export default function SoloLinksBoard() {
   const [showFreeze, setShowFreeze] = useState(false);
   const [freezeTimer, setFreezeTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Segment (letter shift) state ────────────────────────────────────
+  const [segmentTimer, setSegmentTimer] = useState(0);
+  const [currentSegment, setCurrentSegment] = useState(1);
+  const shiftFiredRef = useRef(false);
+  const handleShiftLettersRef = useRef<() => void>(() => {});
+  const letterShifts = settings?.letterShifts || 1;
+  const hasSegments = letterShifts > 1;
+  const segmentsPerWave = letterShifts;
+  // Segment duration based on ACTUAL wave time (shorter waves = shorter segments)
+  const actualWaveTime = settings ? Math.floor(settings.waveTimer * (1 - (currentWave - 1) * 0.25)) : 60;
+  const segmentDuration = hasSegments ? Math.floor(actualWaveTime / segmentsPerWave) : 0;
+
   // ── Refs ─────────────────────────────────────────────────────────────
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,49 +141,19 @@ export default function SoloLinksBoard() {
     generateLetters(s);
   }, []);
 
-  const generateLetters = async (s: GameSettings) => {
+  const generateLetters = async (s: GameSettings, waveNum?: number) => {
     setLetterLoadStatus("Loading word lists...");
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
     try {
-      const commonLetters = "AEIOURSTNLC";
-      const available = [...alphabet];
-      const selected: string[] = [];
+      // Use hybrid anchor+spice generation from linksHelpers
+      const selected = await generateLetterPool(s.letterCount, waveNum || currentWave);
 
-      for (let i = 0; i < s.letterCount; i++) {
-        const totalWeight = available.reduce((sum, l) =>
-          sum + (commonLetters.includes(l) ? 3 : 1), 0);
-        let random = Math.random() * totalWeight;
-        let pickIdx = 0;
-        for (let j = 0; j < available.length; j++) {
-          random -= commonLetters.includes(available[j]) ? 3 : 1;
-          if (random <= 0) { pickIdx = j; break; }
-        }
-        selected.push(available[pickIdx]);
-        available.splice(pickIdx, 1);
-      }
+      const validSet = await buildValidWordSet(selected);
+      setValidWordsSet(validSet);
 
-      const wordSets: Set<string>[] = [];
-      for (const letter of selected) {
-        try {
-          const resp = await fetch(`/words/by_letter/${letter.toLowerCase()}.json`);
-          if (resp.ok) {
-            const words: string[] = await resp.json();
-            wordSets.push(new Set(words));
-          }
-        } catch { /* skip */ }
-      }
-
-      if (wordSets.length > 0) {
-        const first = wordSets[0];
-        const intersection = new Set<string>();
-        for (const word of first) {
-          if (wordSets.every((s) => s.has(word))) intersection.add(word);
-        }
-        setValidWordsSet(intersection);
-
-        if (s.targetMode && intersection.size > 0) {
-          const longWords = Array.from(intersection).filter((w) => w.length >= 7);
+      if (validSet.size > 0) {
+        if (s.targetMode) {
+          const longWords = Array.from(validSet).filter((w) => w.length >= 7);
           if (longWords.length > 0) {
             setTargetWord(longWords[Math.floor(Math.random() * longWords.length)].toUpperCase());
           }
@@ -163,8 +167,8 @@ export default function SoloLinksBoard() {
     } catch (err) {
       console.error("Failed to load word lists:", err);
       setLetterLoadStatus("Using fallback letters...");
-      const shuffled = [...alphabet].sort(() => Math.random() - 0.5);
-      setLetters(shuffled.slice(0, s.letterCount));
+      const fallback = "AEIOURSTNLC".split("").slice(0, s.letterCount);
+      setLetters(fallback);
       setLoading(false);
     }
   };
@@ -177,10 +181,10 @@ export default function SoloLinksBoard() {
       if (!/^[a-z]{3,15}$/.test(lower)) {
         return { type: "invalid" as const, message: t("links.lettersOnly") };
       }
-      for (const letter of letters) {
-        if (!lower.includes(letter.toLowerCase())) {
-          return { type: "missing" as const, message: t("links.missingLetter", { letter }) };
-        }
+      // Require at least 2 pool letters (matching Classic/Sprint)
+      const poolCount = countPoolLettersInWord(lower, letters);
+      if (poolCount < 2) {
+        return { type: "missing" as const, message: t("links.missingLetter", { letter: letters.find((l) => !lower.includes(l.toLowerCase())) || "" }) };
       }
       if (usedWords.has(lower)) {
         return { type: "used" as const, message: t("links.alreadyUsed") };
@@ -289,7 +293,56 @@ export default function SoloLinksBoard() {
     };
   }, [isTimerRunning, isPaused, gameOver]);
 
+  // ── Segment timer logic (letter shifts) ────────────────────────────
+  useEffect(() => {
+    if (!isTimerRunning || isPaused || gameOver || !hasSegments) {
+      setSegmentTimer(0);
+      shiftFiredRef.current = false;
+      return;
+    }
+
+    // Initialize segment timer when wave starts or segment changes
+    setSegmentTimer(segmentDuration);
+    shiftFiredRef.current = false;
+
+    const interval = setInterval(() => {
+      setSegmentTimer((prev) => {
+        if (prev <= 1) {
+          // Time to shift — only host-like logic (solo = always host)
+          if (!shiftFiredRef.current) {
+            shiftFiredRef.current = true;
+            handleShiftLettersRef.current();
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isTimerRunning, isPaused, gameOver, hasSegments, currentSegment, segmentDuration]);
+
   // ── Start wave ───────────────────────────────────────────────────────
+  // ── Handle letter shift (segment change) ───────────────────────────
+  const handleShiftLetters = useCallback(async () => {
+    if (!settings) return;
+    const nextSegment = currentSegment + 1;
+    if (nextSegment > segmentsPerWave) return;
+
+    setCurrentSegment(nextSegment);
+    const newLetters = await generateLetterPool(settings.letterCount, currentWave);
+    setLetters(newLetters);
+    const validSet = await buildValidWordSet(newLetters);
+    setValidWordsSet(validSet);
+    setTypedWord("");
+    setWordFeedback({ type: "typing" });
+    setCombo(0);
+    inputRef.current?.focus();
+  }, [settings, currentWave, currentSegment, segmentsPerWave]);
+
+  // Keep ref in sync with latest handleShiftLetters
+  handleShiftLettersRef.current = handleShiftLetters;
+
   const startWave = useCallback((waveNum?: number) => {
     if (!settings) return;
     const wave = waveNum ?? currentWave;
@@ -298,8 +351,11 @@ export default function SoloLinksBoard() {
     setIsTimerRunning(true);
     setIsPaused(false);
     setIsBetweenWaves(false);
-    setCurrentWaveWords([]); // Clear previous wave's words when starting new wave
+    setCurrentWaveWords([]);
     setCombo(0);
+    setCurrentSegment(1);
+    setSegmentTimer(0);
+    shiftFiredRef.current = false;
     inputRef.current?.focus();
   }, [settings, currentWave]);
 
@@ -316,49 +372,34 @@ export default function SoloLinksBoard() {
       },
     ]);
 
-    if (currentWave >= TOTAL_WAVES) {
+    if (currentWave >= (settings?.totalWaves || 3)) {
       setGameOver(true);
     } else {
       setIsBetweenWaves(true);
-      // Keep currentWaveWords for the between-waves display; clear when next wave starts
-      // Generate new letters
-      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      const available = alphabet.filter((l) => !letters.includes(l));
-      const shuffled = available.sort(() => Math.random() - 0.5);
-      const newLetters = shuffled.slice(0, settings?.letterCount || 3);
-      setLetters(newLetters);
+      // Generate new letters using hybrid system + auto-advance
+      const nextWave = currentWave + 1;
+      (async () => {
+        const newLetters = await generateLetterPool(settings?.letterCount || 3, nextWave);
+        setLetters(newLetters);
+        const validSet = await buildValidWordSet(newLetters);
+        setValidWordsSet(validSet);
 
-      // Reload words
-      const reloadWords = async () => {
-        const wordSets: Set<string>[] = [];
-        for (const letter of newLetters) {
-          try {
-            const resp = await fetch(`/words/by_letter/${letter.toLowerCase()}.json`);
-            if (resp.ok) {
-              const words: string[] = await resp.json();
-              wordSets.push(new Set(words));
-            }
-          } catch { /* skip */ }
-        }
-        if (wordSets.length > 0) {
-          const first = wordSets[0];
-          const intersection = new Set<string>();
-          for (const word of first) {
-            if (wordSets.every((s) => s.has(word))) intersection.add(word);
+        if (settings?.targetMode) {
+          const longWords = Array.from(validSet).filter((w) => w.length >= 7);
+          if (longWords.length > 0) {
+            setTargetWord(longWords[Math.floor(Math.random() * longWords.length)].toUpperCase());
           }
-          setValidWordsSet(intersection);
+          setTargetFound(false);
+        }
 
-          if (settings?.targetMode) {
-            const longWords = Array.from(intersection).filter((w) => w.length >= 7);
-            if (longWords.length > 0) {
-              setTargetWord(longWords[Math.floor(Math.random() * longWords.length)].toUpperCase());
-            }
-            setTargetFound(false);
-          }
-        }
-      };
-      reloadWords();
-      setUsedWords(new Set());
+        setUsedWords(new Set());
+        setCurrentWave(nextWave);
+        // Auto-start next wave with a brief pause for results visibility
+        setTimeout(() => {
+          startWave(nextWave);
+        }, 2000);
+      })();
+      setIsBetweenWaves(true);
     }
   }, [currentWave, currentWaveWords, letters, settings]);
 
@@ -382,19 +423,10 @@ export default function SoloLinksBoard() {
         return next;
       });
 
-      fetch(`/words/by_letter/${newLetter.toLowerCase()}.json`)
-        .then((r) => r.json())
-        .then((words: string[]) => {
-          setValidWordsSet((prev) => {
-            const newSet = new Set<string>();
-            const newLetterWords = new Set(words);
-            for (const word of prev) {
-              if (newLetterWords.has(word)) newSet.add(word);
-            }
-            return newSet;
-          });
-        })
-        .catch(() => {});
+      // Rebuild valid set using shared helper with updated pool
+      const updatedLetters = [...letters];
+      updatedLetters[idx] = newLetter;
+      buildValidWordSet(updatedLetters).then((valid) => setValidWordsSet(valid)).catch(() => {});
 
       setUsedWords(new Set());
       inputRef.current?.focus();
@@ -403,40 +435,18 @@ export default function SoloLinksBoard() {
   );
 
   // ── Shuffle all letters ──────────────────────────────────────────────
-  const shuffleAllLetters = useCallback(() => {
+  const shuffleAllLetters = useCallback(async () => {
     if (!isTimerRunning || isPaused) return;
     setWaveTimer((prev) => Math.max(0, prev - 5));
     setCombo(0);
 
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-    const shuffled = alphabet.sort(() => Math.random() - 0.5);
-    const newLetters = shuffled.slice(0, settings?.letterCount || 3);
+    const newLetters = await generateLetterPool(settings?.letterCount || 3, currentWave);
     setLetters(newLetters);
 
-    const reloadWords = async () => {
-      const wordSets: Set<string>[] = [];
-      for (const letter of newLetters) {
-        try {
-          const resp = await fetch(`/words/by_letter/${letter.toLowerCase()}.json`);
-          if (resp.ok) {
-            const words: string[] = await resp.json();
-            wordSets.push(new Set(words));
-          }
-        } catch { /* skip */ }
-      }
-      if (wordSets.length > 0) {
-        const first = wordSets[0];
-        const intersection = new Set<string>();
-        for (const word of first) {
-          if (wordSets.every((s) => s.has(word))) intersection.add(word);
-        }
-        setValidWordsSet(intersection);
-      }
-    };
-    reloadWords();
+    buildValidWordSet(newLetters).then((valid) => setValidWordsSet(valid)).catch(() => {});
     setUsedWords(new Set());
     inputRef.current?.focus();
-  }, [isTimerRunning, isPaused, settings]);
+  }, [isTimerRunning, isPaused, settings, currentWave]);
 
   // ── Derived data ─────────────────────────────────────────────────────
   const totalScore = useMemo(
@@ -483,7 +493,7 @@ export default function SoloLinksBoard() {
         totalWords={totalWords}
         longestWord={finalLongestWord || "—"}
         bestCombo={bestCombo}
-        totalTime={settings.waveTimer * TOTAL_WAVES}
+        totalTime={settings.waveTimer * (settings.totalWaves || 3)}
         targetFound={targetFound}
         onPlayAgain={() => {
           store.clearLocalGameSettings();
@@ -494,74 +504,51 @@ export default function SoloLinksBoard() {
     );
   }
 
-  // ── Between waves screen ─────────────────────────────────────────────
+  // ── Between waves: brief results overlay (auto-advances) ──────────
   if (isBetweenWaves) {
+    const lastWaveStats = allWaveStats[allWaveStats.length - 1];
     return (
-      <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-6 gap-6">
-        <div className="text-center space-y-3 animate-clay-pop">
+      <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-6 gap-5">
+        <div className="text-center space-y-2 animate-clay-pop">
           <div className="text-5xl">🌊</div>
-          <h2 className="font-outfit font-black text-3xl text-plum">
+          <h2 className="font-outfit font-black text-2xl text-plum">
             {t("solo.waveClear", { n: currentWave })}
           </h2>
-          <p className="text-sm text-warm-gray/60">
-            {currentWaveWords.length} {t("links.wordsClaimed")} · {" "}
-            <span className="font-mono font-bold text-soft-purple">{totalScore}</span> pts
+          <p className="text-sm text-plum/60">
+            {lastWaveStats?.words.length || 0} {t("links.wordsClaimed")} · <span className="font-mono font-bold text-soft-purple">{lastWaveStats?.totalPoints || 0}</span> {t("links.pts")}
           </p>
         </div>
 
-        {/* Word cloud from completed wave */}
-        <div className="flex flex-wrap justify-center gap-2 max-w-md">
-          {currentWaveWords.slice(0, 24).map((w, i) => (
+        {/* Quick word cloud */}
+        <div className="flex flex-wrap justify-center gap-1.5 max-w-sm">
+          {(lastWaveStats?.words || []).slice(0, 12).map((w, i) => (
             <span
               key={i}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border animate-clay-pop ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
                 w.bonus === "power"
                   ? "bg-butter-light text-butter border-butter/30"
                   : w.bonus === "freeze"
                     ? "bg-sky-light text-sky border-sky/30"
                     : w.bonus === "target"
                       ? "bg-mint-light text-mint border-mint/30"
-                      : "clay px-3 py-1.5 rounded-full"
+                      : "clay px-2.5 py-1 rounded-full"
               }`}
-              style={{ animationDelay: `${i * 40}ms` }}
             >
               {w.word}
-              <span className="text-[10px] opacity-60 font-mono">+{w.points}</span>
-              {w.bonus === "power" && <Sparkles className="w-3 h-3" />}
-              {w.bonus === "freeze" && <Clock className="w-3 h-3" />}
-              {w.bonus === "target" && <span>🎯</span>}
+              <span className="text-[9px] opacity-60 font-mono">+{w.points}</span>
             </span>
           ))}
-          {currentWaveWords.length === 0 && (
-            <p className="text-sm text-warm-gray/40 py-4">No words found this wave</p>
-          )}
         </div>
 
-        {/* Next wave button */}
-        <div className="flex gap-3">
-          <ClayButton
-            variant="secondary"
-            size="md"
-            onClick={() => {
-              store.clearLocalGameSettings();
-              navigate("/solo/links");
-            }}
-          >
-            {t("common.back")}
-          </ClayButton>
-          <ClayButton
-            variant="primary"
-            size="lg"
-            icon={<ArrowRight className="w-5 h-5" />}
-            onClick={() => {
-              const nextWave = currentWave + 1;
-              setCurrentWave(nextWave);
-              startWave(nextWave);
-            }}
-          >
-            {t("solo.nextWave")}
-          </ClayButton>
-        </div>
+        <p className="text-xs text-plum/40 animate-pulse">{t("solo.nextWaveStarting")}</p>
+
+        <ClayButton
+          variant="secondary"
+          size="sm"
+          onClick={() => { store.clearLocalGameSettings(); navigate("/solo/links"); }}
+        >
+          {t("common.back")}
+        </ClayButton>
       </div>
     );
   }
@@ -588,8 +575,22 @@ export default function SoloLinksBoard() {
         <div className="flex items-center gap-3">
           {/* Wave badge */}
           <ClayBadge color="purple" dot>
-            🌊 {t("solo.wave")} {currentWave}/{TOTAL_WAVES}
+            🌊 {t("solo.wave")} {currentWave}/{settings?.totalWaves || 3}
           </ClayBadge>
+
+          {/* Segment indicator */}
+          {hasSegments && isTimerRunning && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-soft-purple-light border border-soft-purple/20">
+              <span className="text-[10px] font-black text-soft-purple">
+                Seg {currentSegment}/{segmentsPerWave}
+              </span>
+              {segmentTimer > 0 && (
+                <span className="text-[10px] font-mono font-bold text-plum/50">
+                  · {segmentTimer}s
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Combo */}
           {combo >= 3 && (
@@ -617,6 +618,7 @@ export default function SoloLinksBoard() {
 
       <div className="flex-1 flex flex-col items-center p-3 sm:p-5 gap-4 sm:gap-5 overflow-y-auto">
         {/* ── Timer ring ────────────────────────────────────────── */}
+        <div className="flex items-center gap-2">
         <div className="relative w-22 h-22 sm:w-24 sm:h-24">
           <svg className="w-full h-full -rotate-90" viewBox="0 0 88 88">
             <circle
@@ -645,11 +647,12 @@ export default function SoloLinksBoard() {
               {t("links.sec")}
             </span>
           </div>
-          {/* Play/Pause overlay */}
+          </div>
+          {/* Play/Pause button — beside the timer ring */}
           {isTimerRunning && (
             <button
               onClick={() => setIsPaused(!isPaused)}
-              className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-warm-white border border-warm-gray/15 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
+              className="w-8 h-8 rounded-full bg-warm-white border border-warm-gray/15 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
               title={isPaused ? "Resume" : "Pause"}
             >
               {isPaused ? (
@@ -889,7 +892,7 @@ export default function SoloLinksBoard() {
 
       {/* ── Footer ─────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 py-2 border-t border-warm-gray/10 bg-warm-white/80 text-center text-[10px] text-warm-gray/50">
-        🔤 {letters.join(" + ")} · 🌊 {currentWave}/{TOTAL_WAVES} · {totalWords} {t("links.words")}
+        🔤 {letters.join(" + ")} · 🌊 {currentWave}/{settings?.totalWaves || 3} · {totalWords} {t("links.words")}
       </div>
     </div>
   );

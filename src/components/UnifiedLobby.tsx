@@ -16,8 +16,9 @@ import {
   Play, UserPlus, Share2,
 } from "lucide-react";
 import { getAvatar } from "../assets/avatars";
-import LanguageSwitcher from "./ui/LanguageSwitcher";
+
 import SimultaneousSetup from "./SimultaneousSetup";
+import PillSelector from "./ui/PillSelector";
 
 // ── Backward compat: legacy mode strings from old lobbies ───────────────────
 
@@ -107,6 +108,21 @@ export default function UnifiedLobby() {
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState("");
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
+
+  // ── Optimistic settings overlay ────────────────────────────────────────
+  // Updates UI instantly on click; server syncs in background.
+  const [optimisticSettings, setOptimisticSettings] = useState<Record<string, any>>({});
+  // Reset optimistic overlay whenever the server lobby.settings changes
+  const lobbySettingsRef = useRef(lobby?.settings);
+  useEffect(() => {
+    if (lobby?.settings && lobby.settings !== lobbySettingsRef.current) {
+      lobbySettingsRef.current = lobby?.settings;
+      setOptimisticSettings({});
+    }
+  }, [lobby?.settings]);
+  // Merged settings: optimistic overrides take precedence
+  const effectiveSettings = { ...(lobby?.settings || {}), ...optimisticSettings };
 
   // ── Refs for latest values ──────────────────────────────────────────────
 
@@ -499,6 +515,13 @@ export default function UnifiedLobby() {
     return { error };
   }, [code]);
 
+  // Optimistic update: apply locally + fire server call in background
+  const optimisticUpdate = useCallback((key: string, val: any) => {
+    setOptimisticSettings(prev => ({ ...prev, [key]: val }));
+    updateLobbySetting(key, val);
+    broadcast("settings:update", { [key]: val });
+  }, [updateLobbySetting, broadcast]);
+
   const handleSelectMode = useCallback(async (mode: GameMode, playStyle: PlayStyle) => {
     if (!code || !isHost) return;
 
@@ -549,7 +572,7 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = lobby?.settings || {};
+      const s = { ...lobby?.settings, ...optimisticSettings };
 
       if (isBuzzer5x5(lobbyMode, lobbyPlayStyle)) {
         // Build round categories from draft picks or selected categories
@@ -633,7 +656,7 @@ export default function UnifiedLobby() {
         .eq("code", code)
         .single();
 
-      const s = freshLobby?.settings || lobby?.settings || {};
+      const s = freshLobby?.settings || { ...lobby?.settings, ...optimisticSettings };
 
       // ── Build categories with question data ──────────────────────────
 
@@ -748,7 +771,7 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = lobby?.settings || {};
+      const s = { ...lobby?.settings, ...optimisticSettings };
 
       // ── Nuke stale arena_state from previous game modes BEFORE calling
       //     the RPC.  The old migration (blacklist) would otherwise "resume"
@@ -819,7 +842,7 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = lobby?.settings || {};
+      const s = { ...lobby?.settings, ...optimisticSettings };
 
       // Nuke stale arena_state before calling RPC
       const { error: nullErr } = await supabase
@@ -837,6 +860,7 @@ export default function UnifiedLobby() {
           p_settings: {
             waves: s.sprintWaves || 3,
             waveDuration: s.sprintWaveDuration || 60,
+            segmentsPerWave: s.sprintSegments || 1,
           },
         }
       );
@@ -962,7 +986,7 @@ export default function UnifiedLobby() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-clay-cream flex flex-col">
+    <div className="min-h-screen bg-clay-cream flex flex-col overflow-x-hidden">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/80 backdrop-blur-sm">
         <button
@@ -973,39 +997,38 @@ export default function UnifiedLobby() {
           {t('lobby.home')}
         </button>
 
-        <div className="flex items-center gap-3">
-          <LanguageSwitcher compact />
-          {/* Phase badge */}
-          <span className="text-[10px] font-black uppercase tracking-wider text-warm-gray/60">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Phase badge — hidden on very small screens */}
+          <span className="hidden sm:inline text-[10px] font-black uppercase tracking-wider text-warm-gray/60 truncate">
             {phase === "MODE_SELECTION" ? t('lobby.chooseMode') : modeLabel}
           </span>
 
-          {/* Connection */}
-          <div className="flex items-center gap-1.5 text-[10px] font-bold">
+          {/* Connection — compact on mobile */}
+          <div className="flex items-center gap-1 text-[10px] font-bold">
             {isConnected ? (
               <Wifi className="w-3 h-3 text-mint" />
             ) : (
               <WifiOff className="w-3 h-3 text-peach" />
             )}
-            <span className={isConnected ? "text-mint" : "text-peach"}>
+            <span className={`hidden sm:inline ${isConnected ? "text-mint" : "text-peach"}`}>
               {isConnected ? t('lobby.online', { count: players.length }) : t('lobby.offline')}
             </span>
           </div>
 
           <button
             onClick={() => setShowLeaveModal(true)}
-            className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-peach hover:text-peach/80 transition-colors"
+            className="flex items-center gap-1 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
-            Leave
+            <span className="hidden sm:inline uppercase tracking-wider">Leave</span>
           </button>
         </div>
       </header>
 
       {/* ── Active Game Reconnection Banner (hidden when user just left a game) ── */}
       {!fromParamRef.current && ["PLAYING", "READING", "BUZZING", "ANSWERING", "RACE"].includes(lobby?.status) && (
-        <div className="shrink-0 px-4 py-3 bg-mint-light/80 border-b border-mint/20">
-          <div className="flex items-center justify-between max-w-4xl mx-auto gap-3">
+        <div className="shrink-0 px-3 py-2 sm:px-4 sm:py-3 bg-mint-light/80 border-b border-mint/20">
+          <div className="flex items-center justify-between max-w-4xl mx-auto gap-2 sm:gap-3">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-2 h-2 rounded-full bg-mint animate-pulse flex-shrink-0" />
               <span className="text-xs sm:text-sm font-bold text-mint truncate">
@@ -1032,7 +1055,56 @@ export default function UnifiedLobby() {
       {/* ── Main content ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col lg:flex-row">
         {/* ── Left sidebar: Code + Players ──────────────────────────────── */}
-        <div className="lg:w-80 lg:border-r border-clay-border/50 p-4 sm:p-6 space-y-5 shrink-0">
+        <div className="lg:w-72 xl:w-80 lg:border-r border-b lg:border-b-0 border-clay-border/50 px-3 py-2 sm:px-6 sm:py-4 space-y-2 sm:space-y-4 shrink-0 lg:h-auto">
+          {/* Mobile: compact lobby info bar (no horizontal scroll) */}
+          <div className="flex lg:hidden items-center gap-3">
+            <ClayCard elevation="elevated" padding="sm" className="text-center space-y-0.5 flex-1 min-w-0">
+              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-mint-light text-mint text-[9px] font-black tracking-[0.15em] uppercase">
+                {isHost ? <Crown className="w-2.5 h-2.5" /> : <Users className="w-2.5 h-2.5" />}
+                {isHost ? t('lobby.host') : t('lobby.player')}
+              </div>
+              <div onClick={handleCopyCode} className="cursor-pointer group select-all" title="Click to copy">
+                <span className="text-xl font-outfit font-black text-plum tracking-wide group-hover:text-soft-purple transition-colors">
+                  {code}
+                </span>
+                <span className="text-[10px] font-bold text-warm-gray/60 ml-2">
+                  {copied ? '✓' : 'tap to copy'}
+                </span>
+              </div>
+            </ClayCard>
+
+            {/* Players: compact avatar strip — no scroll */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {players.slice(0, 4).map((p, i) => (
+                <div key={p.id} className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-clay-cream"
+                  style={{
+                    border: `2px solid ${p.id === playerId ? "#A78BFA" : i === 0 ? "#FBBF24" : "#D1D5DB"}`,
+                    marginLeft: i > 0 ? '-4px' : undefined,
+                  }}
+                >
+                  {p.metadata?.avatar ? (
+                    <img
+                      src={getAvatar(p.metadata.avatar).src}
+                      alt={getAvatar(p.metadata.avatar).label}
+                      className="w-5 h-5 object-contain"
+                    />
+                  ) : (
+                    <span className="text-[10px] font-black" style={{
+                      color: p.id === playerId ? "#7C5CFC" : i === 0 ? "#D97706" : "#6B7280"
+                    }}>
+                      {p.name?.[0]?.toUpperCase() || "?"}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {players.length > 4 && (
+                <span className="text-[10px] font-bold text-plum/50 ml-0.5">+{players.length - 4}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop: vertical sidebar layout */}
+          <div className="hidden lg:block space-y-4">
           {/* Code card */}
           <ClayCard elevation="elevated" padding="lg" className="text-center space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mint-light text-mint text-[10px] font-black tracking-[0.2em] uppercase">
@@ -1116,10 +1188,11 @@ export default function UnifiedLobby() {
               </div>
             )}
           </ClayCard>
+          </div>
         </div>
 
         {/* ── Right side: Phase-dependent content ────────────────────────── */}
-        <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+        <div className="flex-1 p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
           {phase === "MODE_SELECTION" && (
             <ModeSelection
               isHost={isHost}
@@ -1183,7 +1256,7 @@ export default function UnifiedLobby() {
                         Waiting for host to start the game...
                       </span>
                     </div>
-                    <p className="text-xs text-warm-gray/60">
+                    <p className="text-xs text-plum/60">
                       When the game starts, you'll use the buzz button on your phone.
                     </p>
                   </div>
@@ -1246,120 +1319,179 @@ export default function UnifiedLobby() {
                 )}
               </div>
 
-              <div className="space-y-4 max-w-lg">
-                {/* ── Sub-mode picker: Classic vs Sprint ─────────────── */}
+              <div className="space-y-4">
+                {/* ── Sub-mode picker: Classic vs Sprint + How to Play ──── */}
                 <ClayCard padding="md" className="space-y-3">
-                  <h3 className="font-outfit font-black text-plum text-sm">Game Variant</h3>
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                    <h3 className="font-outfit font-black text-plum text-sm">Game Variant</h3>
+                    <button
+                      onClick={() => setShowHowToPlay(!showHowToPlay)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap ${
+                        showHowToPlay
+                          ? 'bg-soft-purple text-white shadow-md'
+                          : 'bg-warm-gray/5 text-plum/60 hover:bg-soft-purple-light/50 hover:text-soft-purple border border-warm-gray/15'
+                      }`}
+                    >
+                      <span>📖</span>
+                      {showHowToPlay ? 'Hide Guide' : 'How to Play'}
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
                         if (!isHost) return;
-                        updateLobbySetting("linksSubMode", "CLASSIC");
-                        broadcast("settings:update", { linksSubMode: "CLASSIC" });
+                        optimisticUpdate("linksSubMode", "CLASSIC");
                       }}
                       disabled={!isHost}
                       className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                        (lobby?.settings?.linksSubMode || "CLASSIC") === "CLASSIC"
+                        (effectiveSettings.linksSubMode || "CLASSIC") === "CLASSIC"
                           ? "border-soft-purple bg-soft-purple-light/50 shadow-md"
                           : "border-warm-gray/15 bg-warm-white hover:border-soft-purple/30"
                       }`}
                     >
                       <div className="text-xl mb-1">⚔️</div>
                       <div className="font-outfit font-black text-sm text-plum">Classic</div>
-                      <div className="text-[10px] text-warm-gray/50 mt-1">Pick letters, set poisons, last-one-standing word duel</div>
+                      <div className="text-[10px] text-plum/55 mt-1">Pick letters, set poisons, last-one-standing word duel</div>
                     </button>
                     <button
                       onClick={() => {
                         if (!isHost) return;
-                        updateLobbySetting("linksSubMode", "SPRINT");
-                        broadcast("settings:update", { linksSubMode: "SPRINT" });
+                        optimisticUpdate("linksSubMode", "SPRINT");
                       }}
                       disabled={!isHost}
                       className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                        lobby?.settings?.linksSubMode === "SPRINT"
-                          ? "border-mint bg-mint-light/50 shadow-md"
-                          : "border-warm-gray/15 bg-warm-white hover:border-mint/30"
+                        effectiveSettings.linksSubMode === "SPRINT"
+                          ? "border-soft-purple bg-soft-purple-light/50 shadow-md"
+                          : "border-warm-gray/15 bg-warm-white hover:border-soft-purple/30"
                       }`}
                     >
                       <div className="text-xl mb-1">⚡</div>
                       <div className="font-outfit font-black text-sm text-plum">Sprint</div>
-                      <div className="text-[10px] text-warm-gray/50 mt-1">Computer letters, hidden targets, wave-based pure scoring</div>
+                      <div className="text-[10px] text-plum/55 mt-1">Computer letters, hidden targets, wave-based pure scoring</div>
                     </button>
                   </div>
                 </ClayCard>
 
-                {/* ── Classic-specific description & settings ────────── */}
-                {(lobby?.settings?.linksSubMode || "CLASSIC") === "CLASSIC" && (
+                {/* ── Classic-specific: bento grid layout ────────────────── */}
+                {(effectiveSettings.linksSubMode || "CLASSIC") === "CLASSIC" && (
                   <>
-                    <ClayCard padding="md" className="space-y-2">
-                      <h3 className="font-outfit font-black text-plum text-sm">How LINKS Classic Works</h3>
-                      <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
-                        <li>Each player picks a letter — every word must contain ALL letters</li>
-                        <li>Type words as fast as you can — longer words = more points</li>
-                        <li>First to claim a word locks it — opponents can't use it</li>
-                        <li>Poison mode: secretly assign a poison letter to each opponent</li>
-                      </ul>
-                    </ClayCard>
+                    {/* How to Play + Multiplier Reference — collapsible */}
+                    {showHowToPlay && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-[slideDown_250ms_ease-out]">
+                      <ClayCard padding="md" className="space-y-2 sm:col-span-2">
+                        <h3 className="font-outfit font-black text-plum text-sm flex items-center gap-2">
+                          🎯 How LINKS Classic Works
+                        </h3>
+                        <ul className="text-xs text-plum/65 space-y-1.5 list-none">
+                          <li className="flex items-start gap-2">
+                            <span className="text-soft-purple font-black text-[10px] mt-0.5">1.</span>
+                            <span>The host picks a <strong>letter pool size</strong> (2–6 letters). Each player then picks letters to fill the shared pool.</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-soft-purple font-black text-[10px] mt-0.5">2.</span>
+                            <span>Type words that include <strong>at least 2 letters</strong> from the pool. The more pool letters you use, the higher your score multiplier.</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-soft-purple font-black text-[10px] mt-0.5">3.</span>
+                            <span>First to claim a word <strong>locks it</strong> — opponents can't use it. Last player standing wins!</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-soft-purple font-black text-[10px] mt-0.5">☠️</span>
+                            <span><strong>Poison mode:</strong> secretly assign a poison letter to each opponent. Hit them with it for a surprise elimination!</span>
+                          </li>
+                        </ul>
+                      </ClayCard>
 
-                    <ClayCard padding="md" className="space-y-3">
-                      <h3 className="font-outfit font-black text-plum text-sm">Settings</h3>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-medium text-warm-gray/70">Letters per Word</span>
-                          <p className="text-[10px] text-warm-gray/50">2–3 letters for 3+ players (auto-picked)</p>
+                      <ClayCard padding="md" className="space-y-2">
+                        <h3 className="font-outfit font-black text-plum text-sm">🏆 Score Multiplier</h3>
+                        <p className="text-xs text-plum/55 mb-1">More pool letters = bigger bonus</p>
+                        <div className="space-y-1">
+                          {[{n:'2',m:'1×',c:'text-warm-gray/60'},{n:'3',m:'1.5×',c:'text-soft-purple'},{n:'4',m:'2×',c:'text-soft-purple'},{n:'5',m:'2.5×',c:'text-mint'},{n:'6',m:'3×',c:'text-mint'}].map(({n,m,c}) => (
+                            <div key={n} className="flex items-center justify-between px-2 py-1 rounded-lg bg-warm-gray/5">
+                              <span className="text-[10px] font-bold text-plum/55">{n} pool letters used</span>
+                              <span className={`text-xs font-black ${c}`}>{m}</span>
+                            </div>
+                          ))}
                         </div>
-                        <select
-                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                          value={lobby?.settings?.linksLetterCount || 3}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            updateLobbySetting("linksLetterCount", val);
-                            broadcast("settings:update", { linksLetterCount: val });
-                          }}
-                          disabled={!isHost}
-                        >
-                          <option value={2}>2 letters</option>
-                          <option value={3}>3 letters</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-warm-gray/70">Round Duration</span>
-                        <select
-                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                          value={lobby?.settings?.roundDuration || 60}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            updateLobbySetting("roundDuration", val);
-                            broadcast("settings:update", { roundDuration: val });
-                          }}
-                          disabled={!isHost}
-                        >
-                          <option value={30}>30 seconds</option>
-                          <option value={45}>45 seconds</option>
-                          <option value={60}>60 seconds</option>
-                          <option value={90}>90 seconds</option>
-                          <option value={120}>2 minutes</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between">
+                      </ClayCard>
+                    </div>}
+
+                    {/* Settings bento grid */}
+                    <ClayCard padding="lg" className="space-y-5">
+                      <h3 className="font-outfit font-black text-plum text-base">⚙️ Classic Settings</h3>
+
+                      <PillSelector
+                        label="Letter Pool Size"
+                        sublabel="Total letters shared by all players. Each player picks letters to fill it."
+                        options={[2,3,4,5,6].map((n) => {
+                          const pc = Math.max(players.length, 2);
+                          const available = n % pc === 0 || pc % n === 0;
+                          return {
+                            value: n,
+                            label: `${n}`,
+                            sublabel: n === 2 ? "Quick" : n === 3 ? "Balanced" : n === 4 ? "Classic" : n === 5 ? "Complex" : "Expert",
+                            description: available ? [
+                              `2 letters — fast-paced duels with quick word options. Great for beginners.`,
+                              `3 letters — the sweet spot. Balanced word variety and strategy.`,
+                              `4 letters — the classic experience. Requires creative wordplay.`,
+                              `5 letters — complex pool with many possible combinations.`,
+                              `6 letters — expert mode. Deep vocabulary knowledge required.`,
+                            ][n - 2] : `Not available with ${players.length || 2} players (pool must divide evenly).`,
+                            disabled: !available,
+                          };
+                        })}
+                        value={effectiveSettings.linksLetterCount || 3}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("linksLetterCount", val);
+                        }}
+                        disabled={!isHost}
+                        variant="purple"
+                        columns={5}
+                      />
+
+                      <PillSelector
+                        label="Round Duration"
+                        sublabel="How long each round lasts. Shorter = more intense, longer = more words."
+                        options={[
+                          { value: 30, label: "30s", sublabel: "Blitz", description: "30 seconds — lightning fast! Perfect for quick games and experienced players who think on their feet." },
+                          { value: 45, label: "45s", sublabel: "Fast", description: "45 seconds — quick and punchy. Enough time for 3-4 solid words per player." },
+                          { value: 60, label: "60s", sublabel: "Standard", description: "60 seconds — the recommended default. Balanced time for strategic play and word discovery." },
+                          { value: 90, label: "90s", sublabel: "Relaxed", description: "90 seconds — extra breathing room. Good for larger pools or casual play with friends." },
+                          { value: 120, label: "2min", sublabel: "Extended", description: "2 minutes — marathon mode. Best for 5-6 letter pools where finding words takes longer." },
+                        ]}
+                        value={effectiveSettings.roundDuration || 60}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("roundDuration", val);
+                        }}
+                        disabled={!isHost}
+                        variant="purple"
+                        columns={5}
+                      />
+
+                      {/* Poison Mode toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-2xl bg-warm-gray/5 border border-warm-gray/10">
                         <div>
-                          <span className="text-xs font-medium text-warm-gray/70">Poison Mode</span>
-                          <p className="text-[10px] text-warm-gray/50">Secret poison letters add mind games</p>
+                          <h4 className="font-outfit font-bold text-sm text-plum flex items-center gap-2">☠️ Poison Mode</h4>
+                          <p className="text-xs text-plum/55 mt-0.5">
+                            {                            effectiveSettings.poisonEnabled !== false
+                              ? "Each player secretly assigns a poison letter to an opponent. Hit them with it for a surprise elimination!"
+                              : "Enable to add a hidden poison letter mechanic — adds bluffing and mind games to each round."
+                            }
+                          </p>
                         </div>
                         <button
                           onClick={() => {
                             if (!isHost) return;
-                            const newVal = !(lobby?.settings?.poisonEnabled !== false);
-                            updateLobbySetting("poisonEnabled", newVal);
-                            broadcast("settings:update", { poisonEnabled: newVal });
+                            optimisticUpdate("poisonEnabled", !(effectiveSettings.poisonEnabled !== false));
                           }}
-                          className={`w-10 h-5 rounded-full transition-colors ${
-                            lobby?.settings?.poisonEnabled !== false ? "bg-mint" : "bg-warm-gray/20"
+                          className={`w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
+                            effectiveSettings.poisonEnabled !== false ? "bg-soft-purple" : "bg-warm-gray/20"
                           }`}
                         >
                           <div
-                            className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                              lobby?.settings?.poisonEnabled !== false ? "translate-x-5" : "translate-x-0.5"
+                            className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                              effectiveSettings.poisonEnabled !== false ? "translate-x-6" : "translate-x-0.5"
                             }`}
                           />
                         </button>
@@ -1368,90 +1500,151 @@ export default function UnifiedLobby() {
                   </>
                 )}
 
-                {/* ── Sprint-specific description & settings ─────────── */}
-                {lobby?.settings?.linksSubMode === "SPRINT" && (
+                {/* ── Sprint-specific: bento grid layout ────────────────── */}
+                {effectiveSettings.linksSubMode === "SPRINT" && (
                   <>
-                    <ClayCard padding="md" className="space-y-2">
-                      <h3 className="font-outfit font-black text-plum text-sm">How LINKS Sprint Works</h3>
-                      <ul className="text-xs text-warm-gray/60 space-y-1 list-disc list-inside">
-                        <li>Computer assigns shared letters — everyone uses the same set</li>
-                        <li>3-5 waves of increasing difficulty — pure scoring, no elimination</li>
-                        <li>5 hidden target words per wave with escalating bonus points</li>
-                        <li>Hit a target → bonus points + special highlight in your word history</li>
-                        <li>At wave end, all targets are revealed — race to find them next wave!</li>
-                      </ul>
-                    </ClayCard>
+                    {/* How to Play + Shuffle Penalties — collapsible */}
+                    {showHowToPlay && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-[slideDown_250ms_ease-out]">
+                      <ClayCard padding="md" className="space-y-2 sm:col-span-2">
+                        <h3 className="font-outfit font-black text-plum text-sm flex items-center gap-2">
+                          ⚡ How LINKS Sprint Works
+                        </h3>
+                        <ul className="text-xs text-plum/65 space-y-1.5 list-none">
+                          <li className="flex items-start gap-2">
+                            <span className="text-mint font-black text-[10px] mt-0.5">1.</span>
+                            <span>Everyone shares the <strong>same computer-assigned letters</strong>. No picking phase — jump straight into word-finding.</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-mint font-black text-[10px] mt-0.5">2.</span>
+                            <span>Each wave has <strong>5 hidden target words</strong> with escalating bonus points. Hit one for a big score boost!</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-mint font-black text-[10px] mt-0.5">3.</span>
+                            <span>Pure scoring, <strong>no elimination</strong>. Highest total score across all waves wins the match.</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-mint font-black text-[10px] mt-0.5">🔄</span>
+                            <span><strong>Letter Shifts:</strong> optionally, the letter pool changes mid-wave — adapt your strategy on the fly!</span>
+                          </li>
+                        </ul>
+                      </ClayCard>
 
-                    <ClayCard padding="md" className="space-y-2">
-                      <h3 className="font-outfit font-black text-peach text-sm">⚠️ Shuffle Penalties</h3>
-                      <p className="text-xs text-warm-gray/60">Stuck? Shuffle costs you time, points, <strong className="text-peach">and your target-word eligibility</strong>:</p>
-                      <ul className="text-xs space-y-1.5">
-                        <li className="flex items-start gap-2">
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-peach-light text-peach border border-peach/20 shrink-0 mt-0.5">ALL</span>
-                          <span className="text-warm-gray/60"><strong>Shuffle all letters:</strong> -5s + -25% of total points (1st shuffle). 2nd+ shuffle: -5s + -50% of total points. <strong className="text-peach">You forfeit target-word bonuses for this wave.</strong></span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-butter-light text-butter border border-butter/20 shrink-0 mt-0.5">SINGLE</span>
-                          <span className="text-warm-gray/60"><strong>Shuffle one letter:</strong> -3s + -25% of total points (every shuffle). <strong className="text-peach">You forfeit target-word bonuses for this wave.</strong></span>
-                        </li>
-                      </ul>
-                    </ClayCard>
+                      <ClayCard padding="md" className="space-y-2">
+                        <h3 className="font-outfit font-black text-peach text-sm">⚠️ Shuffle Penalties</h3>
+                        <p className="text-xs text-plum/55 mb-1">Shuffling costs time, points <strong>&amp; target eligibility</strong></p>
+                        <div className="space-y-1.5">
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-peach-light/40">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-peach-light text-peach border border-peach/20 shrink-0 mt-0.5">ALL</span>
+                            <span className="text-xs text-plum/55">-5s &amp; -25% points (1st), -50% (2nd+). <strong className="text-peach">No target bonuses.</strong></span>
+                          </div>
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-butter-light/40">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-butter-light text-butter border border-butter/20 shrink-0 mt-0.5">1</span>
+                            <span className="text-xs text-plum/55">-3s &amp; -25% points (every time). <strong className="text-peach">No target bonuses.</strong></span>
+                          </div>
+                        </div>
+                      </ClayCard>
+                    </div>}
 
-                    <ClayCard padding="md" className="space-y-3">
-                      <h3 className="font-outfit font-black text-plum text-sm">Sprint Settings</h3>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-warm-gray/70">Letters per Wave</span>
-                        <select
-                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                          value={lobby?.settings?.sprintLetterCount || 2}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            updateLobbySetting("sprintLetterCount", val);
-                            broadcast("settings:update", { sprintLetterCount: val });
-                          }}
+                    {/* Sprint settings — bento grid */}
+                    <ClayCard padding="lg" className="space-y-5">
+                      <h3 className="font-outfit font-black text-plum text-base">⚙️ Sprint Settings</h3>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        <PillSelector
+                          label="Letters per Wave"
+                          sublabel="How many letters everyone shares. More letters = more word options."
+                          options={[
+                            { value: 2, label: "2", sublabel: "Quick", description: "2 letters — fast and furious. Limited words, maximum creativity needed." },
+                            { value: 3, label: "3", sublabel: "Balanced", description: "3 letters — the sweet spot. Good variety without overwhelming word choices." },
+                            { value: 4, label: "4", sublabel: "Standard", description: "4 letters — classic sprint. Plenty of combinations for strategic word-hunting." },
+                            { value: 5, label: "5", sublabel: "Complex", description: "5 letters — deep pool with many paths. Great for vocabulary enthusiasts." },
+                            { value: 6, label: "6", sublabel: "Expert", description: "6 letters — maximum complexity. For players who love a serious challenge." },
+                          ]}
+                        value={effectiveSettings.sprintLetterCount || 2}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("sprintLetterCount", val);
+                        }}
                           disabled={!isHost}
-                        >
-                          <option value={2}>2 letters</option>
-                          <option value={3}>3 letters</option>
-                          <option value={4}>4 letters</option>
-                          <option value={5}>5 letters</option>
-                        </select>
+                          variant="purple"
+                          columns={5}
+                        />
+
+                        <PillSelector
+                          label="Number of Waves"
+                          sublabel="Total rounds played. More waves = longer game with more scoring chances."
+                          options={[
+                            { value: 3, label: "3", sublabel: "Quick", description: "3 waves — a fast sprint. ~3-5 minutes total. Great for quick matches." },
+                            { value: 4, label: "4", sublabel: "Standard", description: "4 waves — the standard length. Good balance of variety and pacing." },
+                            { value: 5, label: "5", sublabel: "Marathon", description: "5 waves — extended play. More chances to catch up, deeper strategy." },
+                          ]}
+                        value={effectiveSettings.sprintWaves || 3}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("sprintWaves", val);
+                        }}
+                          disabled={!isHost}
+                          variant="purple"
+                          columns={3}
+                        />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-warm-gray/70">Waves</span>
-                        <select
-                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                          value={lobby?.settings?.sprintWaves || 3}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            updateLobbySetting("sprintWaves", val);
-                            broadcast("settings:update", { sprintWaves: val });
-                          }}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        <PillSelector
+                          label="Wave Duration"
+                          sublabel="Time per wave. Shorter = more intense, longer = more words per wave."
+                          options={[
+                            { value: 60, label: "60s", sublabel: "Standard", description: "1 minute — the default. Enough time for 5-8 words per wave. Intense but fair." },
+                            { value: 90, label: "90s", sublabel: "Relaxed", description: "1.5 minutes — extra breathing room for careful word selection." },
+                            { value: 120, label: "2min", sublabel: "Extended", description: "2 minutes — generous timer. Best for larger letter pools or casual play." },
+                            { value: 180, label: "3min", sublabel: "Marathon", description: "3 minutes — marathon waves. Deep strategy with time to explore many words." },
+                            { value: 300, label: "5min", sublabel: "Epic", description: "5 minutes — epic waves. For when you want to really dig into each round." },
+                          ]}
+                        value={effectiveSettings.sprintWaveDuration || 60}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("sprintWaveDuration", val);
+                          // Auto-clamp segments if they exceed the new max
+                          const maxShifts = Math.min(5, Math.max(1, Math.floor((val as number) / 30)));
+                          if ((effectiveSettings.sprintSegments || 1) > maxShifts) {
+                            optimisticUpdate("sprintSegments", maxShifts);
+                          }
+                        }}
                           disabled={!isHost}
-                        >
-                          <option value={3}>3 waves</option>
-                          <option value={4}>4 waves</option>
-                          <option value={5}>5 waves</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-warm-gray/70">Wave Duration</span>
-                        <select
-                          className="text-xs font-bold bg-warm-gray/5 border border-warm-gray/15 rounded-lg px-2 py-1"
-                          value={lobby?.settings?.sprintWaveDuration || 60}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            updateLobbySetting("sprintWaveDuration", val);
-                            broadcast("settings:update", { sprintWaveDuration: val });
-                          }}
+                          variant="purple"
+                          columns={5}
+                        />
+
+                        <PillSelector
+                          label="Letter Shifts per Wave"
+                          sublabel="How many times the letter pool changes mid-wave. 1 = no shifts."
+                          options={(() => {
+                            const waveDuration = effectiveSettings.sprintWaveDuration || 60;
+                            const maxShifts = Math.min(5, Math.max(1, Math.floor(waveDuration / 30)));
+                            const allOptions = [
+                              { value: 1, label: "1", sublabel: "None", description: "1 segment — letters stay the same for the entire wave. Simple and predictable." },
+                              { value: 2, label: "2", sublabel: "Mild", description: `2 segments — one mid-wave shift. Each segment ~${Math.floor(waveDuration / 2)}s.` },
+                              { value: 3, label: "3", sublabel: "Dynamic", description: `3 segments — two shifts per wave. Each segment ~${Math.floor(waveDuration / 3)}s.` },
+                              { value: 4, label: "4", sublabel: "Chaotic", description: `4 segments — letters change frequently. Each segment ~${Math.floor(waveDuration / 4)}s.` },
+                              { value: 5, label: "5", sublabel: "Frantic", description: `5 segments — maximum chaos. Each segment ~${Math.floor(waveDuration / 5)}s.` },
+                            ];
+                            return allOptions.map(opt => ({
+                              ...opt,
+                              disabled: (opt.value as number) > maxShifts,
+                              description: (opt.value as number) > maxShifts
+                                ? `Not available with ${waveDuration}s waves (need ≥20s per segment).`
+                                : opt.description,
+                            }));
+                          })()}
+                        value={effectiveSettings.sprintSegments || 1}
+                        onChange={(val) => {
+                          if (!isHost) return;
+                          optimisticUpdate("sprintSegments", val);
+                        }}
                           disabled={!isHost}
-                        >
-                          <option value={30}>30 seconds</option>
-                          <option value={45}>45 seconds</option>
-                          <option value={60}>60 seconds</option>
-                          <option value={90}>90 seconds</option>
-                          <option value={120}>2 minutes</option>
-                        </select>
+                          variant="purple"
+                          columns={5}
+                        />
                       </div>
                     </ClayCard>
                   </>
@@ -1459,7 +1652,7 @@ export default function UnifiedLobby() {
 
                 {/* Player requirement */}
                 <ClayCard padding="md" className="text-center space-y-2">
-                  <p className="text-xs text-warm-gray/60">
+                  <p className="text-xs text-plum/60">
                     {players.length < 2
                       ? `Need at least 2 players (currently ${players.length})`
                       : `${players.length} player${players.length !== 1 ? "s" : ""} ready`}
@@ -1478,7 +1671,7 @@ export default function UnifiedLobby() {
                       className="w-full"
                       icon={<Play className="w-4 h-4" />}
                       onClick={() => {
-                        const subMode = lobby?.settings?.linksSubMode || "CLASSIC";
+                        const subMode = effectiveSettings.linksSubMode || "CLASSIC";
                         if (subMode === "SPRINT") {
                           handleStartLinksSprintGame();
                         } else {
@@ -1491,7 +1684,7 @@ export default function UnifiedLobby() {
                         ? "Starting..."
                         : players.length < 2
                           ? "Need 2+ Players"
-                          : (lobby?.settings?.linksSubMode || "CLASSIC") === "SPRINT"
+                          : (effectiveSettings.linksSubMode || "CLASSIC") === "SPRINT"
                             ? "Start LINKS Sprint"
                             : "Start LINKS Classic"}
                     </ClayButton>

@@ -8,15 +8,8 @@ import ClayCard from "./ui/ClayCard";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
 
-import { PLAYER_COLORS, PlayerColor, calcPoints } from "./LinksBoardPrototype";
-
-// ── Dictionary ───────────────────────────────────────────────────────────────
-const wordFileCache = new Map<string, string[]>();
-async function fetchWordFile(letter: string): Promise<string[]> {
-  const key = letter.toLowerCase();
-  if (wordFileCache.has(key)) return wordFileCache.get(key)!;
-  try { const resp = await fetch(`/words/by_letter/${key}.json`); if (!resp.ok) return []; const words: string[] = await resp.json(); wordFileCache.set(key, words); return words; } catch { return []; }
-}
+import { PLAYER_COLORS, PlayerColor } from "./LinksBoardPrototype";
+import { getPoolMultiplier, calcPointsWithPoolMultiplier, countPoolLettersInWord, fetchWordFile } from "../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +30,8 @@ interface ClaimedWord {
   poison_letter: string | null;
   hearts_remaining: number;
   created_at: string;
+  pool_letters_used?: number;
+  pool_multiplier?: number;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -68,18 +63,28 @@ const AvatarIcon = memo(function AvatarIcon({ src, size = "32px", className = ""
   return <img src={src} alt="" className={`block ${className}`} style={{ width: size, height: size }} />;
 });
 
-// ── LetterSelectPhase ───────────────────────────────────────────────────────
+// ── LetterSelectPhase (multi-pick redesign) ───────────────────────────────
 
 const LetterSelectPhase = memo(function LetterSelectPhase({
-  lettersTimeLeft, players, playerLetters, playerColors, selectedLetter, error, isHost, onSelectLetter, onForceStart,
+  lettersTimeLeft, players, playerLetters, letterPickCounts, myPicks, myPicksNeeded, letterPickLimit,
+  playerColors, error, isHost, onSelectLetter, onForceStart,
 }: {
-  lettersTimeLeft: number; players: any[]; playerLetters: Record<string, string>;
-  playerColors: Record<string, PlayerColor>; selectedLetter: string | null; error: string;
+  lettersTimeLeft: number; players: any[]; playerLetters: Record<string, string[]>;
+  letterPickCounts: Record<string, number>; myPicks: string[]; myPicksNeeded: number;
+  letterPickLimit: number; playerColors: Record<string, PlayerColor>; error: string;
   isHost: boolean; onSelectLetter: (l: string) => void; onForceStart: () => void;
 }) {
   const percent = (lettersTimeLeft / LETTER_SELECT_TIMEOUT) * 100;
   const urgent = lettersTimeLeft <= 10;
   const critical = lettersTimeLeft <= 5;
+  const allPicked = myPicks.length >= myPicksNeeded;
+  // Collect all unique letters picked so far
+  const allPickedLetters = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(playerLetters).forEach(arr => arr.forEach(l => set.add(l)));
+    return Array.from(set).sort();
+  }, [playerLetters]);
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6 overflow-y-auto">
       <div className="relative w-20 h-20 mb-2">
@@ -95,49 +100,90 @@ const LetterSelectPhase = memo(function LetterSelectPhase({
         </div>
       </div>
       <div className="text-center space-y-2">
-        <h1 className="font-outfit font-black text-3xl text-plum">Pick Your Letter</h1>
-        <p className="text-sm text-warm-gray/60 max-w-sm">Choose one letter. Every word you type must contain ALL chosen letters.{players.length > 2 && ` ${players.length} players means ${players.length} letters required per word!`}</p>
-        {urgent && !selectedLetter && (
+        <h1 className="font-outfit font-black text-3xl text-plum">Pick Your Letters</h1>
+        <p className="text-sm text-warm-gray/60 max-w-sm">Choose {myPicksNeeded} letter{myPicksNeeded !== 1 ? 's' : ''} for the pool. Words must contain at least 2 pool letters. Use more = bigger multiplier!</p>
+        {urgent && !allPicked && (
           <p className={`text-xs font-black mt-1 animate-pulse ${critical ? "text-peach" : "text-butter"}`}><Clock className="w-3 h-3 inline mr-1" />{critical ? "HURRY UP!" : "Time running out!"}</p>
         )}
       </div>
-      {error && <div className="text-peach text-xs font-bold bg-peach-light px-4 py-2 rounded-full animate-shake">{error}</div>}
-      {selectedLetter ? (
-        <div className="text-center space-y-4">
-          <p className="text-warm-gray/60 text-sm">You picked:</p>
-          <div className="w-24 h-24 rounded-3xl bg-soft-purple flex items-center justify-center shadow-lg animate-clay-pop mx-auto">
-            <span className="text-5xl font-outfit font-black text-white">{selectedLetter}</span>
-          </div>
-          <p className="text-xs text-warm-gray/50">Waiting for other players...</p>
+
+      {/* My picks progress */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold text-warm-gray/50">Your picks:</span>
+        <div className="flex gap-1.5">
+          {Array.from({ length: myPicksNeeded }).map((_, i) => (
+            <div key={i} className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black border-2 transition-all ${
+              myPicks[i] ? 'bg-soft-purple text-white border-soft-purple shadow-md' : 'bg-warm-gray/5 text-warm-gray/30 border-warm-gray/15'
+            }`}>
+              {myPicks[i] || '?'}
+            </div>
+          ))}
         </div>
-      ) : (
+        <span className="text-[10px] font-bold text-warm-gray/40">{myPicks.length}/{myPicksNeeded}</span>
+      </div>
+
+      {error && <div className="text-peach text-xs font-bold bg-peach-light px-4 py-2 rounded-full animate-shake">{error}</div>}
+
+      {!allPicked ? (
         <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 max-w-lg">
           {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => {
-            const taken = Object.values(playerLetters).includes(l);
+            const pickedByMe = myPicks.includes(l);
+            const pickCount = letterPickCounts[l] || 0;
+            const atLimit = pickCount >= letterPickLimit;
+            const isDisabled = pickedByMe || atLimit;
             return (
-              <button key={l} onClick={() => !taken && onSelectLetter(l)} disabled={taken}
-                className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl font-outfit font-black text-lg transition-all duration-150 ${taken ? "bg-warm-gray/10 text-warm-gray/30 cursor-not-allowed" : "bg-warm-white border-2 border-soft-purple/20 text-plum hover:bg-soft-purple-light hover:border-soft-purple hover:text-soft-purple hover:-translate-y-1 hover:shadow-lg active:scale-95"}`}>
+              <button key={l} onClick={() => !isDisabled && onSelectLetter(l)} disabled={isDisabled}
+                className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl font-outfit font-black text-lg transition-all duration-150 relative ${
+                  pickedByMe ? "bg-soft-purple text-white cursor-not-allowed" :
+                  atLimit ? "bg-warm-gray/10 text-warm-gray/30 cursor-not-allowed" :
+                  "bg-warm-white border-2 border-soft-purple/20 text-plum hover:bg-soft-purple-light hover:border-soft-purple hover:text-soft-purple hover:-translate-y-1 hover:shadow-lg active:scale-95"
+                }`}>
                 {l}
+                {pickCount > 0 && !pickedByMe && (
+                  <span className={`absolute -top-1 -right-1 w-4 h-4 rounded-full text-[8px] font-black flex items-center justify-center ${
+                    atLimit ? "bg-warm-gray/30 text-white" : "bg-butter text-plum"
+                  }`}>{pickCount}</span>
+                )}
               </button>
             );
           })}
         </div>
+      ) : (
+        <div className="text-center space-y-4">
+          <p className="text-warm-gray/60 text-sm">Your picks are locked in!</p>
+          <div className="flex gap-2 justify-center">
+            {myPicks.map((l) => (
+              <div key={l} className="w-16 h-16 rounded-2xl bg-soft-purple flex items-center justify-center shadow-lg animate-clay-pop">
+                <span className="text-3xl font-outfit font-black text-white">{l}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-warm-gray/50">Waiting for other players...</p>
+        </div>
       )}
-      {Object.keys(playerLetters).length > 0 && (
+
+      {/* All letters chosen so far */}
+      {allPickedLetters.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 justify-center">
-          <span className="text-xs font-bold text-warm-gray/50">Letters:</span>
-          {Object.entries(playerLetters).map(([pid, letter], i) => {
-            const p = players.find((pl: any) => pl.id === pid);
-            const c = playerColors[pid] || PLAYER_COLORS[0];
+          <span className="text-xs font-bold text-warm-gray/50">Pool:</span>
+          {allPickedLetters.map((letter, i) => {
+            const pickCount = letterPickCounts[letter] || 0;
+            const pickers = Object.entries(playerLetters).filter(([, arr]) => arr.includes(letter)).map(([pid]) => {
+              const p = players.find((pl: any) => pl.id === pid);
+              return p?.name || pid.slice(0, 6);
+            });
             return (
-              <span key={pid} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border animate-clay-pop"
-                style={{ animationDelay: `${i * 100}ms`, backgroundColor: c.fillLight, borderColor: c.pillBorder, color: c.fill }}>
-                {letter}<span className="opacity-70">{p?.name || pid.slice(0, 6)}</span>
+              <span key={letter} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border animate-clay-pop"
+                style={{ animationDelay: `${i * 100}ms`, backgroundColor: '#EDE9FE', borderColor: '#C4B5FD', color: '#7C5CFC' }}>
+                {letter}
+                {pickCount > 1 && <span className="text-[8px] opacity-60">×{pickCount}</span>}
+                <span className="text-[8px] opacity-50">({pickers.join(', ')})</span>
               </span>
             );
           })}
         </div>
       )}
+
       {isHost && <button onClick={onForceStart} className="px-4 py-2 rounded-xl bg-soft-purple text-white text-xs font-black hover:opacity-90">Force Start Game</button>}
     </div>
   );
@@ -328,6 +374,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
   const [letterSelectError, setLetterSelectError] = useState("");
   const [poisonError, setPoisonError] = useState("");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+  const [myLetterPicks, setMyLetterPicks] = useState<string[]>([]);
   const [poisonAssignments, setPoisonAssignments] = useState<Record<string, string>>({});
   const [letterSelectTimeLeft, setLetterSelectTimeLeft] = useState(LETTER_SELECT_TIMEOUT);
   const [showDisconnected, setShowDisconnected] = useState(false);
@@ -342,7 +389,10 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
   // ── Derived ──────────────────────────────────────────────────────────
   const phase = gameState.phase;
   const letters: string[] = gameState.letters || [];
-  const playerLettersState: Record<string, string> = gameState.playerLetters || {};
+  const playerLettersState: Record<string, string[]> = gameState.playerLetters || {};
+  const letterPickCounts: Record<string, number> = gameState.letterPickCounts || {};
+  const lettersPerPlayer: number = gameState.lettersPerPlayer || 1;
+  const letterPickLimit: number = gameState.letterPickLimit || 2;
   const poisonLettersState: Record<string, Record<string, string>> = gameState.poisonLetters || {};
   const playerHearts: Record<string, number> = gameState.playerHearts || {};
   const usedWords: string[] = gameState.usedWords || [];
@@ -388,7 +438,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
       const parsed = parseArenaState(payload.new.arena_state);
       if (parsed) {
         setGameState(parsed);
-        if (parsed.phase === "PLAYING") { setSelectedLetter(null); setSubmitStatus(null); submitGuardRef.current = false; setPoisonAssignments({}); }
+        if (parsed.phase === "PLAYING") { setSelectedLetter(null); setMyLetterPicks([]); setSubmitStatus(null); submitGuardRef.current = false; setPoisonAssignments({}); }
         if (parsed.phase === "RESULTS") setIsGameOver(true);
       }
     },
@@ -423,7 +473,13 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
   useEffect(() => {
     const unsubs: (() => void)[] = [];
     unsubs.push(onBroadcast("letter:select", (payload: any) => {
-      setGameState((prev: any) => ({ ...prev, playerLetters: { ...prev.playerLetters, [payload.playerId]: payload.letter }, letters: payload.letters || prev.letters, phase: payload.phase || prev.phase }));
+      setGameState((prev: any) => {
+        const existing = prev.playerLetters?.[payload.playerId] || [];
+        const updated = Array.isArray(existing) ? [...existing, payload.letter] : [payload.letter];
+        const letterPickCounts = prev.letterPickCounts || {};
+        const updatedCounts = { ...letterPickCounts, [payload.letter]: (letterPickCounts[payload.letter] || 0) + 1 };
+        return { ...prev, playerLetters: { ...prev.playerLetters, [payload.playerId]: updated }, letterPickCounts: updatedCounts, letters: payload.letters || prev.letters, phase: payload.phase || prev.phase };
+      });
     }));
     unsubs.push(onBroadcast("poison:assign", () => {
       supabase.from("lobbies").select("arena_state").eq("code", gameCode).single().then(({ data }) => { const parsed = parseArenaState(data?.arena_state); if (parsed) setGameState(parsed); });
@@ -505,43 +561,40 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     return () => clearInterval(poll);
   }, [gameCode, isConnected]);
 
-  // ── Word validation ──────────────────────────────────────────────────
-  // Build dictionary intersection: words containing ALL required letters
+  // ── Word validation (redesigned: min 2 chars, at least 2 pool letters) ──
   const [validWordCache, setValidWordCache] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (letters.length === 0) { setValidWordCache(null); return; }
     setValidWordCache(null);
     let cancelled = false;
     const init = async () => {
-      const wordSets: Set<string>[] = [];
+      // Build a union of all words containing ANY of the pool letters (not intersection)
+      const allWords = new Set<string>();
       for (const letter of letters) {
         const words = await fetchWordFile(letter);
-        if (words.length > 0) wordSets.push(new Set(words));
+        for (const w of words) {
+          if (w.length >= 2 && w.length <= 15) allWords.add(w);
+        }
       }
-      if (cancelled) return;
-      if (wordSets.length === 0) { setValidWordCache(null); return; }
-      const first = wordSets[0];
-      const intersection = new Set<string>();
-      for (const word of first) {
-        if (word.length >= 3 && word.length <= 15 && wordSets.every(s => s.has(word))) intersection.add(word);
-      }
-      if (!cancelled) setValidWordCache(intersection);
+      if (!cancelled) setValidWordCache(allWords);
     };
     init();
     return () => { cancelled = true; };
   }, [letters]);
 
   const validateWord = useCallback((word: string) => {
-    if (!word || word.length < 3) return { type: "typing" as const };
+    if (!word || word.length < 2) return { type: "typing" as const };
     const lower = word.toLowerCase().trim();
-    if (!/^[a-z]{3,15}$/.test(lower)) return { type: "invalid" as const, message: "Letters only, 3-15 chars" };
-    for (const letter of letters) { if (!lower.includes(letter.toLowerCase())) return { type: "missing" as const, message: `Missing "${letter}"` }; }
+    if (!/^[a-z]{2,15}$/.test(lower)) return { type: "invalid" as const, message: "Letters only, 2-15 chars" };
+    // Must contain at least 2 letters from the pool
+    const poolCount = countPoolLettersInWord(lower, letters);
+    if (poolCount < 2) return { type: "missing" as const, message: `Need at least 2 pool letters (found ${poolCount})` };
     if (validWordCache && !validWordCache.has(lower)) return { type: "invalid" as const, message: "Not in dictionary — names/places may be missing" };
     if (usedWords.includes(lower) || claimedWords.some((w) => w.word === lower)) {
       const claimer = claimedWords.find((w) => w.word === lower);
       return { type: "used" as const, message: claimer ? `${claimer.player_name} already claimed it` : "Already used" };
     }
-    return { type: "valid" as const };
+    return { type: "valid" as const, poolLettersUsed: poolCount };
   }, [letters, usedWords, claimedWords, validWordCache]);
 
   // ── Typed word state ─────────────────────────────────────────────────
@@ -557,18 +610,33 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
 
   // ── RPC Actions ──────────────────────────────────────────────────────
   const handleSelectLetter = async (letter: string) => {
-    if (phase !== "LETTER_SELECT" || selectedLetter) return;
-    setSelectedLetter(letter); setLetterSelectError("");
+    if (phase !== "LETTER_SELECT") return;
+    if (myLetterPicks.length >= lettersPerPlayer) return;
+    if (myLetterPicks.includes(letter)) return;
+    setLetterSelectError("");
     const { data, error } = await supabase.rpc("select_links_letter", { p_lobby_code: gameCode, p_player_id: effectivePlayerId, p_letter: letter });
-    if (error) { setLetterSelectError(error.message || "Failed"); setSelectedLetter(null); return; }
-    if (data?.success === false) { setLetterSelectError(data.error || "Cannot select"); setSelectedLetter(null); return; }
+    if (error) { setLetterSelectError(error.message || "Failed"); return; }
+    if (data?.success === false) { setLetterSelectError(data.error || "Cannot select"); return; }
+    setMyLetterPicks(prev => [...prev, letter]);
     broadcast("letter:select", { playerId: effectivePlayerId, letter, letters: data.letters, phase: data.phase });
-    setGameState((prev: any) => ({ ...prev, playerLetters: { ...prev.playerLetters, [effectivePlayerId]: letter }, letters: data.letters || prev.letters, phase: data.phase || prev.phase }));
+    setGameState((prev: any) => {
+      const existing = prev.playerLetters?.[effectivePlayerId] || [];
+      const updated = Array.isArray(existing) ? [...existing, letter] : [letter];
+      const pickCounts = prev.letterPickCounts || {};
+      const updatedCounts = { ...pickCounts, [letter]: (pickCounts[letter] || 0) + 1 };
+      return { ...prev, playerLetters: { ...prev.playerLetters, [effectivePlayerId]: updated }, letterPickCounts: updatedCounts, letters: data.letters || prev.letters, phase: data.phase || prev.phase };
+    });
+    // If this was our last pick and phase transitioned, clear picks
+    if (data.phase && data.phase !== "LETTER_SELECT") {
+      setMyLetterPicks([]);
+    }
   };
 
   const handleForceStart = async () => {
     if (!isHost) return;
-    await supabase.rpc("start_links_game", { p_lobby_code: gameCode, p_settings: { poisonEnabled, roundDuration } });
+    // Clear stale arena_state to prevent reconnect resilience from returning old state
+    await supabase.from("lobbies").update({ arena_state: null }).eq("code", gameCode);
+    await supabase.rpc("start_links_game", { p_lobby_code: gameCode, p_settings: { poisonEnabled, roundDuration, linksLetterCount: gameState.linksLetterCount || 3 } });
     const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
     if (lobbyData?.arena_state) setGameState(lobbyData.arena_state);
   };
@@ -595,12 +663,15 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     if (wordFeedback.type !== "valid") { if (wordFeedback.type === "used") setShakeKey(k => k + 1); return; }
     if (myHearts <= 0) return;
     const word = typedWord.trim().toLowerCase();
-    if (!word || word.length < 3) return;
+    if (!word || word.length < 2) return;
+
+    const poolUsed = countPoolLettersInWord(word, letters);
+    const { total: optimisticPoints } = calcPointsWithPoolMultiplier(word.length, poolUsed);
 
     submitGuardRef.current = true; setIsSubmitting(true); setSubmitStatus("Claiming...");
 
     const tempId = `temp-${Date.now()}`;
-    const optimistic: ClaimedWord = { id: tempId, player_id: effectivePlayerId, player_name: playerName || "You", word, word_length: word.length, points: calcPoints(word.length), is_poisoned: false, poison_letter: null, hearts_remaining: myHearts, created_at: new Date().toISOString() };
+    const optimistic: ClaimedWord = { id: tempId, player_id: effectivePlayerId, player_name: playerName || "You", word, word_length: word.length, points: optimisticPoints, is_poisoned: false, poison_letter: null, hearts_remaining: myHearts, created_at: new Date().toISOString(), pool_letters_used: poolUsed, pool_multiplier: getPoolMultiplier(poolUsed) };
     setClaimedWords((prev) => [...prev, optimistic]); setTypedWord(""); setWordFeedback({ type: "typing" });
 
     const { data, error } = await supabase.rpc("submit_links_word", { p_lobby_code: gameCode, p_player_id: effectivePlayerId, p_word: word });
@@ -615,8 +686,11 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     }
     setClaimedWords((prev) => prev.filter((w) => w.id !== tempId));
     if (data.is_poisoned) { setPoisonReveal({ letter: data.poison_letter || "", source: "", show: true }); setTimeout(() => setPoisonReveal((p) => p && p.show ? { ...p, show: false } : null), 3000); }
-    setSubmitStatus(data.eliminated ? "💀 Eliminated!" : `+${data.points} pts`); setTimeout(() => setSubmitStatus(null), 2000);
-    broadcast("word:claim", { id: tempId, playerId: effectivePlayerId, playerName: playerName || "Player", word, points: calcPoints(word.length) });
+    const pts = data.points || optimisticPoints;
+    const mult = data.pool_multiplier || 1;
+    const multText = mult > 1 ? ` (×${mult} bonus!)` : '';
+    setSubmitStatus(data.eliminated ? "💀 Eliminated!" : `+${pts} pts${multText}`); setTimeout(() => setSubmitStatus(null), 2000);
+    broadcast("word:claim", { id: tempId, playerId: effectivePlayerId, playerName: playerName || "Player", word, points: pts, pool_letters_used: data.pool_letters_used, pool_multiplier: data.pool_multiplier });
   };
 
   const handleLeave = async () => {
@@ -739,9 +813,11 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
 
       {/* ── Main content ──────────────────────────────────────────── */}
       {phase === "LETTER_SELECT" && (
-        <LetterSelectPhase lettersTimeLeft={letterSelectTimeLeft} players={players} playerLetters={playerLettersState}
+        <LetterSelectPhase lettersTimeLeft={letterSelectTimeLeft} players={players}
+          playerLetters={playerLettersState} letterPickCounts={letterPickCounts}
+          myPicks={myLetterPicks} myPicksNeeded={lettersPerPlayer} letterPickLimit={letterPickLimit}
           playerColors={Object.fromEntries(players.map((p: any, i: number) => [p.id, getPlayerColorByIndex(i)]))}
-          selectedLetter={selectedLetter} error={letterSelectError} isHost={isHost} onSelectLetter={handleSelectLetter} onForceStart={handleForceStart} />
+          error={letterSelectError} isHost={isHost} onSelectLetter={handleSelectLetter} onForceStart={handleForceStart} />
       )}
 
       {phase === "POISON_SETUP" && (
@@ -785,7 +861,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
 
                 {/* Letter pool inside card */}
                 <div className="flex justify-center">
-                  <LetterPool letters={letters} inputText={typedWord} title="" subtitle="These letters must be included in your word" />
+                  <LetterPool letters={letters} inputText={typedWord} title="" subtitle="Use at least 2 of these letters in your word for bonus multipliers" />
                 </div>
 
                 {/* Submit status */}
@@ -812,8 +888,17 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
                 </form>
 
                 {/* Word feedback */}
-                <div className="h-5 mt-1">
-                  {wordFeedback.type === "valid" && <p className="text-xs font-bold text-mint animate-clay-pop">+{calcPoints(typedWord.length)} points — press Enter</p>}
+                <div className="h-8 mt-1">
+                  {wordFeedback.type === "valid" && (() => {
+                    const poolUsed = countPoolLettersInWord(typedWord, letters);
+                    const { base, multiplier, total } = calcPointsWithPoolMultiplier(typedWord.length, poolUsed);
+                    return (
+                      <div className="animate-clay-pop">
+                        <p className="text-xs font-bold text-mint">+{total} points — press Enter</p>
+                        {multiplier > 1 && <p className="text-[10px] font-bold text-soft-purple">{base} base × {multiplier} multiplier ({poolUsed} pool letters)</p>}
+                      </div>
+                    );
+                  })()}
                   {wordFeedback.type === "missing" && <p className="text-xs font-bold text-peach/80">{wordFeedback.message}</p>}
                   {wordFeedback.type === "used" && <p className="text-xs font-bold text-butter">{wordFeedback.message}</p>}
                   {wordFeedback.type === "invalid" && <p className="text-xs font-bold text-peach/60">{wordFeedback.message}</p>}
@@ -826,7 +911,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
                       <div key={word.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-sm ${word.is_poisoned ? 'bg-peach-light border-peach/30 line-through' : 'bg-white/70 border-black/5'}`}>
                         {word.is_poisoned && <AlertTriangle className="w-3 h-3 text-peach" />}
                         <span className={`font-bold text-sm tracking-widest uppercase ${word.is_poisoned ? 'text-peach line-through' : 'text-plum'}`}>{word.word}</span>
-                        {word.is_poisoned ? <span className="text-[10px] font-black uppercase text-peach">POISONED</span> : <span className="text-[10px] font-black opacity-60 text-plum">+{word.points}</span>}
+                        {word.is_poisoned ? <span className="text-[10px] font-black uppercase text-peach">POISONED</span> : <span className="text-[10px] font-black opacity-60 text-plum">+{word.points}{word.pool_multiplier && word.pool_multiplier > 1 ? ` (×${word.pool_multiplier})` : ''}</span>}
                       </div>
                     ))}
                   </div>

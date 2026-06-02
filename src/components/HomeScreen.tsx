@@ -234,7 +234,7 @@ export default function HomeScreen() {
                 <span className="hidden sm:inline">Back</span>
               </button>
             </div>
-            <CodeInput value={joinCode} onChange={setJoinCode} length={6} />
+            <CodeInput value={joinCode} onChange={setJoinCode} onSubmit={handleJoin} length={6} />
             <div className="flex gap-2">
               <ClayButton
                 variant="secondary"

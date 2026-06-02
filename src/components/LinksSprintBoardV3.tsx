@@ -7,7 +7,8 @@ import { AVATARS } from "../assets/avatars";
 import ClayCard from "./ui/ClayCard";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
-import { PLAYER_COLORS, PlayerColor, calcPoints } from "./LinksBoardPrototype";
+import { PLAYER_COLORS, PlayerColor } from "./LinksBoardPrototype";
+import { getPoolMultiplier, calcPointsWithPoolMultiplier, countPoolLettersInWord, fetchWordFile, generateLetterPool } from "../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -17,26 +18,11 @@ interface SprintWord {
   id: string; player_id: string; player_name: string;
   word: string; word_length: number; points: number;
   is_target: boolean; target_level: number | null; wave: number; created_at: string;
+  pool_letters_used?: number;
+  pool_multiplier?: number;
 }
 
-// ── Letter Sets ─────────────────────────────────────────────────────────────
-interface LetterSet { letters: string[]; wordCount: number; }
-interface LetterSetsTiers { easy: LetterSet[]; medium: LetterSet[]; hard: LetterSet[]; expert: LetterSet[]; master: LetterSet[]; _meta: any; }
-let letterSetsCache: LetterSetsTiers | null = null;
-async function loadLetterSets(): Promise<LetterSetsTiers> {
-  if (letterSetsCache) return letterSetsCache;
-  const resp = await fetch("/words/letter_sets.json");
-  letterSetsCache = await resp.json();
-  return letterSetsCache!;
-}
-const WAVE_TIER: Record<number, keyof LetterSetsTiers> = { 1: "easy", 2: "medium", 3: "hard", 4: "expert", 5: "master" };
-
-const wordFileCache = new Map<string, string[]>();
-async function fetchWordFile(letter: string): Promise<string[]> {
-  const key = letter.toLowerCase();
-  if (wordFileCache.has(key)) return wordFileCache.get(key)!;
-  try { const resp = await fetch(`/words/by_letter/${key}.json`); if (!resp.ok) return []; const words: string[] = await resp.json(); wordFileCache.set(key, words); return words; } catch { return []; }
-}
+// Letter generation uses the hybrid anchor+spice engine from linksHelpers
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,31 +93,7 @@ function GameOverScreen({ players, scores, sprintWords, gameCode, handleLeave }:
   );
 }
 
-// ── WaveResultsScreen ───────────────────────────────────────────────────────
-
-function WaveResultsScreen({ players, scores, sprintWords, gameState, gameCode, handleLeave, handleStartWave, isHost, isStartingWave }: {
-  players: any[]; scores: Record<string, number>; sprintWords: SprintWord[]; gameState: any; gameCode: string; handleLeave: () => void; handleStartWave: () => void; isHost: boolean; isStartingWave: boolean;
-}) {
-  const sorted = [...players].sort((a, b) => (scores[b.id] || 0) - (scores[a.id] || 0));
-  const wave = gameState.currentWave;
-  const totalWaves = gameState.totalWaves;
-  const isLastWave = wave >= totalWaves;
-  const targets = gameState.targetWords || [];
-  const waveWords = sprintWords.filter(w => w.wave === wave);
-  const [rExpandedPlayers, setRExpandedPlayers] = useState<Set<string>>(new Set());
-  const toggleExpand = (id: string) => setRExpandedPlayers(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  return (
-    <div className="min-h-screen bg-clay-cream flex flex-col">
-      <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80"><button onClick={handleLeave} className="flex items-center gap-1.5 text-xs font-bold text-peach"><ArrowLeft className="w-3.5 h-3.5" /> Leave</button><span className="font-outfit font-black text-lg text-plum">⚡ LINKS SPRINT</span><span className="text-[10px] font-mono text-warm-gray/50">{gameCode}</span></div>
-      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 gap-6 overflow-y-auto">
-        <div className="text-center space-y-2"><div className="text-4xl mb-2">🎯</div><h1 className="font-outfit font-black text-3xl text-plum">Wave {wave} Complete!</h1><p className="text-sm text-warm-gray/60">{isLastWave ? "Final wave finished!" : `Wave ${wave + 1} of ${totalWaves} coming up`}</p></div>
-        <div className="w-full max-w-md space-y-2"><h3 className="text-xs font-black text-warm-gray/60 uppercase tracking-widest text-center">Target Words Revealed</h3><div className="flex flex-wrap gap-2 justify-center">{targets.map((t: any, i: number) => { const level = t.level || 1; const wasHit = sprintWords.some(w => w.is_target && w.word.toLowerCase() === (t.word || "").toLowerCase()); return (<span key={i} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all" style={{ backgroundColor: wasHit ? LEVEL_COLORS[level] + "25" : "rgba(0,0,0,0.03)", borderColor: wasHit ? LEVEL_COLORS[level] : "rgba(0,0,0,0.08)", color: wasHit ? LEVEL_COLORS[level] : "#9CA3AF", textDecoration: wasHit ? "none" : "line-through", boxShadow: wasHit ? LEVEL_GLOW[level] : "none" }}>{wasHit ? "✓" : "✗"} {t.word || "???"}<span className="text-[9px] opacity-60">+{t.bonus || 0}</span></span>); })}</div></div>
-        <div className="w-full max-w-md space-y-2"><h3 className="text-xs font-black text-warm-gray/60 uppercase tracking-widest text-center">Standings</h3>{sorted.map((p: any, idx: number) => { const c = getPlayerColorByName(p.id, players); const pWords = waveWords.filter((w: SprintWord) => w.player_id === p.id); const pts = pWords.reduce((s: number, w: SprintWord) => s + w.points, 0); const isExpanded = rExpandedPlayers.has(p.id); return (<div key={p.id} className="p-4 rounded-xl border" style={{ backgroundColor: idx === 0 ? "#FEF3C7" : "#fff", borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.08)" }}><div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleExpand(p.id)}><span className="text-xl">{idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}</span><div className="flex-1"><p className="font-outfit font-bold text-sm text-plum truncate">{p.name}</p><p className="text-[10px] text-warm-gray/50">{pWords.length} word{pWords.length !== 1 ? "s" : ""}</p></div><div className="flex items-center gap-2"><p className="font-mono font-bold text-lg" style={{ color: c.fill }}>{pts}</p><ChevronRight className={`w-4 h-4 text-warm-gray/40 transition-transform ${isExpanded ? "rotate-90" : ""}`} /></div></div><div className="overflow-hidden transition-all duration-300" style={{ maxHeight: isExpanded ? '60px' : '0', opacity: isExpanded ? 1 : 0, paddingTop: isExpanded ? '8px' : '0' }}><div className="flex items-center gap-3 pl-8 text-[10px] font-bold"><span className="text-mint">+{pts} earned</span></div></div></div>); })}</div>
-        {isHost && (<button onClick={handleStartWave} disabled={isStartingWave} className="px-8 py-3 rounded-2xl font-outfit font-black text-sm text-white shadow-lg transition-all flex items-center gap-2 disabled:opacity-60" style={{ backgroundColor: isLastWave ? "#7C5CFC" : "#34D399", boxShadow: isLastWave ? "0 6px 24px rgba(124,92,252,0.35)" : "0 6px 24px rgba(52,211,153,0.35)" }}>{isStartingWave ? (<><div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />Starting...</>) : (<>{isLastWave ? "View Final Results" : `Start Wave ${wave + 1}`}<ChevronRight className="w-4 h-4" /></>)}</button>)}{!isHost && <p className="text-xs text-warm-gray/50 font-bold animate-pulse">Waiting for host...</p>}
-      </div>
-    </div>
-  );
-}
+// WaveResultsScreen removed — wave results now shown as overlay during WAVE_INTRO
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ── MAIN COMPONENT ───────────────────────────────────────────────────────────
@@ -158,7 +120,7 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const [shakeKey, setShakeKey] = useState(0);
   const [targetHitFlash, setTargetHitFlash] = useState<{ word: string; level: number } | null>(null);
   const [waveTimer, setWaveTimer] = useState(60);
-  const [waveIntroCountdown, setWaveIntroCountdown] = useState(3);
+  const [waveIntroCountdown, setWaveIntroCountdown] = useState(10);
   const [showDisconnected, setShowDisconnected] = useState(false);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submitGuardRef = useRef(false);
@@ -172,6 +134,16 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   useEffect(() => { playersLenRef.current = players.length; }, [players.length]);
   const [expandedOpponent, setExpandedOpponent] = useState<string | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'leaderboard' | 'feed'>('leaderboard');
+  const [leaderboardWaveFilter, setLeaderboardWaveFilter] = useState<number | 'all'>('all');
+  const prevLettersRef = useRef<string[]>([]);
+
+  // ── Segment (Letter Shift) state ────────────────────────────────────
+  const [segmentTimer, setSegmentTimer] = useState(0);
+  const [shiftFlash, setShiftFlash] = useState(false);
+  const [shiftOldLetters, setShiftOldLetters] = useState<string[]>([]);
+  const [shiftNewLetters, setShiftNewLetters] = useState<string[]>([]);
+  const [shiftAnimPhase, setShiftAnimPhase] = useState<'idle' | 'exit' | 'enter' | 'done'>('idle');
+  const shiftFiredRef = useRef(false);
 
   // ── Shuffle state ────────────────────────────────────────────────────
   const [shuffleAllCount, setShuffleAllCount] = useState(0);
@@ -181,7 +153,14 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   // ── Derived ──────────────────────────────────────────────────────────
   const phase = gameState.phase;
+  const currentSegment: number = gameState.currentSegment || 1;
+  const segmentsPerWave: number = gameState.segmentsPerWave || 1;
+  const segmentDuration: number = gameState.segmentDuration || gameState.waveDuration || 60;
+  const hasSegments = segmentsPerWave > 1;
   const letters: string[] = (gameState.playerLetters?.[effectivePlayerId] || gameState.letters) || [];
+  // Track previous letters in render body (not useEffect) so shift detection reads truly old letters
+  const prevLettersSnapshot = prevLettersRef.current;
+  prevLettersRef.current = [...letters];
   const usedWords: string[] = gameState.usedWords || [];
   const playerTimers: Record<string, number> = gameState.playerTimers || {};
   const myTimer = playerTimers[effectivePlayerId] ?? waveTimer;
@@ -224,8 +203,28 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   useEffect(() => { setTypedWord(""); setWordFeedback({ type: "typing" }); }, [gameState.currentWave]);
 
+  // ── Shift flash animation (only on actual segment changes, not reconnect) ──
+  const prevSegmentRef = useRef(1);
+  useEffect(() => {
+    const seg = gameState.currentSegment || 1;
+    if (phase !== "PLAYING" || !hasSegments || seg <= prevSegmentRef.current) { prevSegmentRef.current = seg; return; }
+    prevSegmentRef.current = seg;
+    // prevLettersSnapshot was captured BEFORE the ref was updated this render
+    setShiftOldLetters([...prevLettersSnapshot]);
+    // letters (derived from current gameState) are already the NEW pool
+    setShiftNewLetters([...letters]);
+    setShiftFlash(true);
+    setShiftAnimPhase('exit');
+    setTypedWord(""); setWordFeedback({ type: "typing" });
+    // Phase: exit (600ms) → enter (800ms) → done
+    const t1 = setTimeout(() => setShiftAnimPhase('enter'), 600);
+    const t2 = setTimeout(() => setShiftAnimPhase('done'), 1400);
+    const t3 = setTimeout(() => { setShiftFlash(false); setShiftAnimPhase('idle'); }, 2000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [gameState.currentSegment]);
+
   // ── Wave intro countdown ─────────────────────────────────────────────
-  useEffect(() => { if (phase !== "WAVE_INTRO") { setWaveIntroCountdown(3); waveStartFiredRef.current = false; isStartingWaveRef.current = false; setIsStartingWave(false); return; }
+  useEffect(() => { if (phase !== "WAVE_INTRO") { setWaveIntroCountdown(10); waveStartFiredRef.current = false; isStartingWaveRef.current = false; setIsStartingWave(false); return; }
     waveStartFiredRef.current = false;
     const interval = setInterval(() => { setWaveIntroCountdown(prev => { const next = prev - 1; if (next <= 0 && isHostRef.current && !waveStartFiredRef.current) { waveStartFiredRef.current = true; handleStartWave(); } return next > 0 ? next : 0; }); }, 1000);
     return () => clearInterval(interval);
@@ -239,43 +238,103 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
     return () => clearInterval(interval);
   }, [phase, gameState.currentWave]);
 
+  // ── Segment timer (Letter Shifts) ───────────────────────────────────
+  useEffect(() => {
+    if (phase !== "PLAYING" || !hasSegments) { setSegmentTimer(0); shiftFiredRef.current = false; return; }
+    // Use server-side segmentTimerEnd if available, otherwise calculate
+    const segmentEnd = gameState.segmentTimerEnd;
+    if (segmentEnd && typeof segmentEnd === 'number') {
+      setSegmentTimer(Math.max(0, Math.ceil(segmentEnd - Date.now() / 1000)));
+    } else {
+      setSegmentTimer(segmentDuration);
+    }
+    shiftFiredRef.current = false;
+    const interval = setInterval(() => {
+      setSegmentTimer(prev => {
+        const next = prev - 1;
+        if (next <= 0 && isHostRef.current && !shiftFiredRef.current) {
+          shiftFiredRef.current = true;
+          handleShiftLetters();
+        }
+        return next > 0 ? next : 0;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase, gameState.currentSegment, gameState.segmentTimerEnd]);
+
   // ── Polling fallback ─────────────────────────────────────────────────
   useEffect(() => { const poll = setInterval(async () => { if (isConnected) return; try { const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); } } const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (playerData) setPlayers(playerData); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); } catch {} }, 3000); return () => clearInterval(poll); }, [gameCode, isConnected]);
 
-  // ── Word validation (dictionary) ─────────────────────────────────────
+  // ── Word validation (redesigned: min 2 chars, at least 2 pool letters) ──
   const [validWordCache, setValidWordCache] = useState<Set<string> | null>(null);
   useEffect(() => { if (letters.length === 0) return; setValidWordCache(null); let cancelled = false;
-    const init = async () => { const wordSets: Set<string>[] = []; for (const letter of letters) { const words = await fetchWordFile(letter); if (words.length > 0) wordSets.push(new Set(words)); } if (cancelled) return; if (wordSets.length === 0) { setValidWordCache(null); return; }
-      const first = wordSets[0]; const intersection = new Set<string>(); for (const word of first) { if (word.length >= 3 && word.length <= 15 && wordSets.every(s => s.has(word))) intersection.add(word); } if (!cancelled) setValidWordCache(intersection); };
+    const init = async () => {
+      // Build union of all words containing ANY pool letter (not intersection)
+      const allWords = new Set<string>();
+      for (const letter of letters) { const words = await fetchWordFile(letter); for (const w of words) { if (w.length >= 2 && w.length <= 15) allWords.add(w); } }
+      if (!cancelled) setValidWordCache(allWords);
+    };
     init(); return () => { cancelled = true; };
   }, [letters]);
 
   const validateWord = useCallback((word: string) => {
-    if (!word || word.length < 3) return { type: "typing" as const }; const lower = word.toLowerCase().trim();
-    if (!/^[a-z]{3,15}$/.test(lower)) return { type: "invalid" as const, message: "Letters only, 3-15 chars" };
-    for (const letter of letters) { if (!lower.includes(letter.toLowerCase())) return { type: "missing" as const, message: `Missing "${letter}"` }; }
+    if (!word || word.length < 2) return { type: "typing" as const }; const lower = word.toLowerCase().trim();
+    if (!/^[a-z]{2,15}$/.test(lower)) return { type: "invalid" as const, message: "Letters only, 2-15 chars" };
+    // Must contain at least 2 letters from the pool
+    const poolCount = countPoolLettersInWord(lower, letters);
+    if (poolCount < 2) return { type: "missing" as const, message: `Need at least 2 pool letters (found ${poolCount})` };
     if (validWordCache && !validWordCache.has(lower)) return { type: "invalid" as const, message: "Not in dictionary — names/places may be missing" };
     if (usedWords.includes(lower) || sprintWords.some(w => w.word === lower)) { const claimer = sprintWords.find(w => w.word === lower); return { type: "used" as const, message: claimer ? `${claimer.player_name} already claimed it` : "Already used" }; }
-    return { type: "valid" as const };
+    return { type: "valid" as const, poolLettersUsed: poolCount };
   }, [letters, usedWords, sprintWords, validWordCache]);
 
   const handleSetInput = useCallback((v: string) => { setTypedWord(v); if (v.length === 0) setWordFeedback({ type: "typing" }); else { const fb = validateWord(v); setWordFeedback(fb); } }, [validateWord]);
 
-  // ── Start wave ───────────────────────────────────────────────────────
-  const handleStartWave = useCallback(async () => { if (!isHostRef.current) return; if (isStartingWaveRef.current) return; isStartingWaveRef.current = true; setIsStartingWave(true);
-    const gs = gameStateRef.current; const wave = gs.currentWave || 1; const playerCount = playersLenRef.current || 2; const tierKey = (WAVE_TIER[wave] || "easy") as keyof LetterSetsTiers;
-    let newLetters: string[]; try { const sets = await loadLetterSets(); const tier = sets[tierKey] || sets.easy; const picked = tier[Math.floor(Math.random() * tier.length)]; const settingLetterCount = lobby?.settings?.sprintLetterCount; const letterCount = settingLetterCount ? Math.min(settingLetterCount, picked.letters.length) : Math.min(Math.max(2, playerCount), picked.letters.length); newLetters = picked.letters.slice(0, letterCount); } catch { const allLetters = ['A','E','R','T','N','S','L','C','O','I','U','D','P','M','H','G','B','F','Y','W','K','V','X','Z','J','Q']; newLetters = [...allLetters].sort(() => Math.random() - 0.5).slice(0, Math.min(playerCount, 4)); }
+  // ── End wave ─────────────────────────────────────────────────────────
+  const handleEndWave = useCallback(async () => { if (!isHostRef.current) return; if (gameStateRef.current.phase !== "PLAYING") return; const { error } = await supabase.rpc("end_links_sprint_wave", { p_lobby_code: gameCode }); if (error) console.error("[SPRINT] end_links_sprint_wave error:", error); }, [gameCode]);
+
+  // ── Shared helper: generate letters + targets for a wave ────────────
+  const generateLettersAndTargets = useCallback(async (letterCount: number, wave: number) => {
+    let newLetters: string[];
+    try { newLetters = await generateLetterPool(letterCount, wave); } catch {
+      const allL = ['A','E','R','T','N','S','L','C','O','I','U','D','P','M','H','G','B','F','Y','W','K','V','X','Z','J','Q'];
+      newLetters = [...allL].sort(() => Math.random() - 0.5).slice(0, letterCount);
+    }
     const targets: any[] = []; const usedTargetWords = new Set<string>();
     let allValidWords: string[] = [];
-    try { const wordSets: Set<string>[] = []; for (const letter of newLetters) { const words = await fetchWordFile(letter); if (words.length > 0) wordSets.push(new Set(words)); } if (wordSets.length > 0) { const first = wordSets[0]; const intersection = new Set<string>(); for (const word of first) { if (wordSets.every((s) => s.has(word))) intersection.add(word); } allValidWords = Array.from(intersection).filter(w => w.length >= 3 && w.length <= 15); } } catch {}
+    try {
+      const wordSets: Map<string, string[]> = new Map();
+      for (const letter of newLetters) { const words = await fetchWordFile(letter); wordSets.set(letter, words); }
+      const allWords = new Set<string>();
+      for (const letter of newLetters) { for (const w of (wordSets.get(letter) || [])) { if (w.length >= 3 && w.length <= 15) allWords.add(w); } }
+      const poolLower = new Set(newLetters.map(l => l.toLowerCase()));
+      for (const word of allWords) { const lower = word.toLowerCase(); let hits = 0; for (const l of poolLower) { if (lower.includes(l)) { hits++; if (hits >= 2) { allValidWords.push(word); break; } } } }
+    } catch {}
     if (allValidWords.length > 0) { allValidWords.sort((a, b) => a.length - b.length); const tierRanges: [number, number][] = [[3, 4], [5, 6], [7, 8], [9, 10], [11, 15]]; for (let level = 1; level <= 5; level++) { const [min, max] = tierRanges[level - 1]; const pool = allValidWords.filter(w => w.length >= min && w.length <= max); if (pool.length === 0) continue; let word = pool[Math.floor(Math.random() * pool.length)]; let attempts = 0; while (usedTargetWords.has(word) && attempts < 20) { word = pool[Math.floor(Math.random() * pool.length)]; attempts++; } if (!usedTargetWords.has(word)) { usedTargetWords.add(word); targets.push({ word, level, bonus: TARGET_LEVELS[level]?.bonus || level * 100 }); } } if (targets.length === 0) { for (const word of allValidWords.slice(0, 5)) { if (!usedTargetWords.has(word)) { usedTargetWords.add(word); targets.push({ word, level: 1, bonus: TARGET_LEVELS[1]?.bonus || 100 }); } } } }
+    return { letters: newLetters, targets };
+  }, []);
+
+  // ── Start wave (uses shared helper) ─────────────────────────────────
+  const handleStartWave = useCallback(async () => { if (!isHostRef.current) return; if (isStartingWaveRef.current) return; isStartingWaveRef.current = true; setIsStartingWave(true);
+    const gs = gameStateRef.current; const wave = gs.currentWave || 1; const settingLetterCount = lobby?.settings?.sprintLetterCount; const letterCount = settingLetterCount || 4;
+    const { letters: newLetters, targets } = await generateLettersAndTargets(letterCount, wave);
     setShuffleAllCount(0); setShuffleSingleCount(0);
     const { error } = await supabase.rpc("start_links_sprint_wave", { p_lobby_code: gameCode, p_letters: newLetters, p_target_words: targets }); if (error) console.error("[SPRINT] start_links_sprint_wave error:", error);
     isStartingWaveRef.current = false; setIsStartingWave(false);
-  }, [gameCode, lobby?.settings?.sprintLetterCount]);
+  }, [gameCode, lobby?.settings?.sprintLetterCount, generateLettersAndTargets]);
 
-  // ── End wave ─────────────────────────────────────────────────────────
-  const handleEndWave = useCallback(async () => { if (!isHostRef.current) return; if (gameStateRef.current.phase !== "PLAYING") return; const { error } = await supabase.rpc("end_links_sprint_wave", { p_lobby_code: gameCode }); if (error) console.error("[SPRINT] end_links_sprint_wave error:", error); }, [gameCode]);
+  // ── Shift letters (Letter Shifts) ───────────────────────────────────
+  const handleShiftLetters = useCallback(async () => { if (!isHostRef.current) return;
+    try {
+      const gs = gameStateRef.current; const wave = gs.currentWave || 1; const settingLetterCount = lobby?.settings?.sprintLetterCount; const letterCount = settingLetterCount || 4;
+      const { letters: newLetters, targets } = await generateLettersAndTargets(letterCount, wave);
+      setShuffleAllCount(0); setShuffleSingleCount(0);
+      const { data, error } = await supabase.rpc("shift_sprint_letters", { p_lobby_code: gameCode, p_letters: newLetters, p_target_words: targets });
+      if (error) console.error("[SPRINT] shift_sprint_letters error:", error);
+      else if (data?.waveEnded) { /* wave ended via shift — server handled transition */ }
+    } catch (e) { console.error("[SPRINT] handleShiftLetters error:", e); }
+    finally { shiftFiredRef.current = false; }
+  }, [gameCode, lobby?.settings?.sprintLetterCount, generateLettersAndTargets]);
 
   // ── Shuffle ──────────────────────────────────────────────────────────
   const handleShuffleAll = useCallback(async () => { if (phase !== "PLAYING" || shuffleGuardRef.current) return; shuffleGuardRef.current = true;
@@ -292,12 +351,15 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   // ── Submit word ──────────────────────────────────────────────────────
   const handleSubmitWord = useCallback(async () => { if (phase !== "PLAYING" || submitGuardRef.current || isSubmitting) return; if (wordFeedback.type !== "valid") { if (wordFeedback.type === "used") setShakeKey(k => k + 1); return; }
-    const word = typedWord.trim(); if (!word || word.length < 3) return;
+    const word = typedWord.trim(); if (!word || word.length < 2) return;
     submitGuardRef.current = true; setIsSubmitting(true); setSubmitStatus("Claiming...");
     const { data, error } = await supabase.rpc("submit_links_sprint_word", { p_lobby_code: gameCode, p_player_id: effectivePlayerId, p_word: word.toLowerCase() }); submitGuardRef.current = false; setIsSubmitting(false);
     if (error || data?.success === false) { const errMsg = data?.error || error?.message || "Submit failed"; setSubmitStatus(errMsg); if (data?.error_code === "ALREADY_USED") { setWordFeedback({ type: "used", message: "Already claimed!" }); setShakeKey(k => k + 1); } setTimeout(() => setSubmitStatus(null), 2500); return; }
     setTypedWord(""); setWordFeedback({ type: "typing" });
-    if (data.is_target) { setTargetHitFlash({ word: data.word, level: data.target_level || 1 }); setTimeout(() => setTargetHitFlash(null), 2500); setSubmitStatus(`🎯 TARGET! +${data.points} pts`); } else { setSubmitStatus(`+${data.points} pts`); } setTimeout(() => setSubmitStatus(null), 2000);
+    const pts = data.points || 0;
+    const mult = data.pool_multiplier || 1;
+    const multText = mult > 1 ? ` (×${mult} bonus!)` : '';
+    if (data.is_target) { setTargetHitFlash({ word: data.word, level: data.target_level || 1 }); setTimeout(() => setTargetHitFlash(null), 2500); setSubmitStatus(`🎯 TARGET! +${pts} pts${multText}`); } else { setSubmitStatus(`+${pts} pts${multText}`); } setTimeout(() => setSubmitStatus(null), 2000);
   }, [gameCode, effectivePlayerId, phase, typedWord, wordFeedback.type, isSubmitting]);
 
   // ── Leave ────────────────────────────────────────────────────────────
@@ -311,28 +373,90 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
     return <GameOverScreen players={players} scores={scores} sprintWords={sprintWords} gameCode={gameCode!} handleLeave={handleLeave} />;
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // ── Wave Results Phase ───────────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════════════
-  if (phase === "WAVE_RESULTS") {
-    return <WaveResultsScreen players={players} scores={scores} sprintWords={sprintWords} gameState={gameState} gameCode={gameCode!} handleLeave={handleLeave} handleStartWave={handleStartWave} isHost={isHost} isStartingWave={isStartingWave} />;
-  }
-
-  // ── Wave Intro Phase ──────────────────────────────────────────────────
+  // ── Wave Intro Phase (continuous flow with results overlay) ──────────
   if (phase === "WAVE_INTRO") {
+    // Previous wave results (if not the first wave)
+    const prevWave = gameState.currentWave - 1;
+    const prevWaveWords = prevWave >= 1 ? sprintWords.filter(w => w.wave === prevWave) : [];
+    const prevWaveTargets = (gameState.targetReveals || []).find((r: any) => r.wave === prevWave)?.targets || [];
+    const prevWaveScores: Record<string, number> = {};
+    prevWaveWords.forEach(w => { prevWaveScores[w.player_id] = (prevWaveScores[w.player_id] || 0) + w.points; });
+    const prevWaveSorted = [...players].sort((a: any, b: any) => (prevWaveScores[b.id] || 0) - (prevWaveScores[a.id] || 0));
+    const hasPrevResults = prevWaveWords.length > 0;
+
     return (
-      <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-6 gap-8">
+      <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-6 gap-6 overflow-y-auto">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-mint-light text-mint border border-mint/20"><Zap className="w-4 h-4" /><span className="text-sm font-black uppercase tracking-widest">Wave {gameState.currentWave} of {gameState.totalWaves}</span></div>
           <h1 className="font-outfit font-black text-4xl text-plum mt-4">Get Ready!</h1>
-          <p className="text-sm text-warm-gray/60 max-w-sm">{players.length} players · Type words containing ALL letters below</p>
         </div>
-        <div className="relative w-24 h-24">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="6" className="text-warm-gray/10" /><circle cx="50" cy="50" r="42" fill="none" stroke="#34D399" strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 42} strokeDashoffset={2 * Math.PI * 42 * (1 - waveIntroCountdown / 3)} className="transition-all duration-1000" /></svg>
-          <div className="absolute inset-0 flex items-center justify-center"><span className="font-mono font-black text-3xl text-mint tabular-nums">{waveIntroCountdown}</span></div>
+
+        {/* Countdown */}
+        <div className="relative w-20 h-20">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="6" className="text-warm-gray/10" /><circle cx="50" cy="50" r="42" fill="none" stroke="#34D399" strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 42} strokeDashoffset={2 * Math.PI * 42 * (1 - waveIntroCountdown / 10)} className="transition-all duration-1000" /></svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="font-mono font-black text-2xl text-mint tabular-nums leading-none">{waveIntroCountdown}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap justify-center">{letters.map((l) => (<span key={l} className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center text-2xl font-outfit font-black shadow-lg animate-clay-pop" style={{ backgroundColor: "#34D399", color: "#fff", boxShadow: "0 6px 24px rgba(52,211,153,0.35)" }}>{l}</span>))}</div>
-        <p className="text-xs text-warm-gray/50 font-bold">Every word must contain {letters.join(" + ")}</p>
+
+        {/* Previous wave results overlay */}
+        {hasPrevResults && (
+          <div className="w-full max-w-md space-y-3 animate-clay-pop">
+            <h3 className="text-xs font-black text-warm-gray/50 uppercase tracking-widest text-center">Wave {prevWave} Results</h3>
+            {/* Targets summary */}
+            {prevWaveTargets.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {prevWaveTargets.map((t: any, i: number) => {
+                  const level = t.level || 1;
+                  const wasHit = prevWaveWords.some(w => w.is_target && w.word.toLowerCase() === (t.word || "").toLowerCase());
+                  return (
+                    <span key={i} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border" style={{
+                      backgroundColor: wasHit ? LEVEL_COLORS[level] + "20" : "rgba(0,0,0,0.03)",
+                      borderColor: wasHit ? LEVEL_COLORS[level] : "rgba(0,0,0,0.08)",
+                      color: wasHit ? LEVEL_COLORS[level] : "#9CA3AF",
+                      textDecoration: wasHit ? "none" : "line-through",
+                    }}>
+                      {wasHit ? "✓" : "✗"} {t.word}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {/* Standings mini */}
+            <div className="flex flex-col gap-1.5">
+              {prevWaveSorted.map((p: any, idx: number) => {
+                const c = getPlayerColorByName(p.id, players);
+                const pts = prevWaveScores[p.id] || 0;
+                const pWords = prevWaveWords.filter(w => w.player_id === p.id);
+                return (
+                  <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border" style={{
+                    backgroundColor: idx === 0 ? "#FEF3C7" : "rgba(255,255,255,0.7)",
+                    borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.06)",
+                  }}>
+                    <span className="text-sm">{idx === 0 ? "👑" : `#${idx + 1}`}</span>
+                    <span className="flex-1 font-bold text-xs text-plum truncate">{p.name}</span>
+                    <span className="text-[10px] text-warm-gray/50">{pWords.length}w</span>
+                    <span className="font-mono font-black text-sm" style={{ color: c.fill }}>+{pts}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Next wave letters preview */}
+        {letters.length > 0 && (
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-xs font-bold text-warm-gray/50">Your letters</p>
+            <div className="flex items-center gap-2">
+              {letters.map((l) => (
+                <span key={l} className="w-11 h-11 sm:w-13 sm:h-13 rounded-xl flex items-center justify-center text-lg font-outfit font-black shadow-md animate-clay-pop" style={{ backgroundColor: "#34D399", color: "#fff", boxShadow: "0 4px 16px rgba(52,211,153,0.3)" }}>{l}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-warm-gray/40 font-bold">Type words with at least 2 pool letters for bonus multipliers!</p>
       </div>
     );
   }
@@ -343,6 +467,55 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   return (
     <div className="min-h-screen bg-clay-cream font-outfit text-plum flex flex-col">
+      {/* ── Shift transition animation ──────────────────────────────── */}
+      {shiftFlash && (
+        <div className="fixed inset-0 z-[60] pointer-events-none">
+          {/* Backdrop flash */}
+          <div className="absolute inset-0 bg-butter/5 animate-pulse" />
+          {/* Central banner */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className={shiftAnimPhase === 'exit' ? 'animate-shift-banner-in' : shiftAnimPhase === 'done' ? 'opacity-0 transition-opacity duration-500' : ''}>
+              <div className="px-6 py-3 rounded-2xl bg-gradient-to-br from-butter via-amber-400 to-orange-500 shadow-2xl shadow-butter/30">
+                <span className="font-outfit font-black text-2xl text-white tracking-wide">⚡ NEW LETTERS!</span>
+              </div>
+            </div>
+          </div>
+          {/* Animated letter tiles overlay */}
+          <div className="absolute inset-0 flex items-center justify-center pt-20">
+            <div className="flex items-center gap-3">
+              {/* Old letters sliding out */}
+              {shiftAnimPhase === 'exit' && shiftOldLetters.map((letter, i) => (
+                <div
+                  key={`old-${letter}-${i}`}
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center font-outfit font-black text-2xl text-white shadow-lg animate-shift-letter-out"
+                  style={{
+                    backgroundColor: '#9CA3AF',
+                    animationDelay: `${i * 80}ms`,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  }}
+                >
+                  {letter}
+                </div>
+              ))}
+              {/* New letters sliding in */}
+              {(shiftAnimPhase === 'enter' || shiftAnimPhase === 'done') && shiftNewLetters.map((letter, i) => (
+                <div
+                  key={`new-${letter}-${i}`}
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center font-outfit font-black text-2xl text-white shadow-lg animate-shift-letter-in"
+                  style={{
+                    backgroundColor: '#34D399',
+                    animationDelay: `${i * 80}ms`,
+                    boxShadow: '0 4px 16px rgba(52,211,153,0.4)',
+                  }}
+                >
+                  {letter}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDisconnected && (
         <div className="sticky top-0 z-50 bg-peach-light border-b border-peach/30 px-4 py-3 flex items-center justify-center gap-3">
           <WifiOff className="w-4 h-4 text-peach animate-pulse" /><span className="text-peach text-xs font-bold uppercase tracking-widest">Connection lost — reconnecting...</span>
@@ -358,7 +531,14 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
           <div className="flex items-center gap-2 bg-white/60 px-3 py-1.5 rounded-2xl shadow-sm border border-white/50">
             <Trophy className="w-4 h-4 text-soft-purple" />
             <span className="font-black text-base">Wave {gameState.currentWave}/{gameState.totalWaves}</span>
+            {hasSegments && <span className="text-[10px] font-black text-warm-gray/50">· Seg {currentSegment}/{segmentsPerWave}</span>}
           </div>
+          {hasSegments && phase === "PLAYING" && (
+            <div className="flex items-center gap-1.5 bg-butter-light/80 px-2.5 py-1 rounded-xl border border-butter/20">
+              <Zap className="w-3 h-3 text-butter" />
+              <span className="text-[10px] font-black text-butter tabular-nums">Shift in {segmentTimer}s</span>
+            </div>
+          )}
 
         </div>
 
@@ -378,8 +558,14 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
             <TensionTimer timeLeft={myTimer} maxTime={gameState.waveDuration || 60} defaultColor="#34D399" sizeClass="w-12 h-12" textClass="text-lg" strokeWidth={12} />
           </div>
 
-          <div className="flex justify-center">
-            <LetterPool letters={letters} inputText={typedWord} title="" subtitle="These letters must be included in your word" />
+          <div className="flex justify-center">              <LetterPool letters={letters} inputText={typedWord} title="" subtitle="These letters must be included in your word" />
+              {/* Shift incoming letters preview (shown during segment timer < 5s) */}
+              {hasSegments && phase === 'PLAYING' && segmentTimer <= 5 && segmentTimer > 0 && (
+                <div className="flex items-center justify-center gap-1 mt-2 animate-pulse">
+                  <Zap className="w-3 h-3 text-butter" />
+                  <span className="text-[10px] font-bold text-butter/70">Letters changing soon...</span>
+                </div>
+              )}
           </div>
 
           <section className="w-full">
@@ -438,7 +624,16 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
               {/* Word feedback */}
               <div className="h-5 mt-1">
-                {wordFeedback.type === "valid" && <p className="text-xs font-bold text-mint animate-clay-pop">+{calcPoints(typedWord.length)} points — press Enter</p>}
+                {wordFeedback.type === "valid" && (() => {
+                  const poolUsed = countPoolLettersInWord(typedWord, letters);
+                  const { base, multiplier, total } = calcPointsWithPoolMultiplier(typedWord.length, poolUsed);
+                  return (
+                    <div className="animate-clay-pop">
+                      <p className="text-xs font-bold text-mint">+{total} points — press Enter</p>
+                      {multiplier > 1 && <p className="text-[10px] font-bold text-soft-purple">{base} base × {multiplier} multiplier ({poolUsed} pool letters)</p>}
+                    </div>
+                  );
+                })()}
                 {wordFeedback.type === "missing" && <p className="text-xs font-bold text-peach/80">{wordFeedback.message}</p>}
                 {wordFeedback.type === "used" && <p className="text-xs font-bold text-butter">{wordFeedback.message}</p>}
                 {wordFeedback.type === "invalid" && <p className="text-xs font-bold text-peach/60">{wordFeedback.message}</p>}
@@ -471,47 +666,70 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
           </div>
 
           {activeSidebarTab === 'leaderboard' ? (
-            <div className="flex flex-col gap-4">
-              {/* Your card */}
-              <ClayCard elevation="flat" padding="sm" className="flex items-center justify-between ring-2 ring-warm-gray/20 ring-offset-2 ring-offset-clay-cream">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner bg-warm-gray/50"><AvatarIcon src={AVATARS[0].src} size="28px" /></div>
-                  <div><div className="font-bold text-md leading-tight text-plum">You</div><div className="text-xs font-bold opacity-50 uppercase mt-1">{myWords.length} Words</div></div>
+            <div className="flex flex-col gap-3">
+              {/* Wave filter tabs */}
+              {gameState.totalWaves > 1 && (
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-warm-gray/5 border border-warm-gray/10">
+                  <button onClick={() => setLeaderboardWaveFilter('all')} className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${leaderboardWaveFilter === 'all' ? 'bg-white shadow-sm text-plum' : 'text-warm-gray/40'}`}>All</button>
+                  {Array.from({ length: Math.min(gameState.currentWave, gameState.totalWaves) }).map((_, i) => (
+                    <button key={i + 1} onClick={() => setLeaderboardWaveFilter(i + 1)} className={`flex-1 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${leaderboardWaveFilter === i + 1 ? 'bg-white shadow-sm text-plum' : 'text-warm-gray/40'}`}>W{i + 1}</button>
+                  ))}
                 </div>
-                <div className="font-black text-xl text-plum/80">{myScore}</div>
-              </ClayCard>
+              )}
 
-              {/* Opponents */}
-              {otherPlayers.sort((a, b) => (scores[b.id] || 0) - (scores[a.id] || 0)).map((op) => {
-                const color = getPlayerColorByName(op.id, players);
-                const opScore = scores[op.id] || 0;
-                const opWords = opponentWords.filter(w => w.player_id === op.id);
-                const isExpanded = expandedOpponent === op.id;
+              {/* Your card */}
+              {(() => {
+                const filteredMyWords = leaderboardWaveFilter === 'all' ? myWords : myWords.filter(w => w.wave === leaderboardWaveFilter);
+                const filteredMyScore = filteredMyWords.reduce((s, w) => s + w.points, 0);
                 return (
-                  <ClayCard key={op.id} elevation="flat" padding="sm"
-                    className={`flex flex-col gap-3 cursor-pointer transition-all ${isExpanded ? 'ring-2 ring-offset-2 ring-offset-clay-cream' : 'hover:bg-black/5'}`}
-                    onClick={() => setExpandedOpponent(isExpanded ? null : op.id)}
-                    style={isExpanded ? { '--tw-ring-color': color.fill } as React.CSSProperties : undefined}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner" style={{ backgroundColor: color.fillLight }}><AvatarIcon src={AVATARS[(players.indexOf(op) + 1) % AVATARS.length].src} size="28px" /></div>
-                        <div><div className="font-bold text-md leading-tight text-plum">{op.name}</div><div className="text-xs font-bold opacity-50 uppercase mt-1">{opWords.length} Words</div></div>
-                      </div>
-                      <div className="font-black text-xl text-plum/80">{opScore}</div>
+                  <ClayCard elevation="flat" padding="sm" className="flex items-center justify-between ring-2 ring-warm-gray/20 ring-offset-2 ring-offset-clay-cream">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner bg-warm-gray/50"><AvatarIcon src={AVATARS[0].src} size="28px" /></div>
+                      <div><div className="font-bold text-md leading-tight text-plum">You</div><div className="text-xs font-bold opacity-50 uppercase mt-1">{filteredMyWords.length} Words</div></div>
                     </div>
-                    {isExpanded && (
-                      <div className="pt-3 border-t border-black/5 space-y-2 max-h-40 overflow-y-auto scrollbar-hide">
-                        {opWords.length === 0 ? <div className="text-center text-sm font-bold opacity-50 py-2">No words yet</div> : opWords.map((word) => (
-                          <div key={word.id} className="flex justify-between items-center text-sm bg-white p-2 rounded-lg border border-black/5 shadow-sm">
-                            <span className="font-bold uppercase tracking-widest px-1">{word.word}</span>
-                            <span className="font-bold opacity-50">+{word.points}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <div className="font-black text-xl text-plum/80">{filteredMyScore}</div>
                   </ClayCard>
                 );
-              })}
+              })()}
+
+              {/* Opponents */}
+              {(() => {
+                const filteredScores: Record<string, number> = {};
+                players.forEach((p: any) => {
+                  const pw = leaderboardWaveFilter === 'all' ? sprintWords.filter(w => w.player_id === p.id) : sprintWords.filter(w => w.player_id === p.id && w.wave === leaderboardWaveFilter);
+                  filteredScores[p.id] = pw.reduce((s, w) => s + w.points, 0);
+                });
+                return otherPlayers.sort((a, b) => (filteredScores[b.id] || 0) - (filteredScores[a.id] || 0)).map((op) => {
+                  const color = getPlayerColorByName(op.id, players);
+                  const opScore = filteredScores[op.id] || 0;
+                  const opWords = leaderboardWaveFilter === 'all' ? opponentWords.filter(w => w.player_id === op.id) : opponentWords.filter(w => w.player_id === op.id && w.wave === leaderboardWaveFilter);
+                  const isExpanded = expandedOpponent === op.id;
+                  return (
+                    <ClayCard key={op.id} elevation="flat" padding="sm"
+                      className={`flex flex-col gap-3 cursor-pointer transition-all ${isExpanded ? 'ring-2 ring-offset-2 ring-offset-clay-cream' : 'hover:bg-black/5'}`}
+                      onClick={() => setExpandedOpponent(isExpanded ? null : op.id)}
+                      style={isExpanded ? { '--tw-ring-color': color.fill } as React.CSSProperties : undefined}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner" style={{ backgroundColor: color.fillLight }}><AvatarIcon src={AVATARS[(players.indexOf(op) + 1) % AVATARS.length].src} size="28px" /></div>
+                          <div><div className="font-bold text-md leading-tight text-plum">{op.name}</div><div className="text-xs font-bold opacity-50 uppercase mt-1">{opWords.length} Words</div></div>
+                        </div>
+                        <div className="font-black text-xl text-plum/80">{opScore}</div>
+                      </div>
+                      {isExpanded && (
+                        <div className="pt-3 border-t border-black/5 space-y-2 max-h-40 overflow-y-auto scrollbar-hide">
+                          {opWords.length === 0 ? <div className="text-center text-sm font-bold opacity-50 py-2">No words yet</div> : opWords.map((word) => (
+                            <div key={word.id} className="flex justify-between items-center text-sm bg-white p-2 rounded-lg border border-black/5 shadow-sm">
+                              <span className="font-bold uppercase tracking-widest px-1">{word.word}</span>
+                              <span className="font-bold opacity-50">+{word.points}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </ClayCard>
+                  );
+                });
+              })()}
             </div>
           ) : (
             <LiveFeed sprintWords={sprintWords} players={players} />

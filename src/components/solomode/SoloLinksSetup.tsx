@@ -11,19 +11,26 @@ export default function SoloLinksSetup() {
 
   const [letterCount, setLetterCount] = useState(3);
   const [waveTimer, setWaveTimer] = useState(60);
+  const [totalWaves, setTotalWaves] = useState(3);
+  const [letterShifts, setLetterShifts] = useState(1);
   const [targetMode, setTargetMode] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+
+  // Max shifts relative to wave duration (≥20s per segment)
+  const maxShifts = Math.min(5, Math.max(1, Math.floor(waveTimer / 30)));
 
   const handleStart = useCallback(() => {
     setIsStarting(true);
     const settings = {
       letterCount,
       waveTimer,
+      totalWaves,
+      letterShifts: Math.min(letterShifts, maxShifts),
       targetMode,
     };
     store.setLocalGameSettings(settings);
     navigate("/solo/links/play");
-  }, [letterCount, waveTimer, targetMode, navigate]);
+  }, [letterCount, waveTimer, totalWaves, letterShifts, maxShifts, targetMode, navigate]);
 
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col">
@@ -81,13 +88,36 @@ export default function SoloLinksSetup() {
             </div>
           </div>
 
+          {/* Number of waves */}
+          <div className="clay p-5 space-y-3">
+            <div>
+              <h3 className="font-outfit font-bold text-sm text-plum">Number of Waves</h3>
+              <p className="text-[10px] text-plum/50 mt-0.5">More waves = longer game with more scoring chances.</p>
+            </div>
+            <div className="flex gap-1.5">
+              {[3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setTotalWaves(n)}
+                  className={`flex-1 h-11 rounded-xl font-outfit font-black text-base transition-all ${
+                    totalWaves === n
+                      ? "bg-soft-purple text-white shadow-lg shadow-soft-purple/20"
+                      : "bg-cream text-plum/40 hover:text-plum border border-clay-border/50"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Wave timer */}
           <div className="clay p-5 space-y-3">
             <div>
               <h3 className="font-outfit font-bold text-sm text-plum">
                 {t("solo.waveTimer")}
               </h3>
-              <p className="text-[10px] text-warm-gray/50 mt-0.5">
+              <p className="text-[10px] text-plum/50 mt-0.5">
                 {t("solo.waveTimerDesc")}
               </p>
             </div>
@@ -97,7 +127,13 @@ export default function SoloLinksSetup() {
               max={120}
               step={15}
               value={waveTimer}
-              onChange={(e) => setWaveTimer(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setWaveTimer(val);
+                // Auto-clamp shifts if they exceed new max
+                const newMax = Math.min(5, Math.max(1, Math.floor(val / 30)));
+                if (letterShifts > newMax) setLetterShifts(newMax);
+              }}
               className="w-full accent-soft-purple"
             />
             <div className="flex justify-between text-xs font-bold">
@@ -107,12 +143,12 @@ export default function SoloLinksSetup() {
             </div>
             {/* Wave preview */}
             <div className="flex gap-2 mt-2">
-              {[1, 2, 3].map((wave) => {
+              {Array.from({ length: totalWaves }, (_, i) => i + 1).map((wave) => {
                 const waveTime = Math.floor(waveTimer * (1 - (wave - 1) * 0.25));
                 return (
                   <div key={wave} className="flex-1 text-center">
                     <span className="text-[10px] font-black text-warm-gray/40 uppercase">
-                      {t("solo.wave")} {wave}
+                      Wave {wave}
                     </span>
                     <div className="text-xs font-mono font-bold text-plum/60">
                       {waveTime}s
@@ -121,6 +157,40 @@ export default function SoloLinksSetup() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Letter Shifts per Wave */}
+          <div className="clay p-5 space-y-3">
+            <div>
+              <h3 className="font-outfit font-bold text-sm text-plum">Letter Shifts per Wave</h3>
+              <p className="text-[10px] text-plum/50 mt-0.5">How many times the letter pool changes mid-wave. 1 = no shifts.</p>
+            </div>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4, 5].map((n) => {
+                const disabled = n > maxShifts;
+                return (
+                  <button
+                    key={n}
+                    onClick={() => !disabled && setLetterShifts(n)}
+                    disabled={disabled}
+                    className={`flex-1 h-11 rounded-xl font-outfit font-black text-base transition-all ${
+                      disabled
+                        ? "bg-warm-gray/5 text-warm-gray/20 cursor-not-allowed"
+                        : letterShifts === n
+                          ? "bg-soft-purple text-white shadow-lg shadow-soft-purple/20"
+                          : "bg-cream text-plum/40 hover:text-plum border border-clay-border/50"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+            {letterShifts > 1 && (
+              <p className="text-[10px] text-plum/40">
+                Each segment ≈{Math.floor(waveTimer / letterShifts)}s · Pool changes {letterShifts - 1}× per wave
+              </p>
+            )}
           </div>
 
           {/* Target mode toggle */}
