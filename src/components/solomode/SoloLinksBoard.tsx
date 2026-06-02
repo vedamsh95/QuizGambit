@@ -146,7 +146,7 @@ export default function SoloLinksBoard() {
 
     try {
       // Use hybrid anchor+spice generation from linksHelpers
-      const selected = await generateLetterPool(s.letterCount, waveNum || currentWave);
+      const selected = await generateLetterPool(s.letterCount, waveNum || currentWave, s.totalWaves);
 
       const validSet = await buildValidWordSet(selected);
       setValidWordsSet(validSet);
@@ -330,7 +330,7 @@ export default function SoloLinksBoard() {
     if (nextSegment > segmentsPerWave) return;
 
     setCurrentSegment(nextSegment);
-    const newLetters = await generateLetterPool(settings.letterCount, currentWave);
+    const newLetters = await generateLetterPool(settings.letterCount, currentWave, settings.totalWaves);
     setLetters(newLetters);
     const validSet = await buildValidWordSet(newLetters);
     setValidWordsSet(validSet);
@@ -379,7 +379,7 @@ export default function SoloLinksBoard() {
       // Generate new letters using hybrid system + auto-advance
       const nextWave = currentWave + 1;
       (async () => {
-        const newLetters = await generateLetterPool(settings?.letterCount || 3, nextWave);
+        const newLetters = await generateLetterPool(settings?.letterCount || 3, nextWave, settings?.totalWaves);
         setLetters(newLetters);
         const validSet = await buildValidWordSet(newLetters);
         setValidWordsSet(validSet);
@@ -440,7 +440,7 @@ export default function SoloLinksBoard() {
     setWaveTimer((prev) => Math.max(0, prev - 5));
     setCombo(0);
 
-    const newLetters = await generateLetterPool(settings?.letterCount || 3, currentWave);
+    const newLetters = await generateLetterPool(settings?.letterCount || 3, currentWave, settings?.totalWaves);
     setLetters(newLetters);
 
     buildValidWordSet(newLetters).then((valid) => setValidWordsSet(valid)).catch(() => {});

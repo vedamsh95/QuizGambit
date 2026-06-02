@@ -253,19 +253,46 @@ const DIFFICULTY_BY_WAVE: Record<number, DifficultyConfig> = {
  * Works for any letter count (2-6) and any wave number (1-5).
  *
  * @param letterCount - Number of letters in the pool (2-6)
- * @param wave - Current wave number (1-5, maps to difficulty)
+ * @param wave - Current wave number (1-based)
+ * @param totalWaves - Total number of waves. When provided, difficulty is
+ *   remapped so the final wave always hits the hardest config (5).
+ *   E.g. 3 waves → configs 1, 3, 5 instead of 1, 2, 3.
  * @returns Array of uppercase letters
  */
 export async function generateLetterPool(
   letterCount: number,
   wave: number,
+  totalWaves?: number,
 ): Promise<string[]> {
-  const config = DIFFICULTY_BY_WAVE[Math.min(wave, 5)] || DIFFICULTY_BY_WAVE[1];
+  // Remap wave → difficulty level across the full 1-5 range
+  let difficultyWave = wave;
+  if (totalWaves && totalWaves > 1 && totalWaves < 5) {
+    // Scale: wave 1 → config 1, wave totalWaves → config 5
+    difficultyWave = Math.round(1 + ((wave - 1) / (totalWaves - 1)) * 4);
+  }
+  const config = DIFFICULTY_BY_WAVE[Math.min(difficultyWave, 5)] || DIFFICULTY_BY_WAVE[1];
   const MAX_ATTEMPTS = 8;
 
   // Adjust anchor/spice counts to fit the requested letterCount
-  const effectiveMinAnchors = Math.min(config.minAnchors, letterCount);
+  let effectiveMinAnchors = Math.min(config.minAnchors, letterCount);
   const effectiveMaxAnchors = Math.min(config.maxAnchors, letterCount);
+
+  // For small pools (2-3 letters), scale anchors by wave position so difficulty
+  // is visible instead of always having an anchor every wave.
+  // - Wave 1: always anchors (guaranteed playable start)
+  // - Middle waves: at least 1 anchor (comfortable challenge)
+  // - Final 2 waves: allow 0 anchors (mid+rare or rare+rare combos)
+  //   The word count validation ensures there are still playable words.
+  if (letterCount <= 3 && difficultyWave >= 2) {
+    const isFinalTwoWaves = (totalWaves || 5) > 2 && wave >= (totalWaves || 5) - 1;
+    if (isFinalTwoWaves) {
+      // Final 2 waves: allow 0 anchors for maximum difficulty
+      effectiveMinAnchors = 0;
+    } else {
+      // Middle waves: guarantee at least 1 spice slot
+      effectiveMinAnchors = Math.min(effectiveMinAnchors, letterCount - 1);
+    }
+  }
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     // Step 1: Pick anchors (common letters)
@@ -325,8 +352,22 @@ export async function generateLetterPool(
       await Promise.all(pool.map(async (l) => { wordSets.set(l, await fetchWordFile(l)); }));
       const wordCount = countValidWords(wordSets, pool);
 
-      // Accept if within target range
-      if (wordCount >= config.targetMin && wordCount <= config.targetMax) {
+      // Scale target range down for small pools. With 2 letters, every valid
+      // word must contain BOTH letters (at least 2 of 2), which is far more
+      // restrictive than larger pools where words need 2 of 4+. Without this,
+      // rare combos like [K, V] would always fail validation.
+      // Only applies to pools of 3 or fewer letters — larger pools use the
+      // original calibrated targets.
+      let scaledMin = config.targetMin;
+      let scaledMax = config.targetMax;
+      if (letterCount <= 3) {
+        const poolScale = Math.max(0.05, letterCount / 6);
+        scaledMin = Math.round(config.targetMin * poolScale);
+        scaledMax = config.targetMax === Infinity ? Infinity : Math.round(config.targetMax * poolScale);
+      }
+
+      // Accept if within scaled target range
+      if (wordCount >= scaledMin && wordCount <= scaledMax) {
         return pool;
       }
 
