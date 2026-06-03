@@ -72,7 +72,7 @@ export default function SoloLinksSetup() {
               </p>
             </div>
             <div className="flex gap-1">
-              {[2, 3, 4, 5].map((n) => (
+              {[2, 3, 4, 5, 6].map((n) => (
                 <button
                   key={n}
                   onClick={() => setLetterCount(n)}

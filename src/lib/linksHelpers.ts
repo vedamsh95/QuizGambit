@@ -352,27 +352,21 @@ export async function generateLetterPool(
       await Promise.all(pool.map(async (l) => { wordSets.set(l, await fetchWordFile(l)); }));
       const wordCount = countValidWords(wordSets, pool);
 
-      // Scale target range down for small pools. With 2 letters, every valid
-      // word must contain BOTH letters (at least 2 of 2), which is far more
-      // restrictive than larger pools where words need 2 of 4+. Without this,
-      // rare combos like [K, V] would always fail validation.
-      // Only applies to pools of 3 or fewer letters — larger pools use the
-      // original calibrated targets.
+      // Scale target range down for small pools
       let scaledMin = config.targetMin;
-      let scaledMax = config.targetMax;
       if (letterCount <= 3) {
         const poolScale = Math.max(0.05, letterCount / 6);
         scaledMin = Math.round(config.targetMin * poolScale);
-        scaledMax = config.targetMax === Infinity ? Infinity : Math.round(config.targetMax * poolScale);
       }
 
-      // Accept if within scaled target range
-      if (wordCount >= scaledMin && wordCount <= scaledMax) {
+      // Accept if word count meets the minimum (ensures playability).
+      // We intentionally skip the upper bound — anchors (E, A, etc.) always
+      // produce large word counts, making targetMax unreachable in practice.
+      if (wordCount >= scaledMin) {
         return pool;
       }
 
       // If too few words, try again with more common letters
-      // If too many words, also retry for better difficulty
     } catch {
       // Word file loading failed — fall through to fallback
     }

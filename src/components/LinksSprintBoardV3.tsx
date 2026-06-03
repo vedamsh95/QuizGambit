@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
-import { Zap, Target, ArrowLeft, Wifi, WifiOff, Trophy } from "lucide-react";
+import { Zap, Target, ArrowLeft, Wifi, WifiOff, Trophy, Swords, Sparkles } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
@@ -79,15 +79,193 @@ function GameOverScreen({ players, scores, sprintWords, gameCode, handleLeave }:
   const sorted = [...players].sort((a: any, b: any) => (scores[b.id] || 0) - (scores[a.id] || 0));
   const waveNumbers = Array.from(new Set(sprintWords.map(w => w.wave))).sort((a, b) => a - b);
   const [waveTab, setWaveTab] = useState<number | "overall">("overall");
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
   const filteredWords = waveTab === "overall" ? sprintWords : sprintWords.filter(w => w.wave === waveTab);
+
+  // Compute per-player detailed stats
+  const playerStats = useMemo(() => {
+    return sorted.map(p => {
+      const pWords = sprintWords.filter(w => w.player_id === p.id);
+      const pts = pWords.reduce((s, w) => s + w.points, 0);
+      const targets = pWords.filter(w => w.is_target).length;
+      const powerWords = pWords.filter(w => w.pool_letters_used && w.pool_letters_used >= 3).length;
+      const avgLen = pWords.length > 0 ? (pWords.reduce((s, w) => s + w.word_length, 0) / pWords.length).toFixed(1) : "—";
+      // Letter usage: count how many times each letter appears across words
+      const letterFreq: Record<string, number> = {};
+      pWords.forEach(w => {
+        const seen = new Set<string>();
+        for (const ch of w.word.toLowerCase()) {
+          if (!seen.has(ch)) { letterFreq[ch] = (letterFreq[ch] || 0) + 1; seen.add(ch); }
+        }
+      });
+      const sortedLetters = Object.entries(letterFreq).sort(([,a], [,b]) => b - a);
+      const weakestLink = sortedLetters[0];
+      const strongestLink = sortedLetters[sortedLetters.length - 1];
+      const hasVariance = weakestLink && strongestLink && weakestLink[1] !== strongestLink[1];
+      return { player: p, pts, targets, powerWords, avgLen, words: pWords, letterFreq, sortedLetters, weakestLink, strongestLink: hasVariance ? strongestLink : null };
+    });
+  }, [sorted, sprintWords]);
+
+  // Roasts
+  const roasts = useMemo(() => {
+    if (sorted.length < 2) return [];
+    const r: { icon: React.ReactNode; text: string; color: string }[] = [];
+    const winner = playerStats[0];
+    const runnerUp = playerStats[1];
+    const gap = winner.pts - runnerUp.pts;
+    if (gap <= 50 && runnerUp.pts > 0) {
+      r.push({ icon: <Swords className="w-3.5 h-3.5" />, text: `Photo finish! ${winner.player.name} beat ${runnerUp.player.name} by just ${gap} pts 😤`, color: "butter" });
+    } else if (gap >= 1000) {
+      r.push({ icon: <Sparkles className="w-3.5 h-3.5" />, text: `${winner.player.name} absolutely dominated — ${gap.toLocaleString()} pts ahead 👑`, color: "purple" });
+    }
+    // Most targets
+    const topTarget = [...playerStats].sort((a, b) => b.targets - a.targets)[0];
+    if (topTarget && topTarget.targets >= 2) {
+      r.push({ icon: <Target className="w-3.5 h-3.5" />, text: `${topTarget.player.name} hit ${topTarget.targets} targets — sharpshooter! 🎯`, color: "mint" });
+    }
+    // Most power words
+    const topPower = [...playerStats].sort((a, b) => b.powerWords - a.powerWords)[0];
+    if (topPower && topPower.powerWords >= 2) {
+      r.push({ icon: <Sparkles className="w-3.5 h-3.5" />, text: `${topPower.player.name} scored ${topPower.powerWords} power words — letter mastery! ⚡`, color: "purple" });
+    }
+    // Most words but not winner
+    const wordsSorted = [...playerStats].sort((a, b) => b.words.length - a.words.length);
+    if (wordsSorted[0] && wordsSorted[0].player.id !== winner.player.id && wordsSorted[0].words.length > winner.words.length) {
+      r.push({ icon: <Zap className="w-3.5 h-3.5" />, text: `${wordsSorted[0].player.name} found the most words but ${winner.player.name} stole the crown 👀`, color: "sky" });
+    }
+    return r;
+  }, [playerStats, sorted]);
+
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col">
-      <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80"><button onClick={handleLeave} className="flex items-center gap-1.5 text-xs font-bold text-peach"><ArrowLeft className="w-3.5 h-3.5" /> Leave</button><span className="font-outfit font-black text-lg text-plum">⚡ LINKS SPRINT</span><span className="text-[10px] font-mono text-warm-gray/50">{gameCode}</span></div>
-      <div className="flex-1 flex flex-col items-center p-6 gap-6 overflow-y-auto">
-        <div className="text-center space-y-2"><Trophy className="w-16 h-16 mx-auto text-butter" /><h1 className="font-outfit font-black text-3xl text-plum">Game Over!</h1>{sorted[0] && <p className="text-lg font-bold" style={{ color: (getPlayerColorByName(sorted[0].id, players)).fill }}>🏆 {sorted[0].name} wins!</p>}</div>
-        <div className="w-full max-w-md"><div className="flex items-center gap-1 p-1 rounded-xl bg-warm-gray/5 border border-warm-gray/10">{["overall", ...waveNumbers].map(n => (<button key={n} onClick={() => setWaveTab(n as any)} className={`flex-1 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${waveTab === n ? "bg-white shadow-sm text-plum" : "text-warm-gray/50"}`}>{n === "overall" ? "Overall" : `Wave ${n}`}</button>))}</div></div>
-        <div className="w-full max-w-md space-y-2">{sorted.map((p: any, idx: number) => { const c = getPlayerColorByName(p.id, players); const pWords = filteredWords.filter((w: SprintWord) => w.player_id === p.id); const pts = pWords.reduce((s: number, w: SprintWord) => s + w.points, 0); return (<div key={p.id} className="p-4 rounded-xl border" style={{ backgroundColor: idx === 0 ? "#FEF3C7" : "#fff", borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.08)" }}><div className="flex items-center gap-3"><span className="text-2xl">{idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}</span><div className="flex-1"><p className="font-outfit font-bold text-sm text-plum">{p.name}</p><p className="text-[10px] text-warm-gray/50">{pWords.length} word{pWords.length !== 1 ? "s" : ""}</p></div><p className="font-mono font-bold text-lg" style={{ color: c.fill }}>{pts}</p></div></div>); })}</div>
-        <button onClick={handleLeave} className="px-8 py-3 rounded-2xl font-outfit font-black text-sm bg-soft-purple text-white shadow-lg">Return to Lobby</button>
+      {/* Header */}
+      <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80">
+        <button onClick={handleLeave} className="flex items-center gap-1.5 text-xs font-bold text-peach"><ArrowLeft className="w-3.5 h-3.5" /> Leave</button>
+        <span className="font-outfit font-black text-lg text-plum">⚡ LINKS SPRINT</span>
+        <span className="text-[10px] font-mono text-warm-gray/50">{gameCode}</span>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center p-6 gap-5 overflow-y-auto pb-24">
+        {/* Hero */}
+        <div className="text-center space-y-2">
+          <Trophy className="w-16 h-16 mx-auto text-butter" />
+          <h1 className="font-outfit font-black text-3xl text-plum">Game Over!</h1>
+          {sorted[0] && (
+            <p className="text-lg font-bold" style={{ color: (getPlayerColorByName(sorted[0].id, players)).fill }}>
+              🏆 {sorted[0].name} wins!
+            </p>
+          )}
+        </div>
+
+        {/* Wave filter tabs */}
+        {waveNumbers.length > 1 && (
+          <div className="w-full max-w-md">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-warm-gray/5 border border-warm-gray/10">
+              {["overall", ...waveNumbers].map(n => (
+                <button key={n} onClick={() => setWaveTab(n as any)}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${waveTab === n ? "bg-white shadow-sm text-plum" : "text-warm-gray/50"}`}
+                >
+                  {n === "overall" ? "Overall" : `Wave ${n}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Roasts */}
+        {roasts.length > 0 && (
+          <div className="w-full max-w-md space-y-1.5">
+            {roasts.map((r, i) => (
+              <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border animate-clay-pop ${
+                r.color === "butter" ? "bg-butter-light/30 border-butter/20 text-butter" :
+                r.color === "purple" ? "bg-soft-purple-light/30 border-soft-purple/20 text-soft-purple" :
+                r.color === "mint" ? "bg-mint-light/30 border-mint/20 text-mint" :
+                "bg-sky-light/30 border-sky/20 text-sky"
+              }`} style={{ animationDelay: `${i * 100}ms` }}>
+                {r.icon}<span>{r.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Leaderboard */}
+        <div className="w-full max-w-md space-y-2">
+          {playerStats.map((ps, idx) => {
+            const c = getPlayerColorByName(ps.player.id, players);
+            const pWords = waveTab === "overall" ? ps.words : ps.words.filter(w => w.wave === waveTab);
+            const pts = pWords.reduce((s, w) => s + w.points, 0);
+            const isExpanded = expandedPlayerId === ps.player.id;
+            return (
+              <div key={ps.player.id}>
+                <button
+                  onClick={() => setExpandedPlayerId(isExpanded ? null : ps.player.id)}
+                  className="w-full p-4 rounded-xl border text-left transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    backgroundColor: idx === 0 ? "#FEF3C7" : "#fff",
+                    borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.08)",
+                    boxShadow: idx === 0 ? "0 6px 20px rgba(251,191,36,0.25)" : "0 2px 8px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl shrink-0">
+                      {idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-outfit font-bold text-sm text-plum truncate">{ps.player.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px] text-warm-gray/50">
+                        <span>{ps.words.length} words</span>
+                        {ps.targets > 0 && <span className="text-mint">· {ps.targets} 🎯</span>}
+                        {ps.powerWords > 0 && <span className="text-soft-purple">· {ps.powerWords} ⚡</span>}
+                        <span>· avg {ps.avgLen}l</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-mono font-bold text-lg" style={{ color: c.fill }}>{pts.toLocaleString()}</p>
+                      <p className="text-[9px] font-bold text-warm-gray/40">pts</p>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="mt-1.5 ml-2 pl-10 pr-2 py-2 space-y-2 animate-slide-up-fade">
+                    {/* Letter analysis */}
+                    {ps.weakestLink && (
+                      <div className="flex items-center gap-2 text-[10px] font-bold">
+                        <span className="text-peach/70">🔗 Weakest: "{ps.weakestLink[0].toUpperCase()}" ({ps.weakestLink[1]} words)</span>
+                        {ps.strongestLink && (
+                          <span className="text-sky/70">💪 Strongest: "{ps.strongestLink[0].toUpperCase()}" ({ps.strongestLink[1]} words)</span>
+                        )}
+                      </div>
+                    )}
+                    {/* Word list */}
+                    {pWords.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {pWords.map(w => (
+                          <span key={w.id}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                              w.is_target ? 'bg-mint-light/50 border-mint/30 text-mint' :
+                              'bg-warm-white border-warm-gray/10 text-plum/70'
+                            }`}
+                          >
+                            {w.word}<span className="text-[9px] opacity-60 font-mono">+{w.points}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-warm-gray/40 italic">No words this wave</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Return button */}
+        <button onClick={handleLeave} className="px-8 py-3 rounded-2xl font-outfit font-black text-sm bg-soft-purple text-white shadow-lg hover:opacity-90 transition-all">
+          Return to Lobby
+        </button>
       </div>
     </div>
   );

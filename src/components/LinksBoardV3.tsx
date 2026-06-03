@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
-import { Heart, Zap, AlertTriangle, Wifi, WifiOff, ArrowLeft, Clock, Shield, Trophy } from "lucide-react";
+import { Heart, Zap, AlertTriangle, Wifi, WifiOff, ArrowLeft, Clock, Shield, Trophy, Swords, Sparkles } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
@@ -262,6 +262,59 @@ const GameOverScreen = memo(function GameOverScreen({
     const scoreB = claimedWords.filter(w => w.player_id === b.id).reduce((s, w) => s + (w.is_poisoned ? 0 : w.points), 0);
     return scoreB - scoreA;
   });
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
+
+  // Per-player detailed stats
+  const playerStats = useMemo(() => sorted.map(p => {
+    const pWords = claimedWords.filter(w => w.player_id === p.id);
+    const totalPoints = pWords.reduce((s, w) => s + (w.is_poisoned ? 0 : w.points), 0);
+    const poisoned = pWords.filter(w => w.is_poisoned).length;
+    const powerWords = pWords.filter(w => w.pool_letters_used && w.pool_letters_used >= 3 && !w.is_poisoned).length;
+    const avgLen = pWords.length > 0 ? (pWords.reduce((s, w) => s + w.word_length, 0) / pWords.length).toFixed(1) : "—";
+    const hearts = playerHearts[p.id] ?? 3;
+    // Letter usage
+    const letterFreq: Record<string, number> = {};
+    pWords.filter(w => !w.is_poisoned).forEach(w => {
+      const seen = new Set<string>();
+      for (const ch of w.word.toLowerCase()) {
+        if (!seen.has(ch)) { letterFreq[ch] = (letterFreq[ch] || 0) + 1; seen.add(ch); }
+      }
+    });
+    const sortedLetters = Object.entries(letterFreq).sort(([,a], [,b]) => b - a);
+    const weakestLink = sortedLetters[0];
+    const strongestLink = sortedLetters[sortedLetters.length - 1];
+    const hasVariance = weakestLink && strongestLink && weakestLink[1] !== strongestLink[1];
+    return { player: p, pts: totalPoints, poisoned, powerWords, avgLen, hearts, words: pWords, letterFreq, sortedLetters, weakestLink, strongestLink: hasVariance ? strongestLink : null };
+  }), [sorted, claimedWords, playerHearts]);
+
+  // Roasts
+  const roasts = useMemo(() => {
+    if (sorted.length < 2) return [];
+    const r: { icon: React.ReactNode; text: string; color: string }[] = [];
+    const winner = playerStats[0];
+    const runnerUp = playerStats[1];
+    const gap = winner.pts - runnerUp.pts;
+    if (gap <= 50 && runnerUp.pts > 0) {
+      r.push({ icon: <Swords className="w-3.5 h-3.5" />, text: `Photo finish! ${winner.player.name} beat ${runnerUp.player.name} by just ${gap} pts 😤`, color: "butter" });
+    } else if (gap >= 500) {
+      r.push({ icon: <Sparkles className="w-3.5 h-3.5" />, text: `${winner.player.name} crushed it — ${gap.toLocaleString()} pts ahead 👑`, color: "purple" });
+    }
+    // Most poisoned (victim)
+    const topPoisoned = [...playerStats].sort((a, b) => b.poisoned - a.poisoned)[0];
+    if (topPoisoned && topPoisoned.poisoned >= 2) {
+      r.push({ icon: <AlertTriangle className="w-3.5 h-3.5" />, text: `${topPoisoned.player.name} got poisoned ${topPoisoned.poisoned}× — unlucky! ☠️`, color: "peach" });
+    }
+    // Survivor
+    const survivor = [...playerStats].sort((a, b) => b.hearts - a.hearts)[0];
+    if (survivor && survivor.hearts >= 2) {
+      const othersAvgHearts = playerStats.filter(ps => ps.player.id !== survivor.player.id).reduce((s, ps) => s + ps.hearts, 0) / (playerStats.length - 1 || 1);
+      if (survivor.hearts > othersAvgHearts) {
+        r.push({ icon: <Shield className="w-3.5 h-3.5" />, text: `${survivor.player.name} survived with ${survivor.hearts} hearts — iron defense! 🛡️`, color: "sky" });
+      }
+    }
+    return r;
+  }, [playerStats, sorted]);
+
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col">
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80">
@@ -269,40 +322,98 @@ const GameOverScreen = memo(function GameOverScreen({
         <span className="font-outfit font-black text-lg text-plum">🔗 LINKS</span>
         <span className="text-[10px] font-mono text-warm-gray/50">{lobbyCode}</span>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center p-6 gap-8 overflow-y-auto">
+      <div className="flex-1 flex flex-col items-center p-6 gap-5 overflow-y-auto pb-24">
         <div className="text-center space-y-2">
           <Trophy className="w-16 h-16 mx-auto text-butter" />
           <h1 className="font-outfit font-black text-3xl text-plum">Game Over!</h1>
-          <p className="text-sm text-warm-gray/60">Letters: {letters.join(" + ")}{poisonEnabled && " · Poison Mode"}</p>
+          <p className="text-sm text-warm-gray/60">Letters: {letters.join(" + ")}{poisonEnabled && " · ☠️ Poison Mode"}</p>
         </div>
+
+        {/* Roasts */}
+        {roasts.length > 0 && (
+          <div className="w-full max-w-md space-y-1.5">
+            {roasts.map((r, i) => (
+              <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border animate-clay-pop ${
+                r.color === "butter" ? "bg-butter-light/30 border-butter/20 text-butter" :
+                r.color === "purple" ? "bg-soft-purple-light/30 border-soft-purple/20 text-soft-purple" :
+                r.color === "peach" ? "bg-peach-light/30 border-peach/20 text-peach" :
+                "bg-sky-light/30 border-sky/20 text-sky"
+              }`} style={{ animationDelay: `${i * 100}ms` }}>
+                {r.icon}<span>{r.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Leaderboard */}
         <div className="w-full max-w-md space-y-2">
-          {sorted.map((p: any, idx: number) => {
-            const c = getPlayerColorByName(p.id, players);
-            const pWords = claimedWords.filter((w) => w.player_id === p.id);
-            const totalPoints = pWords.reduce((sum, w) => sum + (w.is_poisoned ? 0 : w.points), 0);
-            const hearts = playerHearts[p.id] ?? 3;
+          {playerStats.map((ps, idx) => {
+            const c = getPlayerColorByName(ps.player.id, players);
+            const isExpanded = expandedPlayerId === ps.player.id;
             return (
-              <div key={p.id} className="flex items-center gap-3 p-4 rounded-xl border transition-all"
-                style={{ backgroundColor: idx === 0 ? "#FEF3C7" : "#fff", borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.08)", boxShadow: idx === 0 ? "0 6px 20px rgba(251,191,36,0.25)" : "0 2px 8px rgba(0,0,0,0.04)" }}>
-                <span className="text-2xl flex-shrink-0">{idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}</span>
-                <div className="flex-1 min-w-0"><p className="font-outfit font-bold text-sm text-plum truncate">{p.name}</p><p className="text-[10px] text-warm-gray/50">{pWords.length} word{pWords.length !== 1 ? "s" : ""}</p></div>
-                <div className="text-right flex-shrink-0"><p className="font-mono font-bold text-lg" style={{ color: c.fill }}>{totalPoints}</p>
-                  <div className="flex gap-0.5">{Array.from({ length: 3 }).map((_, i) => (<Heart key={i} className={`w-3 h-3 ${i < hearts ? "text-peach fill-peach" : "text-warm-gray/20"}`} />))}</div>
-                </div>
+              <div key={ps.player.id}>
+                <button
+                  onClick={() => setExpandedPlayerId(isExpanded ? null : ps.player.id)}
+                  className="w-full p-4 rounded-xl border text-left transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    backgroundColor: idx === 0 ? "#FEF3C7" : "#fff",
+                    borderColor: idx === 0 ? "#FCD34D" : "rgba(0,0,0,0.08)",
+                    boxShadow: idx === 0 ? "0 6px 20px rgba(251,191,36,0.25)" : "0 2px 8px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl shrink-0">
+                      {idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-outfit font-bold text-sm text-plum truncate">{ps.player.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px] text-warm-gray/50">
+                        <span>{ps.words.length} words</span>
+                        {ps.poisoned > 0 && <span className="text-peach">· ☠️ {ps.poisoned}</span>}
+                        {ps.powerWords > 0 && <span className="text-soft-purple">· {ps.powerWords} ⚡</span>}
+                        <span>· avg {ps.avgLen}l</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-mono font-bold text-lg" style={{ color: c.fill }}>{ps.pts.toLocaleString()}</p>
+                      <div className="flex gap-0.5 justify-end mt-0.5">
+                        {Array.from({ length: 3 }).map((_, i) => (
+                          <Heart key={i} className={`w-3 h-3 ${i < ps.hearts ? "text-peach fill-peach" : "text-warm-gray/20"}`} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="mt-1.5 ml-2 pl-10 pr-2 py-2 space-y-2 animate-slide-up-fade">
+                    {ps.weakestLink && (
+                      <div className="flex items-center gap-2 text-[10px] font-bold">
+                        <span className="text-peach/70">🔗 Weakest: "{ps.weakestLink[0].toUpperCase()}" ({ps.weakestLink[1]} words)</span>
+                        {ps.strongestLink && (
+                          <span className="text-sky/70">💪 Strongest: "{ps.strongestLink[0].toUpperCase()}" ({ps.strongestLink[1]} words)</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {ps.words.map(w => (
+                        <span key={w.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${w.is_poisoned ? 'bg-peach-light/50 border-peach/30 text-peach line-through' : 'bg-warm-white border-warm-gray/10 text-plum/70'}`}>
+                          {w.word}<span className="text-[9px] opacity-60 font-mono">{w.is_poisoned ? "☠️" : `+${w.points}`}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-        <div className="w-full max-w-md">
-          <h3 className="text-xs font-black text-warm-gray/60 uppercase tracking-widest mb-3">All Words</h3>
-          <div className="flex flex-wrap gap-2">
-            {claimedWords.map((w) => {
-              const c = getPlayerColorByName(w.player_id, players);
-              return (<span key={w.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border" style={{ backgroundColor: c.fillLight, borderColor: c.pillBorder, color: c.fill }}>{w.word}<span className="opacity-60 text-[10px]">{w.is_poisoned ? "☠️" : `+${w.points}`}</span></span>);
-            })}
-          </div>
-        </div>
-        <button onClick={onLeave} className="px-8 py-3 rounded-2xl font-outfit font-black text-sm bg-soft-purple text-white shadow-lg hover:opacity-90">Return to Lobby</button>
+
+        {/* Return button */}
+        <button onClick={onLeave} className="px-8 py-3 rounded-2xl font-outfit font-black text-sm bg-soft-purple text-white shadow-lg hover:opacity-90 transition-all">
+          Return to Lobby
+        </button>
       </div>
     </div>
   );

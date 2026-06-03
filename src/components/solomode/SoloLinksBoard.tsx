@@ -3,14 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { store } from "../../lib/storage";
 import {
-  ArrowLeft, Zap, Flame, Clock, Shuffle, Sparkles, Play, Pause,
-  RefreshCw, Send,
+  ArrowLeft, Zap, Flame, Clock, Sparkles, Play, Pause, Send,
 } from "lucide-react";
 import ClayButton from "../ui/ClayButton";
 import ClayCard from "../ui/ClayCard";
 import ClayBadge from "../ui/ClayBadge";
 import SoloEndScreen from "./SoloEndScreen";
-import { fetchWordFile, countPoolLettersInWord, generateLetterPool } from "../../lib/linksHelpers";
+import LetterPool from "../ui/LetterPool";
+import { fetchWordFile, countPoolLettersInWord, generateLetterPool, getPoolMultiplier, calcPointsWithPoolMultiplier } from "../../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -26,6 +26,10 @@ interface FoundWord {
   word: string;
   points: number;
   bonus: "power" | "freeze" | "target" | null;
+  basePoints: number;
+  poolMultiplier: number;
+  poolLettersUsed: number;
+  comboMultiplier: number;
 }
 
 interface WaveStats {
@@ -36,24 +40,12 @@ interface WaveStats {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-// TOTAL_WAVES is now dynamic from settings
-
 function calculatePoints(wordLength: number): number {
+  // Classic Links scoring: 10× up to 4, 15× up to 6, 20× 7+
   if (wordLength <= 4) return 10 * wordLength;
   if (wordLength <= 6) return 15 * wordLength;
-  if (wordLength <= 8) return 20 * wordLength;
-  return 30 * wordLength;
+  return 20 * wordLength;
 }
-
-// ── Letter Tile Colors (clay accent palette) ────────────────────────────────
-
-const LETTER_COLORS = [
-  { accent: "purple", bg: "bg-soft-purple-light", border: "border-soft-purple/30", text: "text-soft-purple", shadow: "shadow-soft-purple/20" },
-  { accent: "sky", bg: "bg-sky-light", border: "border-sky/30", text: "text-sky", shadow: "shadow-sky/20" },
-  { accent: "mint", bg: "bg-mint-light", border: "border-mint/30", text: "text-mint", shadow: "shadow-mint/20" },
-  { accent: "peach", bg: "bg-peach-light", border: "border-peach/30", text: "text-peach", shadow: "shadow-peach/20" },
-  { accent: "butter", bg: "bg-butter-light", border: "border-butter/30", text: "text-butter", shadow: "shadow-butter/20" },
-];
 
 // ── Shared helper: build valid word set (union + ≥2 pool letters) ───────────
 
@@ -112,18 +104,28 @@ export default function SoloLinksBoard() {
   const [usedWords, setUsedWords] = useState<Set<string>>(new Set());
   const [showFreeze, setShowFreeze] = useState(false);
   const [freezeTimer, setFreezeTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [expandedWord, setExpandedWord] = useState<string | null>(null);
 
   // ── Segment (letter shift) state ────────────────────────────────────
   const [segmentTimer, setSegmentTimer] = useState(0);
   const [currentSegment, setCurrentSegment] = useState(1);
   const shiftFiredRef = useRef(false);
   const handleShiftLettersRef = useRef<() => void>(() => {});
+  const isLetterAnimatingRef = useRef(false);
   const letterShifts = settings?.letterShifts || 1;
   const hasSegments = letterShifts > 1;
   const segmentsPerWave = letterShifts;
   // Segment duration based on ACTUAL wave time (shorter waves = shorter segments)
   const actualWaveTime = settings ? Math.floor(settings.waveTimer * (1 - (currentWave - 1) * 0.25)) : 60;
   const segmentDuration = hasSegments ? Math.floor(actualWaveTime / segmentsPerWave) : 0;
+
+  // ── Letter animation key: triggers slot-machine reel on segment/wave changes
+  const letterAnimateKey = currentWave * 100 + currentSegment;
+
+  // ── Callback for LetterPool to pause timers during animation
+  const handleLetterAnimationState = useCallback((animating: boolean) => {
+    isLetterAnimatingRef.current = animating;
+  }, []);
 
   // ── Refs ─────────────────────────────────────────────────────────────
   const inputRef = useRef<HTMLInputElement>(null);
@@ -138,15 +140,14 @@ export default function SoloLinksBoard() {
       return;
     }
     setSettings(s);
-    generateLetters(s);
+    generateLetters(s, 1);
   }, []);
 
-  const generateLetters = async (s: GameSettings, waveNum?: number) => {
+  const generateLetters = async (s: GameSettings, waveNum: number) => {
     setLetterLoadStatus("Loading word lists...");
 
     try {
-      // Use hybrid anchor+spice generation from linksHelpers
-      const selected = await generateLetterPool(s.letterCount, waveNum || currentWave, s.totalWaves);
+      const selected = await generateLetterPool(s.letterCount, waveNum, s.totalWaves);
 
       const validSet = await buildValidWordSet(selected);
       setValidWordsSet(validSet);
@@ -181,7 +182,6 @@ export default function SoloLinksBoard() {
       if (!/^[a-z]{3,15}$/.test(lower)) {
         return { type: "invalid" as const, message: t("links.lettersOnly") };
       }
-      // Require at least 2 pool letters (matching Classic/Sprint)
       const poolCount = countPoolLettersInWord(lower, letters);
       if (poolCount < 2) {
         return { type: "missing" as const, message: t("links.missingLetter", { letter: letters.find((l) => !lower.includes(l.toLowerCase())) || "" }) };
@@ -216,15 +216,18 @@ export default function SoloLinksBoard() {
     if (!word) return;
 
     const wordLength = word.length;
-    let points = calculatePoints(wordLength);
+    // Pool multiplier scoring (matching classic/sprint)
+    const poolUsed = countPoolLettersInWord(word, letters);
+    const { base: basePoints, multiplier: poolMult, total: poolPoints } = calcPointsWithPoolMultiplier(wordLength, poolUsed);
+    let points = poolPoints;
     let bonus: FoundWord["bonus"] = null;
 
     // Combo multiplier
     const newCombo = combo + 1;
     setCombo(newCombo);
     if (newCombo > bestCombo) setBestCombo(newCombo);
-    const multiplier = newCombo >= 10 ? 4 : newCombo >= 7 ? 3 : newCombo >= 4 ? 2 : 1;
-    points *= multiplier;
+    const comboMult = newCombo >= 10 ? 4 : newCombo >= 7 ? 3 : newCombo >= 4 ? 2 : 1;
+    points *= comboMult;
 
     // Power word: using ALL letters
     const usesAllLetters = letters.every((l) => word.includes(l.toLowerCase()));
@@ -251,7 +254,10 @@ export default function SoloLinksBoard() {
       setTargetFound(true);
     }
 
-    const newWord: FoundWord = { word: word.toUpperCase(), points, bonus };
+    const newWord: FoundWord = {
+      word: word.toUpperCase(), points, bonus,
+      basePoints, poolMultiplier: poolMult, poolLettersUsed: poolUsed, comboMultiplier: comboMult,
+    };
     setCurrentWaveWords((prev) => [...prev, newWord]);
     setUsedWords((prev) => new Set(prev).add(word));
     setTypedWord("");
@@ -279,9 +285,10 @@ export default function SoloLinksBoard() {
 
     timerRef.current = setInterval(() => {
       setWaveTimer((prev) => {
+        if (isLetterAnimatingRef.current) return prev; // pause during animation
         if (prev <= 1) {
           setIsTimerRunning(false);
-          finishWaveRef.current(); // Always use latest finishWave via ref
+          finishWaveRef.current();
           return 0;
         }
         return prev - 1;
@@ -301,14 +308,13 @@ export default function SoloLinksBoard() {
       return;
     }
 
-    // Initialize segment timer when wave starts or segment changes
     setSegmentTimer(segmentDuration);
     shiftFiredRef.current = false;
 
     const interval = setInterval(() => {
       setSegmentTimer((prev) => {
+        if (isLetterAnimatingRef.current) return prev; // pause during animation
         if (prev <= 1) {
-          // Time to shift — only host-like logic (solo = always host)
           if (!shiftFiredRef.current) {
             shiftFiredRef.current = true;
             handleShiftLettersRef.current();
@@ -322,15 +328,15 @@ export default function SoloLinksBoard() {
     return () => clearInterval(interval);
   }, [isTimerRunning, isPaused, gameOver, hasSegments, currentSegment, segmentDuration]);
 
-  // ── Start wave ───────────────────────────────────────────────────────
   // ── Handle letter shift (segment change) ───────────────────────────
   const handleShiftLetters = useCallback(async () => {
     if (!settings) return;
     const nextSegment = currentSegment + 1;
     if (nextSegment > segmentsPerWave) return;
 
-    setCurrentSegment(nextSegment);
+    // Generate new letters first, then update segment so UI stays in sync
     const newLetters = await generateLetterPool(settings.letterCount, currentWave, settings.totalWaves);
+    setCurrentSegment(nextSegment);
     setLetters(newLetters);
     const validSet = await buildValidWordSet(newLetters);
     setValidWordsSet(validSet);
@@ -347,6 +353,7 @@ export default function SoloLinksBoard() {
     if (!settings) return;
     const wave = waveNum ?? currentWave;
     const waveTime = Math.floor(settings.waveTimer * (1 - (wave - 1) * 0.25));
+    setCurrentWave(wave);
     setWaveTimer(waveTime);
     setIsTimerRunning(true);
     setIsPaused(false);
@@ -361,30 +368,38 @@ export default function SoloLinksBoard() {
 
   // ── Finish wave (ref to avoid stale closure in timer interval) ──────
   const finishWave = useCallback(() => {
+    // Snapshot all closure values to avoid stale references
+    const waveWords = [...currentWaveWords];
+    const waveNum = currentWave;
+    const s = settings;
+
     setAllWaveStats((prev) => [
       ...prev,
       {
-        words: [...currentWaveWords],
-        longestWord: currentWaveWords.reduce(
+        words: waveWords,
+        longestWord: waveWords.reduce(
           (longest, w) => (w.word.length > longest.length ? w.word : longest), ""
         ),
-        totalPoints: currentWaveWords.reduce((sum, w) => sum + w.points, 0),
+        totalPoints: waveWords.reduce((sum, w) => sum + w.points, 0),
       },
     ]);
 
-    if (currentWave >= (settings?.totalWaves || 3)) {
+    if (waveNum >= (s?.totalWaves || 3)) {
       setGameOver(true);
     } else {
+      const nextWave = waveNum + 1;
+      // Update wave number immediately so between-waves screen shows correct wave
+      setCurrentWave(nextWave);
       setIsBetweenWaves(true);
-      // Generate new letters using hybrid system + auto-advance
-      const nextWave = currentWave + 1;
+
+      // Generate new letters for the next wave
       (async () => {
-        const newLetters = await generateLetterPool(settings?.letterCount || 3, nextWave, settings?.totalWaves);
+        const newLetters = await generateLetterPool(s?.letterCount || 3, nextWave, s?.totalWaves);
         setLetters(newLetters);
         const validSet = await buildValidWordSet(newLetters);
         setValidWordsSet(validSet);
 
-        if (settings?.targetMode) {
+        if (s?.targetMode) {
           const longWords = Array.from(validSet).filter((w) => w.length >= 7);
           if (longWords.length > 0) {
             setTargetWord(longWords[Math.floor(Math.random() * longWords.length)].toUpperCase());
@@ -392,61 +407,17 @@ export default function SoloLinksBoard() {
           setTargetFound(false);
         }
 
-        setUsedWords(new Set());
-        setCurrentWave(nextWave);
-        // Auto-start next wave with a brief pause for results visibility
+        // NOTE: usedWords is NOT reset between waves — words are globally unique across all waves
+        // Auto-start next wave after brief pause for results visibility
         setTimeout(() => {
           startWave(nextWave);
         }, 2000);
       })();
-      setIsBetweenWaves(true);
     }
   }, [currentWave, currentWaveWords, letters, settings]);
 
   // Always keep ref in sync with latest finishWave for timer interval
   finishWaveRef.current = finishWave;
-
-  // ── Swap single letter ──────────────────────────────────────────────
-  const swapLetter = useCallback(
-    (idx: number) => {
-      if (!isTimerRunning || isPaused) return;
-      setWaveTimer((prev) => Math.max(0, prev - 3));
-      setCombo(0);
-
-      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      const available = alphabet.filter((l) => !letters.includes(l));
-      const newLetter = available[Math.floor(Math.random() * available.length)];
-
-      setLetters((prev) => {
-        const next = [...prev];
-        next[idx] = newLetter;
-        return next;
-      });
-
-      // Rebuild valid set using shared helper with updated pool
-      const updatedLetters = [...letters];
-      updatedLetters[idx] = newLetter;
-      buildValidWordSet(updatedLetters).then((valid) => setValidWordsSet(valid)).catch(() => {});
-
-      setUsedWords(new Set());
-      inputRef.current?.focus();
-    },
-    [isTimerRunning, isPaused, letters]
-  );
-
-  // ── Shuffle all letters ──────────────────────────────────────────────
-  const shuffleAllLetters = useCallback(async () => {
-    if (!isTimerRunning || isPaused) return;
-    setWaveTimer((prev) => Math.max(0, prev - 5));
-    setCombo(0);
-
-    const newLetters = await generateLetterPool(settings?.letterCount || 3, currentWave, settings?.totalWaves);
-    setLetters(newLetters);
-
-    buildValidWordSet(newLetters).then((valid) => setValidWordsSet(valid)).catch(() => {});
-    setUsedWords(new Set());
-    inputRef.current?.focus();
-  }, [isTimerRunning, isPaused, settings, currentWave]);
 
   // ── Derived data ─────────────────────────────────────────────────────
   const totalScore = useMemo(
@@ -495,11 +466,17 @@ export default function SoloLinksBoard() {
         bestCombo={bestCombo}
         totalTime={settings.waveTimer * (settings.totalWaves || 3)}
         targetFound={targetFound}
+        allWaveStats={allWaveStats}
+        letterCount={settings.letterCount}
+        totalWaves={settings.totalWaves || 3}
         onPlayAgain={() => {
-          store.clearLocalGameSettings();
+          try { store.clearLocalGameSettings(); } catch {}
           navigate("/solo/links");
         }}
-        onHome={() => navigate("/")}
+        onHome={() => {
+          try { store.clearLocalGameSettings(); } catch {}
+          navigate("/");
+        }}
       />
     );
   }
@@ -512,7 +489,7 @@ export default function SoloLinksBoard() {
         <div className="text-center space-y-2 animate-clay-pop">
           <div className="text-5xl">🌊</div>
           <h2 className="font-outfit font-black text-2xl text-plum">
-            {t("solo.waveClear", { n: currentWave })}
+            {t("solo.waveClear", { n: currentWave - 1 })}
           </h2>
           <p className="text-sm text-plum/60">
             {lastWaveStats?.words.length || 0} {t("links.wordsClaimed")} · <span className="font-mono font-bold text-soft-purple">{lastWaveStats?.totalPoints || 0}</span> {t("links.pts")}
@@ -545,7 +522,7 @@ export default function SoloLinksBoard() {
         <ClayButton
           variant="secondary"
           size="sm"
-          onClick={() => { store.clearLocalGameSettings(); navigate("/solo/links"); }}
+          onClick={() => { try { store.clearLocalGameSettings(); } catch {} navigate("/solo/links"); }}
         >
           {t("common.back")}
         </ClayButton>
@@ -563,7 +540,7 @@ export default function SoloLinksBoard() {
       <div className="shrink-0 px-3 sm:px-5 py-2.5 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80 backdrop-blur-sm">
         <button
           onClick={() => {
-            store.clearLocalGameSettings();
+            try { store.clearLocalGameSettings(); } catch {}
             navigate("/solo/links");
           }}
           className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
@@ -585,7 +562,7 @@ export default function SoloLinksBoard() {
                 Seg {currentSegment}/{segmentsPerWave}
               </span>
               {segmentTimer > 0 && (
-                <span className="text-[10px] font-mono font-bold text-plum/50">
+                <span className="text-[10px] font-mono font-bold text-soft-purple/70">
                   · {segmentTimer}s
                 </span>
               )}
@@ -673,67 +650,27 @@ export default function SoloLinksBoard() {
           </div>
         )}
 
-        {/* ── Letters display ───────────────────────────────────── */}
+        {/* ── Letters display (LetterPool with slot-machine animation) ── */}
         <ClayCard elevation="flat" padding="md" className="w-full max-w-md space-y-3">
-          {/* Letter tiles */}
-          <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
-            {letters.map((letter, idx) => {
-              const isUsed = typedWord.toLowerCase().includes(letter.toLowerCase());
-              const lc = LETTER_COLORS[idx % LETTER_COLORS.length];
-              return (
-                <div key={idx} className="flex flex-col items-center gap-1.5">
-                  {/* Letter tile */}
-                  <button
-                    onClick={() => swapLetter(idx)}
-                    disabled={!isTimerRunning || isPaused}
-                    className={`w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex items-center justify-center
-                      font-outfit font-black text-2xl sm:text-3xl transition-all duration-200
-                      ${isUsed
-                        ? `bg-soft-purple text-white shadow-lg shadow-soft-purple/30 scale-105`
-                        : `bg-cream border-2 border-warm-gray/15 text-plum/40 hover:border-warm-gray/30`
-                      }
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                    `}
-                    title={`Swap ${letter} (-3s)`}
-                  >
-                    {letter}
-                  </button>
-                  {/* Swap button */}
-                  <button
-                    onClick={() => swapLetter(idx)}
-                    disabled={!isTimerRunning || isPaused}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold
-                      text-warm-gray/50 hover:text-peach hover:bg-peach-light/50
-                      transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("solo.swapLetterCost", { cost: 3 })}
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    {t("solo.swapLetter")}
-                    <span className="text-[9px] text-peach/70">-3s</span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <LetterPool
+            letters={letters}
+            inputText={typedWord}
+            animateKey={letterAnimateKey}
+            onAnimationChange={handleLetterAnimationState}
+            title=""
+            subtitle="These letters must be included in your word"
+          />
 
-          {/* Shuffle all + wave info bar */}
+          {/* Segment shift warning */}
+          {hasSegments && isTimerRunning && segmentTimer <= 5 && segmentTimer > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-soft-purple-light/60 border border-soft-purple/20 animate-pulse">
+              <Zap className="w-3.5 h-3.5 text-soft-purple" />
+              <span className="text-[11px] font-bold text-soft-purple">Letters changing in {segmentTimer}s — type fast!</span>
+            </div>
+          )}
+
+          {/* Bottom bar: combo (mobile) + End round */}
           <div className="flex items-center justify-center gap-3 pt-1 border-t border-warm-gray/10">
-            {/* Shuffle button */}
-            <button
-              onClick={shuffleAllLetters}
-              disabled={!isTimerRunning || isPaused}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold
-                bg-soft-purple-light text-soft-purple border border-soft-purple/30
-                hover:bg-soft-purple hover:text-white transition-all duration-200
-                disabled:opacity-30 disabled:cursor-not-allowed
-                shadow-sm hover:shadow-md"
-              title={t("solo.shuffleAllCost", { cost: 5 })}
-            >
-              <Shuffle className="w-4 h-4" />
-              {t("solo.shuffleAll")}
-              <span className="text-[10px] opacity-70">-5s</span>
-            </button>
-
             {/* Combo (mobile) */}
             {combo >= 3 && (
               <span className="sm:hidden flex items-center gap-1 px-2.5 py-1 rounded-full bg-butter-light text-butter border border-butter/20">
@@ -759,7 +696,7 @@ export default function SoloLinksBoard() {
 
         {/* ── Word input ────────────────────────────────────────── */}
         <div className="w-full max-w-md space-y-2">
-          <div className="relative">
+          <div className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
@@ -767,7 +704,7 @@ export default function SoloLinksBoard() {
               onChange={handleWordChange}
               onKeyDown={handleKeyDown}
               placeholder={t("solo.typeWord")}
-              className={`w-full px-5 py-4 rounded-2xl border-2 bg-warm-white font-outfit font-bold text-lg sm:text-xl
+              className={`flex-1 px-5 py-4 rounded-2xl border-2 bg-warm-white font-outfit font-bold text-lg sm:text-xl
                 text-plum placeholder:text-warm-gray/40 outline-none transition-all
                 ${wordFeedback.type === "valid"
                   ? "border-mint ring-2 ring-mint/20"
@@ -782,28 +719,44 @@ export default function SoloLinksBoard() {
               disabled={!isTimerRunning || isPaused}
             />
 
-            {/* Submit button */}
-            {wordFeedback.type === "valid" && isTimerRunning && !isPaused && (
-              <button
-                onClick={handleSubmitWord}
-                className="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2.5 rounded-xl
-                  bg-mint text-white font-outfit font-black text-sm
-                  hover:bg-mint/90 active:scale-95 transition-all
-                  shadow-lg shadow-mint/20 flex items-center gap-1.5"
-              >
-                <Send className="w-3.5 h-3.5" />
-                +{calculatePoints(typedWord.length)}
-              </button>
-            )}
+            {/* Enter button for mobile */}
+            <button
+              onClick={handleSubmitWord}
+              disabled={wordFeedback.type !== "valid" || !isTimerRunning || isPaused}
+              className={`shrink-0 px-5 rounded-2xl font-outfit font-black text-sm uppercase tracking-wider transition-all ${
+                wordFeedback.type === "valid" && isTimerRunning && !isPaused
+                  ? "bg-soft-purple text-white shadow-lg shadow-soft-purple/30 hover:bg-soft-purple/90 active:scale-95"
+                  : "bg-warm-gray/15 text-warm-gray/40 cursor-not-allowed"
+              }`}
+            >
+              <Send className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Feedback */}
-          <div className="h-5 flex items-center justify-center">
-            {wordFeedback.type === "valid" && (
-              <p className="text-xs font-bold text-mint animate-clay-pop">
-                Press Enter · +{calculatePoints(typedWord.length)} pts
-              </p>
-            )}
+          {/* Feedback with breakdown */}
+          <div className="flex flex-col items-center justify-center gap-1">
+            {wordFeedback.type === "valid" && (() => {
+              const poolUsed = countPoolLettersInWord(typedWord, letters);
+              const poolMult = getPoolMultiplier(poolUsed);
+              const basePt = calculatePoints(typedWord.length);
+              const newCombo = combo + 1;
+              const comboMult = newCombo >= 10 ? 4 : newCombo >= 7 ? 3 : newCombo >= 4 ? 2 : 1;
+              const total = Math.round(basePt * poolMult * comboMult);
+              return (
+                <>
+                  <p className="text-xs font-bold text-mint animate-clay-pop">
+                    Press Enter · +{total} pts
+                  </p>
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-warm-gray/50">
+                    <span>{basePt}</span>
+                    <span className="text-soft-purple">×{poolMult}</span>
+                    <span className="text-[8px]">({poolUsed} letters)</span>
+                    {comboMult > 1 && <><span className="text-butter">×{comboMult}</span><span className="text-[8px]">combo</span></>}
+                    <span>= {total}</span>
+                  </div>
+                </>
+              );
+            })()}
             {wordFeedback.type === "missing" && (
               <p className="text-xs font-bold text-peach/80">{wordFeedback.message}</p>
             )}
@@ -817,7 +770,7 @@ export default function SoloLinksBoard() {
         </div>
 
         {/* ── Start button (if timer not running) ───────────────── */}
-        {!isTimerRunning && (
+        {!isTimerRunning && !isBetweenWaves && (
           <ClayButton
             variant="primary"
             size="lg"
@@ -847,27 +800,37 @@ export default function SoloLinksBoard() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5 max-h-[18vh] overflow-y-auto smooth-scroll">
-              {currentWaveWords.map((w, i) => (
-                <span
-                  key={i}
-                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border animate-clay-pop ${
-                    w.bonus === "power"
-                      ? "bg-butter-light text-butter border-butter/30 shadow-sm"
-                      : w.bonus === "freeze"
-                        ? "bg-sky-light text-sky border-sky/30 shadow-sm"
-                        : w.bonus === "target"
-                          ? "bg-mint-light text-mint border-mint/30 shadow-sm"
-                          : "clay px-3 py-1.5 rounded-full"
-                  }`}
-                  style={{ animationDelay: `${i * 30}ms` }}
-                >
-                  {w.word}
-                  <span className="text-[9px] opacity-60 font-mono">+{w.points}</span>
-                  {w.bonus === "power" && <Sparkles className="w-3 h-3" />}
-                  {w.bonus === "freeze" && <Clock className="w-3 h-3" />}
-                  {w.bonus === "target" && <span>🎯</span>}
-                </span>
-              ))}
+              {currentWaveWords.map((w, i) => {
+                const isExpanded = expandedWord === w.word;
+                const pillBaseCls = w.bonus === "power"
+                  ? "bg-butter-light text-butter border-butter/30 shadow-sm"
+                  : w.bonus === "freeze"
+                    ? "bg-sky-light text-sky border-sky/30 shadow-sm"
+                    : w.bonus === "target"
+                      ? "bg-mint-light text-mint border-mint/30 shadow-sm"
+                      : "clay";
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setExpandedWord(isExpanded ? null : w.word)}
+                    className={`inline-flex flex-col items-start gap-0.5 px-3 py-1.5 rounded-full text-xs font-bold border animate-clay-pop hover:scale-105 active:scale-95 transition-all ${isExpanded ? 'ring-2 ring-soft-purple/30 shadow-md' : ''} ${pillBaseCls}`}
+                    style={{ animationDelay: `${i * 30}ms` }}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {w.word}
+                      <span className="text-[9px] opacity-60 font-mono">+{w.points}</span>
+                      {w.bonus === "power" && <Sparkles className="w-3 h-3" />}
+                      {w.bonus === "freeze" && <Clock className="w-3 h-3" />}
+                      {w.bonus === "target" && <span>🎯</span>}
+                    </span>
+                    {isExpanded && (
+                      <span className="text-[9px] font-medium opacity-70 whitespace-nowrap text-warm-gray/50">
+                        {w.basePoints} base · {w.poolLettersUsed} letters (×{w.poolMultiplier}) · ×{w.comboMultiplier} combo{w.bonus === "power" ? " · ×2 power" : ""}{w.bonus === "target" ? " · +500" : ""} = {w.points}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
