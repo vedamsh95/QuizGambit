@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
-import { Zap, Target, Shuffle, RotateCw, ArrowLeft, Wifi, WifiOff, Trophy, ChevronRight } from "lucide-react";
+import { Zap, Target, ArrowLeft, Wifi, WifiOff, Trophy } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
@@ -126,7 +126,6 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const submitGuardRef = useRef(false);
   const waveStartFiredRef = useRef(false);
   const waveEndFiredRef = useRef(false);
-  const shuffleGuardRef = useRef(false);
   const playersLenRef = useRef(players.length);
   const isHost = lobby?.host_id === effectivePlayerId;
   const isHostRef = useRef(isHost);
@@ -135,21 +134,16 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const [expandedOpponent, setExpandedOpponent] = useState<string | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'leaderboard' | 'feed'>('leaderboard');
   const [leaderboardWaveFilter, setLeaderboardWaveFilter] = useState<number | 'all'>('all');
-  const prevLettersRef = useRef<string[]>([]);
 
   // ── Segment (Letter Shift) state ────────────────────────────────────
   const [segmentTimer, setSegmentTimer] = useState(0);
-  const [shiftFlash, setShiftFlash] = useState(false);
-  const [shiftOldLetters, setShiftOldLetters] = useState<string[]>([]);
-  const [shiftNewLetters, setShiftNewLetters] = useState<string[]>([]);
-  const [shiftAnimPhase, setShiftAnimPhase] = useState<'idle' | 'exit' | 'enter' | 'done'>('idle');
   const shiftFiredRef = useRef(false);
+  const isLetterAnimatingRef = useRef(false);
 
-  // ── Shuffle state ────────────────────────────────────────────────────
-  const [shuffleAllCount, setShuffleAllCount] = useState(0);
-  const [shuffleSingleCount, setShuffleSingleCount] = useState(0);
-  const [shufflePenaltyFlash, setShufflePenaltyFlash] = useState<{ message: string; type: "warning" | "danger" } | null>(null);
-  const shufflePenaltyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Callback for LetterPool to pause timers during animation
+  const handleLetterAnimationState = useCallback((animating: boolean) => {
+    isLetterAnimatingRef.current = animating;
+  }, []);
 
   // ── Derived ──────────────────────────────────────────────────────────
   const phase = gameState.phase;
@@ -158,18 +152,12 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const segmentDuration: number = gameState.segmentDuration || gameState.waveDuration || 60;
   const hasSegments = segmentsPerWave > 1;
   const letters: string[] = (gameState.playerLetters?.[effectivePlayerId] || gameState.letters) || [];
-  // Track previous letters in render body (not useEffect) so shift detection reads truly old letters
-  const prevLettersSnapshot = prevLettersRef.current;
-  prevLettersRef.current = [...letters];
+  // ── Letter animation key: increments on segment/wave changes to trigger slot-machine flip
+  const letterAnimateKey = (gameState.currentWave || 0) * 100 + (gameState.currentSegment || 0);
+
   const usedWords: string[] = gameState.usedWords || [];
   const playerTimers: Record<string, number> = gameState.playerTimers || {};
   const myTimer = playerTimers[effectivePlayerId] ?? waveTimer;
-  const shuffleCounts: Record<string, { all?: number; single?: number }> = gameState.shuffleCounts || {};
-  const shuffleDeductions: Record<string, number> = gameState.shuffleDeductions || {};
-  const myShuffles = shuffleCounts[effectivePlayerId] || {};
-
-  useEffect(() => { if (myShuffles.all !== undefined) setShuffleAllCount(myShuffles.all); if (myShuffles.single !== undefined) setShuffleSingleCount(myShuffles.single); }, [myShuffles.all, myShuffles.single]);
-
   const myWords = useMemo(() => sprintWords.filter(w => w.player_id === effectivePlayerId), [sprintWords, effectivePlayerId]);
   const opponentWords = useMemo(() => sprintWords.filter(w => w.player_id !== effectivePlayerId), [sprintWords, effectivePlayerId]);
   const scores = useMemo(() => { const s: Record<string, number> = {}; players.forEach((p: any) => { s[p.id] = sprintWords.filter(w => w.player_id === p.id).reduce((sum, w) => sum + w.points, 0); }); return s; }, [players, sprintWords]);
@@ -190,7 +178,7 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   });
 
   // ── Connection banner ────────────────────────────────────────────────
-  useEffect(() => { if (!isConnected) { disconnectTimerRef.current = setTimeout(() => setShowDisconnected(true), 5000); } else { if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current); disconnectTimerRef.current = null; setShowDisconnected(false); } return () => { if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current); if (shufflePenaltyTimerRef.current) clearTimeout(shufflePenaltyTimerRef.current); }; }, [isConnected]);
+  useEffect(() => { if (!isConnected) { disconnectTimerRef.current = setTimeout(() => setShowDisconnected(true), 5000); } else { if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current); disconnectTimerRef.current = null; setShowDisconnected(false); }    return () => { if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current); }; }, [isConnected]);
 
   // ── Initial fetch ────────────────────────────────────────────────────
   const initRef = useRef(false);
@@ -203,26 +191,6 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   useEffect(() => { setTypedWord(""); setWordFeedback({ type: "typing" }); }, [gameState.currentWave]);
 
-  // ── Shift flash animation (only on actual segment changes, not reconnect) ──
-  const prevSegmentRef = useRef(1);
-  useEffect(() => {
-    const seg = gameState.currentSegment || 1;
-    if (phase !== "PLAYING" || !hasSegments || seg <= prevSegmentRef.current) { prevSegmentRef.current = seg; return; }
-    prevSegmentRef.current = seg;
-    // prevLettersSnapshot was captured BEFORE the ref was updated this render
-    setShiftOldLetters([...prevLettersSnapshot]);
-    // letters (derived from current gameState) are already the NEW pool
-    setShiftNewLetters([...letters]);
-    setShiftFlash(true);
-    setShiftAnimPhase('exit');
-    setTypedWord(""); setWordFeedback({ type: "typing" });
-    // Phase: exit (600ms) → enter (800ms) → done
-    const t1 = setTimeout(() => setShiftAnimPhase('enter'), 600);
-    const t2 = setTimeout(() => setShiftAnimPhase('done'), 1400);
-    const t3 = setTimeout(() => { setShiftFlash(false); setShiftAnimPhase('idle'); }, 2000);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [gameState.currentSegment]);
-
   // ── Wave intro countdown ─────────────────────────────────────────────
   useEffect(() => { if (phase !== "WAVE_INTRO") { setWaveIntroCountdown(10); waveStartFiredRef.current = false; isStartingWaveRef.current = false; setIsStartingWave(false); return; }
     waveStartFiredRef.current = false;
@@ -234,7 +202,7 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const gameStateRef = useRef(gameState); useEffect(() => { gameStateRef.current = gameState; });
   useEffect(() => { if (phase !== "PLAYING") { setWaveTimer(gameState.waveDuration || 60); waveEndFiredRef.current = false; return; }
     setWaveTimer(gameState.waveDuration || 60); waveEndFiredRef.current = false;
-    const interval = setInterval(() => { setWaveTimer(prev => { const next = prev - 1; if (next <= 0 && isHostRef.current && !waveEndFiredRef.current) { waveEndFiredRef.current = true; handleEndWave(); } return next > 0 ? next : 0; }); }, 1000);
+    const interval = setInterval(() => { setWaveTimer(prev => { if (isLetterAnimatingRef.current) return prev; const next = prev - 1; if (next <= 0 && isHostRef.current && !waveEndFiredRef.current) { waveEndFiredRef.current = true; handleEndWave(); } return next > 0 ? next : 0; }); }, 1000);
     return () => clearInterval(interval);
   }, [phase, gameState.currentWave]);
 
@@ -251,6 +219,7 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
     shiftFiredRef.current = false;
     const interval = setInterval(() => {
       setSegmentTimer(prev => {
+        if (isLetterAnimatingRef.current) return prev;
         const next = prev - 1;
         if (next <= 0 && isHostRef.current && !shiftFiredRef.current) {
           shiftFiredRef.current = true;
@@ -318,7 +287,6 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const handleStartWave = useCallback(async () => { if (!isHostRef.current) return; if (isStartingWaveRef.current) return; isStartingWaveRef.current = true; setIsStartingWave(true);
     const gs = gameStateRef.current; const wave = gs.currentWave || 1; const settingLetterCount = lobby?.settings?.sprintLetterCount; const letterCount = settingLetterCount || 4;
     const { letters: newLetters, targets } = await generateLettersAndTargets(letterCount, wave);
-    setShuffleAllCount(0); setShuffleSingleCount(0);
     const { error } = await supabase.rpc("start_links_sprint_wave", { p_lobby_code: gameCode, p_letters: newLetters, p_target_words: targets }); if (error) console.error("[SPRINT] start_links_sprint_wave error:", error);
     isStartingWaveRef.current = false; setIsStartingWave(false);
   }, [gameCode, lobby?.settings?.sprintLetterCount, generateLettersAndTargets]);
@@ -328,26 +296,12 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
     try {
       const gs = gameStateRef.current; const wave = gs.currentWave || 1; const settingLetterCount = lobby?.settings?.sprintLetterCount; const letterCount = settingLetterCount || 4;
       const { letters: newLetters, targets } = await generateLettersAndTargets(letterCount, wave);
-      setShuffleAllCount(0); setShuffleSingleCount(0);
       const { data, error } = await supabase.rpc("shift_sprint_letters", { p_lobby_code: gameCode, p_letters: newLetters, p_target_words: targets });
       if (error) console.error("[SPRINT] shift_sprint_letters error:", error);
       else if (data?.waveEnded) { /* wave ended via shift — server handled transition */ }
     } catch (e) { console.error("[SPRINT] handleShiftLetters error:", e); }
     finally { shiftFiredRef.current = false; }
   }, [gameCode, lobby?.settings?.sprintLetterCount, generateLettersAndTargets]);
-
-  // ── Shuffle ──────────────────────────────────────────────────────────
-  const handleShuffleAll = useCallback(async () => { if (phase !== "PLAYING" || shuffleGuardRef.current) return; shuffleGuardRef.current = true;
-    const allLetters = ['A','E','R','T','N','S','L','C','O','I','U','D','P','M','H','G','B','F','Y','W','K','V','X','Z','J','Q']; const newLetters = [...allLetters].sort(() => Math.random() - 0.5).slice(0, letters.length);
-    const { data, error } = await supabase.rpc("shuffle_links_sprint_letters", { p_lobby_code: gameCode, p_player_id: effectivePlayerId, p_shuffle_type: "all", p_new_letters: newLetters }); shuffleGuardRef.current = false;
-    if (!error && data?.success) { setShuffleAllCount(data.newAllShuffles || 1); setWaveTimer(prev => Math.max(0, prev - (data.timePenalty || 5))); setShufflePenaltyFlash({ message: data.newAllShuffles <= 1 ? `-5s · -${data.pointsDeduction || 0} pts (-25%)` : `-5s · -${data.pointsDeduction || 0} pts (-50%)`, type: data.newAllShuffles <= 1 ? "warning" : "danger" }); if (shufflePenaltyTimerRef.current) clearTimeout(shufflePenaltyTimerRef.current); shufflePenaltyTimerRef.current = setTimeout(() => setShufflePenaltyFlash(null), 3000); }
-  }, [gameCode, effectivePlayerId, phase, letters.length]);
-
-  const handleShuffleSingle = useCallback(async (index: number) => { if (phase !== "PLAYING" || shuffleGuardRef.current) return; shuffleGuardRef.current = true;
-    const allLetters = ['A','E','R','T','N','S','L','C','O','I','U','D','P','M','H','G','B','F','Y','W','K','V','X','Z','J','Q']; const currentLetter = letters[index]?.toLowerCase(); const available = allLetters.filter(l => l.toLowerCase() !== currentLetter); const newLetter = available[Math.floor(Math.random() * available.length)]; const newLetters = [...letters]; newLetters[index] = newLetter;
-    const { data, error } = await supabase.rpc("shuffle_links_sprint_letters", { p_lobby_code: gameCode, p_player_id: effectivePlayerId, p_shuffle_type: "single", p_new_letters: newLetters }); shuffleGuardRef.current = false;
-    if (!error && data?.success) { setShuffleSingleCount(prev => prev + 1); setWaveTimer(prev => Math.max(0, prev - (data.timePenalty || 3))); setShufflePenaltyFlash({ message: `-3s · -${data.pointsDeduction || 0} pts (-25%)`, type: "warning" }); if (shufflePenaltyTimerRef.current) clearTimeout(shufflePenaltyTimerRef.current); shufflePenaltyTimerRef.current = setTimeout(() => setShufflePenaltyFlash(null), 3000); }
-  }, [gameCode, effectivePlayerId, phase, letters]);
 
   // ── Submit word ──────────────────────────────────────────────────────
   const handleSubmitWord = useCallback(async () => { if (phase !== "PLAYING" || submitGuardRef.current || isSubmitting) return; if (wordFeedback.type !== "valid") { if (wordFeedback.type === "used") setShakeKey(k => k + 1); return; }
@@ -467,55 +421,6 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   return (
     <div className="min-h-screen bg-clay-cream font-outfit text-plum flex flex-col">
-      {/* ── Shift transition animation ──────────────────────────────── */}
-      {shiftFlash && (
-        <div className="fixed inset-0 z-[60] pointer-events-none">
-          {/* Backdrop flash */}
-          <div className="absolute inset-0 bg-butter/5 animate-pulse" />
-          {/* Central banner */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className={shiftAnimPhase === 'exit' ? 'animate-shift-banner-in' : shiftAnimPhase === 'done' ? 'opacity-0 transition-opacity duration-500' : ''}>
-              <div className="px-6 py-3 rounded-2xl bg-gradient-to-br from-butter via-amber-400 to-orange-500 shadow-2xl shadow-butter/30">
-                <span className="font-outfit font-black text-2xl text-white tracking-wide">⚡ NEW LETTERS!</span>
-              </div>
-            </div>
-          </div>
-          {/* Animated letter tiles overlay */}
-          <div className="absolute inset-0 flex items-center justify-center pt-20">
-            <div className="flex items-center gap-3">
-              {/* Old letters sliding out */}
-              {shiftAnimPhase === 'exit' && shiftOldLetters.map((letter, i) => (
-                <div
-                  key={`old-${letter}-${i}`}
-                  className="w-14 h-14 rounded-2xl flex items-center justify-center font-outfit font-black text-2xl text-white shadow-lg animate-shift-letter-out"
-                  style={{
-                    backgroundColor: '#9CA3AF',
-                    animationDelay: `${i * 80}ms`,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  }}
-                >
-                  {letter}
-                </div>
-              ))}
-              {/* New letters sliding in */}
-              {(shiftAnimPhase === 'enter' || shiftAnimPhase === 'done') && shiftNewLetters.map((letter, i) => (
-                <div
-                  key={`new-${letter}-${i}`}
-                  className="w-14 h-14 rounded-2xl flex items-center justify-center font-outfit font-black text-2xl text-white shadow-lg animate-shift-letter-in"
-                  style={{
-                    backgroundColor: '#34D399',
-                    animationDelay: `${i * 80}ms`,
-                    boxShadow: '0 4px 16px rgba(52,211,153,0.4)',
-                  }}
-                >
-                  {letter}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {showDisconnected && (
         <div className="sticky top-0 z-50 bg-peach-light border-b border-peach/30 px-4 py-3 flex items-center justify-center gap-3">
           <WifiOff className="w-4 h-4 text-peach animate-pulse" /><span className="text-peach text-xs font-bold uppercase tracking-widest">Connection lost — reconnecting...</span>
@@ -534,9 +439,9 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
             {hasSegments && <span className="text-[10px] font-black text-warm-gray/50">· Seg {currentSegment}/{segmentsPerWave}</span>}
           </div>
           {hasSegments && phase === "PLAYING" && (
-            <div className="flex items-center gap-1.5 bg-butter-light/80 px-2.5 py-1 rounded-xl border border-butter/20">
-              <Zap className="w-3 h-3 text-butter" />
-              <span className="text-[10px] font-black text-butter tabular-nums">Shift in {segmentTimer}s</span>
+            <div className="flex items-center gap-1.5 bg-soft-purple-light/80 px-2.5 py-1 rounded-xl border border-soft-purple/20">
+              <Zap className="w-3 h-3 text-soft-purple" />
+              <span className="text-[10px] font-black text-soft-purple tabular-nums">Shift in {segmentTimer}s</span>
             </div>
           )}
 
@@ -558,14 +463,8 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
             <TensionTimer timeLeft={myTimer} maxTime={gameState.waveDuration || 60} defaultColor="#34D399" sizeClass="w-12 h-12" textClass="text-lg" strokeWidth={12} />
           </div>
 
-          <div className="flex justify-center">              <LetterPool letters={letters} inputText={typedWord} title="" subtitle="These letters must be included in your word" />
-              {/* Shift incoming letters preview (shown during segment timer < 5s) */}
-              {hasSegments && phase === 'PLAYING' && segmentTimer <= 5 && segmentTimer > 0 && (
-                <div className="flex items-center justify-center gap-1 mt-2 animate-pulse">
-                  <Zap className="w-3 h-3 text-butter" />
-                  <span className="text-[10px] font-bold text-butter/70">Letters changing soon...</span>
-                </div>
-              )}
+          <div className="flex justify-center">
+            <LetterPool letters={letters} inputText={typedWord} animateKey={letterAnimateKey} onAnimationChange={handleLetterAnimationState} title="" subtitle="These letters must be included in your word" />
           </div>
 
           <section className="w-full">
@@ -586,20 +485,11 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
                 </div>
               </div>
 
-              {/* Shuffle buttons */}
-              <div className="mb-4 flex flex-wrap gap-2">
-                <button onClick={() => handleShuffleSingle(0)} disabled={letters.length === 0} className="bg-white/80 hover:bg-white text-plum px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50">
-                  <RotateCw className="w-3 h-3" />Reroll Letter
-                </button>
-                <button onClick={handleShuffleAll} className="bg-white/80 hover:bg-white text-plum px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all">
-                  <Shuffle className="w-3 h-3" />Reroll All
-                </button>
-              </div>
-
-              {/* Shuffle penalty flash */}
-              {shufflePenaltyFlash && (
-                <div className={`mb-3 px-3 py-1.5 rounded-xl text-[10px] font-bold animate-slide-up-fade ${shufflePenaltyFlash.type === "danger" ? "bg-peach-light text-peach border border-peach/30" : "bg-butter-light text-butter border border-butter/30"}`}>
-                  {shufflePenaltyFlash.message}
+              {/* Segment shift warning */}
+              {hasSegments && phase === 'PLAYING' && segmentTimer <= 5 && segmentTimer > 0 && (
+                <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-xl bg-soft-purple-light/60 border border-soft-purple/20 animate-pulse">
+                  <Zap className="w-3.5 h-3.5 text-soft-purple" />
+                  <span className="text-[11px] font-bold text-soft-purple">Letters changing in {segmentTimer}s — type fast!</span>
                 </div>
               )}
 
@@ -615,11 +505,24 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
               {/* Input */}
               <form onSubmit={(e) => { e.preventDefault(); handleSubmitWord(); }} key={shakeKey} className={`relative ${shakeKey ? 'animate-shake' : ''}`}>
-                <input type="text" value={typedWord}
-                  onChange={(e) => handleSetInput(e.target.value.replace(/[^a-zA-Z]/g, "").slice(0, 15).toUpperCase())}
-                  placeholder="Type word"
-                  className={`w-full bg-warm-white text-plum text-2xl font-black font-mono tracking-[0.1em] rounded-2xl py-4 pl-6 pr-6 border-2 border-warm-gray/15 outline-none focus:border-soft-purple/40 focus:ring-2 focus:ring-soft-purple/20 transition-all ${wordFeedback.type === 'valid' ? '!border-mint/50 !ring-mint/20' : wordFeedback.type === 'missing' || wordFeedback.type === 'used' || wordFeedback.type === 'invalid' ? '!border-peach/50 !ring-peach/20' : ''}`}
-                  autoFocus autoComplete="off"                  />
+                <div className="flex gap-2">
+                  <input type="text" value={typedWord}
+                    onChange={(e) => handleSetInput(e.target.value.replace(/[^a-zA-Z]/g, "").slice(0, 15).toUpperCase())}
+                    placeholder="Type word"
+                    className={`flex-1 bg-warm-white text-plum text-2xl font-black font-mono tracking-[0.1em] rounded-2xl py-4 pl-6 border-2 border-warm-gray/15 outline-none focus:border-soft-purple/40 focus:ring-2 focus:ring-soft-purple/20 transition-all ${wordFeedback.type === 'valid' ? '!border-mint/50 !ring-mint/20' : wordFeedback.type === 'missing' || wordFeedback.type === 'used' || wordFeedback.type === 'invalid' ? '!border-peach/50 !ring-peach/20' : ''}`}
+                    autoFocus autoComplete="off" />
+                  <button
+                    type="submit"
+                    disabled={wordFeedback.type !== 'valid' || isSubmitting}
+                    className={`shrink-0 px-5 rounded-2xl font-outfit font-black text-sm uppercase tracking-wider transition-all ${
+                      wordFeedback.type === 'valid' && !isSubmitting
+                        ? 'bg-soft-purple text-white shadow-lg shadow-soft-purple/30 hover:bg-soft-purple/90 active:scale-95'
+                        : 'bg-warm-gray/15 text-warm-gray/40 cursor-not-allowed'
+                    }`}
+                  >
+                    {isSubmitting ? '...' : 'Enter'}
+                  </button>
+                </div>
                 </form>
 
               {/* Word feedback */}

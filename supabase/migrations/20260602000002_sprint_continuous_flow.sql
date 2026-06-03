@@ -56,10 +56,12 @@ BEGIN
 
     IF v_already_ended THEN
         -- Wave already ended — just sync phase
+        -- FIX: increment currentWave when transitioning to WAVE_INTRO
+        -- so start_links_sprint_wave picks up the correct next wave
         UPDATE lobbies
         SET arena_state = COALESCE(arena_state, '{}'::jsonb) || jsonb_build_object(
             'phase', v_next_phase,
-            'currentWave', v_current_wave,
+            'currentWave', CASE WHEN v_next_phase = 'WAVE_INTRO' THEN v_current_wave + 1 ELSE v_current_wave END,
             'letters', '[]'::jsonb,
             'playerLetters', '{}'::jsonb,
             'scores', (
@@ -78,10 +80,12 @@ BEGIN
     END IF;
 
     -- Normal path: end the wave and record target reveals
+    -- FIX: increment currentWave when transitioning to WAVE_INTRO
+    -- so start_links_sprint_wave picks up the correct next wave
     UPDATE lobbies
     SET arena_state = COALESCE(arena_state, '{}'::jsonb) || jsonb_build_object(
         'phase', v_next_phase,
-        'currentWave', v_current_wave,
+        'currentWave', CASE WHEN v_next_phase = 'WAVE_INTRO' THEN v_current_wave + 1 ELSE v_current_wave END,
         'letters', '[]'::jsonb,
         'playerLetters', '{}'::jsonb,
         'targetReveals', v_target_reveals || jsonb_build_object(
