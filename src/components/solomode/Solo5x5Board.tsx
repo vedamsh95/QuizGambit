@@ -435,10 +435,13 @@ export default function Solo5x5Board() {
         bestStreak={bestStreak}
         answerTimes={answerTimes}
         onPlayAgain={() => {
-          store.clearLocalGameSettings();
+          try { store.clearLocalGameSettings(); } catch {}
           navigate("/solo/5x5");
         }}
-        onHome={() => navigate("/")}
+        onHome={() => {
+          try { store.clearLocalGameSettings(); } catch {}
+          navigate("/");
+        }}
       />
     );
   }
@@ -450,7 +453,7 @@ export default function Solo5x5Board() {
       <div className="shrink-0 px-3 sm:px-5 py-2.5 flex items-center justify-between border-b border-warm-gray/10 bg-warm-white/80 backdrop-blur-sm">
         <button
           onClick={() => {
-            store.clearLocalGameSettings();
+            try { store.clearLocalGameSettings(); } catch {}
             navigate("/solo/5x5");
           }}
           className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"

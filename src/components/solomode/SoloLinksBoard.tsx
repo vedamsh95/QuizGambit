@@ -661,41 +661,7 @@ export default function SoloLinksBoard() {
             subtitle="These letters must be included in your word"
           />
 
-          {/* Segment shift warning */}
-          {hasSegments && isTimerRunning && segmentTimer <= 5 && segmentTimer > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-soft-purple-light/60 border border-soft-purple/20 animate-pulse">
-              <Zap className="w-3.5 h-3.5 text-soft-purple" />
-              <span className="text-[11px] font-bold text-soft-purple">Letters changing in {segmentTimer}s — type fast!</span>
-            </div>
-          )}
-
-          {/* Bottom bar: combo (mobile) + End round */}
-          <div className="flex items-center justify-center gap-3 pt-1 border-t border-warm-gray/10">
-            {/* Combo (mobile) */}
-            {combo >= 3 && (
-              <span className="sm:hidden flex items-center gap-1 px-2.5 py-1 rounded-full bg-butter-light text-butter border border-butter/20">
-                <Flame className="w-3.5 h-3.5" />
-                <span className="text-xs font-black">{combo}×</span>
-              </span>
-            )}
-
-            {/* End round */}
-            {isTimerRunning && (
-              <button
-                onClick={finishWave}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold
-                  bg-peach-light text-peach border border-peach/30
-                  hover:bg-peach hover:text-white transition-all duration-200
-                  shadow-sm hover:shadow-md"
-              >
-                {t("solo.endRound")}
-              </button>
-            )}
-          </div>
-        </ClayCard>
-
-        {/* ── Word input ────────────────────────────────────────── */}
-        <div className="w-full max-w-md space-y-2">
+          {/* ── Input ────────────────────────────────────────── */}
           <div className="flex gap-2">
             <input
               ref={inputRef}
@@ -712,14 +678,17 @@ export default function SoloLinksBoard() {
                     ? "border-peach/30 ring-2 ring-peach/20"
                     : "border-warm-gray/15 focus:border-soft-purple/40 focus:ring-2 focus:ring-soft-purple/20"
                 }`}
+              onFocus={(e: React.FocusEvent<HTMLInputElement>) => {
+                setTimeout(() => {
+                  e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 150);
+              }}
               autoFocus
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
               disabled={!isTimerRunning || isPaused}
             />
-
-            {/* Enter button for mobile */}
             <button
               onClick={handleSubmitWord}
               disabled={wordFeedback.type !== "valid" || !isTimerRunning || isPaused}
@@ -767,20 +736,52 @@ export default function SoloLinksBoard() {
               <p className="text-xs font-bold text-peach/60">{wordFeedback.message}</p>
             )}
           </div>
-        </div>
 
-        {/* ── Start button (if timer not running) ───────────────── */}
-        {!isTimerRunning && !isBetweenWaves && (
-          <ClayButton
-            variant="primary"
-            size="lg"
-            icon={<Play className="w-5 h-5" />}
-            onClick={() => startWave()}
-            className="bg-soft-purple hover:bg-soft-purple/90"
-          >
-            {t("solo.startSprint")}
-          </ClayButton>
-        )}
+          {/* Segment shift warning */}
+          {hasSegments && isTimerRunning && segmentTimer <= 5 && segmentTimer > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-soft-purple-light/60 border border-soft-purple/20 animate-pulse">
+              <Zap className="w-3.5 h-3.5 text-soft-purple" />
+              <span className="text-[11px] font-bold text-soft-purple">Letters changing in {segmentTimer}s — type fast!</span>
+            </div>
+          )}
+
+          {/* Bottom bar: combo (mobile) + End round */}
+          <div className="flex items-center justify-center gap-3 pt-1 border-t border-warm-gray/10">
+            {/* Combo (mobile) */}
+            {combo >= 3 && (
+              <span className="sm:hidden flex items-center gap-1 px-2.5 py-1 rounded-full bg-butter-light text-butter border border-butter/20">
+                <Flame className="w-3.5 h-3.5" />
+                <span className="text-xs font-black">{combo}×</span>
+              </span>
+            )}
+
+            {/* Start wave (initial) */}
+            {!isTimerRunning && !isBetweenWaves && (
+              <ClayButton
+                variant="primary"
+                size="lg"
+                icon={<Play className="w-5 h-5" />}
+                onClick={() => startWave()}
+                className="bg-soft-purple hover:bg-soft-purple/90"
+              >
+                {t("solo.startSprint")}
+              </ClayButton>
+            )}
+
+            {/* End round */}
+            {isTimerRunning && (
+              <button
+                onClick={finishWave}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold
+                  bg-peach-light text-peach border border-peach/30
+                  hover:bg-peach hover:text-white transition-all duration-200
+                  shadow-sm hover:shadow-md"
+              >
+                {t("solo.endRound")}
+              </button>
+            )}
+          </div>
+        </ClayCard>
 
         {/* ── Word history ──────────────────────────────────────── */}
         <div className="w-full max-w-md">
@@ -851,11 +852,6 @@ export default function SoloLinksBoard() {
             </span>
           </div>
         )}
-      </div>
-
-      {/* ── Footer ─────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 py-2 border-t border-warm-gray/10 bg-warm-white/80 text-center text-[10px] text-warm-gray/50">
-        🔤 {letters.join(" + ")} · 🌊 {currentWave}/{settings?.totalWaves || 3} · {totalWords} {t("links.words")}
       </div>
     </div>
   );

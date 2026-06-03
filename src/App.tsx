@@ -272,13 +272,17 @@ export default function App() {
             <Route
               path="/local"
               element={
-                localSettings ? (
+                localSettings && localSettings.round_categories ? (
                   <GameBoardV2
                     lobbyCode="LOCAL"
                     settings={localSettings}
                     isLocal={true}
                     initialCategories={localSettings.round_categories}
-                    onExit={() => navigate("/")}
+                    onExit={() => {
+                      try { store.clearLocalGameSettings(); } catch {}
+                      setLocalSettings(null);
+                      navigate("/");
+                    }}
                   />
                 ) : (
                   <LocalPlaySetupV2

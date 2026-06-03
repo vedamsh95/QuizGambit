@@ -687,6 +687,11 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
                     onChange={(e) => handleSetInput(e.target.value.replace(/[^a-zA-Z]/g, "").slice(0, 15).toUpperCase())}
                     placeholder="Type word"
                     className={`flex-1 bg-warm-white text-plum text-2xl font-black font-mono tracking-[0.1em] rounded-2xl py-4 pl-6 border-2 border-warm-gray/15 outline-none focus:border-soft-purple/40 focus:ring-2 focus:ring-soft-purple/20 transition-all ${wordFeedback.type === 'valid' ? '!border-mint/50 !ring-mint/20' : wordFeedback.type === 'missing' || wordFeedback.type === 'used' || wordFeedback.type === 'invalid' ? '!border-peach/50 !ring-peach/20' : ''}`}
+                    onFocus={(e: React.FocusEvent<HTMLInputElement>) => {
+                      setTimeout(() => {
+                        e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }, 150);
+                    }}
                     autoFocus autoComplete="off" />
                   <button
                     type="submit"
