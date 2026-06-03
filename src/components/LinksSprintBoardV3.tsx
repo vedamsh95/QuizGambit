@@ -7,8 +7,7 @@ import { AVATARS } from "../assets/avatars";
 import ClayCard from "./ui/ClayCard";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
-import { PLAYER_COLORS, PlayerColor } from "./LinksBoardPrototype";
-import { getPoolMultiplier, calcPointsWithPoolMultiplier, countPoolLettersInWord, fetchWordFile, generateLetterPool } from "../lib/linksHelpers";
+import { getPoolMultiplier, calcPointsWithPoolMultiplier, countPoolLettersInWord, fetchWordFile, generateLetterPool, PLAYER_COLORS, PlayerColor } from "../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 

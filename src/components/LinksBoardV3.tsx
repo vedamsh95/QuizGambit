@@ -8,7 +8,7 @@ import ClayCard from "./ui/ClayCard";
 import TensionTimer from "./ui/TensionTimer";
 import LetterPool from "./ui/LetterPool";
 
-import { PLAYER_COLORS, PlayerColor } from "./LinksBoardPrototype";
+import { PLAYER_COLORS, PlayerColor } from "../lib/linksHelpers";
 import { getPoolMultiplier, calcPointsWithPoolMultiplier, countPoolLettersInWord, fetchWordFile } from "../lib/linksHelpers";
 
 // ── Types ───────────────────────────────────────────────────────────────────

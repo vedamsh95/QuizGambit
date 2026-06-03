@@ -21,9 +21,6 @@ import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
 import LinksBoardV3 from "./components/LinksBoardV3";
-import LinksBoardPrototypeClay from "./components/LinksBoardPrototypeClay";
-import LinksBoardPrototypeV3 from "./components/LinksBoardPrototypeV3";
-import LinksSprintBoardPrototypeV3 from "./components/LinksSprintBoardPrototypeV3";
 import LinksSprintBoardV3 from "./components/LinksSprintBoardV3";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
 
@@ -222,8 +219,6 @@ export default function App() {
 
             {/* ── Prototypes ────────────────────────────────────────── */}
             <Route path="/prototype/clay" element={<ClayPrototype />} />
-            <Route path="/prototype/links-v3" element={<LinksBoardPrototypeV3 />} />
-            <Route path="/prototype/links-sprint-v3" element={<LinksSprintBoardPrototypeV3 />} />
 
             {/* ── Library ────────────────────────────────────────── */}
             <Route
@@ -303,7 +298,6 @@ export default function App() {
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
             <Route path="/prototype-links" element={<LinksBoardV3 />} />
-            <Route path="/prototype-links-v2" element={<LinksBoardPrototypeClay />} />
 
             {/* ── Solo Modes ────────────────────────────────────── */}
             <Route path="/solo" element={<SoloModeSelection />} />

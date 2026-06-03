@@ -1,4 +1,30 @@
-import { calcPoints } from "../components/LinksBoardPrototype";
+// ── Scoring Helpers ────────────────────────────────────────────────────────
+
+export const calcPoints = (length: number) =>
+  length <= 4 ? 10 * length : length <= 6 ? 15 * length : 20 * length;
+
+// ── Player Colors (shared by multiplayer boards) ───────────────────────────
+
+export interface PlayerColor {
+  name: string;
+  label: string;
+  fill: string;
+  fillLight: string;
+  pillBg: string;
+  pillBorder: string;
+  mutedText: string;
+}
+
+export const PLAYER_COLORS: PlayerColor[] = [
+  { name: "purple", label: "Purple", fill: "#7C5CFC", fillLight: "#EDE9FE", pillBg: "#F3EFFF", pillBorder: "#C4B5FD", mutedText: "#8B7EC8" },
+  { name: "peach", label: "Peach", fill: "#FF6B8A", fillLight: "#FFE5EB", pillBg: "#FFF0F3", pillBorder: "#FFB8C8", mutedText: "#D48A9A" },
+  { name: "sky", label: "Sky", fill: "#60A5FA", fillLight: "#DBEAFE", pillBg: "#EFF6FF", pillBorder: "#93C5FD", mutedText: "#7B9EC8" },
+  { name: "mint", label: "Mint", fill: "#34D399", fillLight: "#D1FAE5", pillBg: "#ECFDF5", pillBorder: "#6EE7B7", mutedText: "#5EA884" },
+  { name: "butter", label: "Butter", fill: "#FBBF24", fillLight: "#FEF3C7", pillBg: "#FFFBEB", pillBorder: "#FCD34D", mutedText: "#B8952E" },
+  { name: "lavender", label: "Lavender", fill: "#A78BFA", fillLight: "#EDE9FE", pillBg: "#F5F3FF", pillBorder: "#C4B5FD", mutedText: "#8B7EC8" },
+  { name: "coral", label: "Coral", fill: "#F87171", fillLight: "#FEE2E2", pillBg: "#FEF2F2", pillBorder: "#FCA5A5", mutedText: "#C46A6A" },
+  { name: "teal", label: "Teal", fill: "#2DD4BF", fillLight: "#CCFBF1", pillBg: "#F0FDFA", pillBorder: "#5EEAD4", mutedText: "#4DA89A" },
+];
 
 // ── Pool Multiplier Helpers ────────────────────────────────────────────────
 
