@@ -296,14 +296,18 @@ export default function GameBoardV2({
 
   // ── Timer (host only; clients sync via broadcast) ──────────────────────
 
-  // Only host runs the timer interval; clients sync via broadcast
+  // Host runs the timer interval and broadcasts ticks; clients sync via broadcast.
+  // BUG FIX: removed mutually exclusive (isLocal || lobbyCode === "LOCAL") guard
+  // that prevented the timer from ever running in multiplayer mode.
   useEffect(() => {
     let interval: any;
-    if (isTimerRunning && timer > 0 && (isLocal || lobbyCode === "LOCAL")) {
+    const isMultiplayer = !isLocal && lobbyCode !== "LOCAL";
+
+    if (isTimerRunning && timer > 0) {
       interval = setInterval(() => {
         setTimer((t: number) => {
           const next = t - 1;
-          if (!isLocal && lobbyCode !== "LOCAL") {
+          if (isMultiplayer) {
             broadcast("timer:tick", { remainingSec: next });
           }
           return next;
@@ -312,7 +316,7 @@ export default function GameBoardV2({
     } else if (timer <= 0 && isTimerRunning) {
       setIsTimerRunning(false);
       setIsAnswerRevealed(true);
-      if (!isLocal && lobbyCode !== "LOCAL") {
+      if (isMultiplayer) {
         broadcast("timer:tick", { remainingSec: 0, isAnswerRevealed: true });
       }
     }

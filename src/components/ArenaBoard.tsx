@@ -76,6 +76,10 @@ export default function ArenaBoard({
     timerEndTime: null,
   });
 
+  // Ref for phase guard (prevents onLobbyChange from overwriting optimistic broadcast state)
+  const arenaStateRef = useRef(arenaState);
+  useEffect(() => { arenaStateRef.current = arenaState; });
+
   const [myAnswer, setMyAnswer] = useState<string | null>(null);
   const [numericInput, setNumericInput] = useState("");
   const [answerTimings, setAnswerTimings] = useState<any[]>([]);
@@ -295,15 +299,21 @@ export default function ArenaBoard({
         (payload) => {
           const newData = payload.new as any;
           if (newData.arena_state) {
-            setArenaState(newData.arena_state);
-            // Reset local defaults on new round (PICKING phase)
-            if (newData.arena_state.phase === "PICKING") {
-              setMyAnswer(null);
-              setNumericInput("");
-              setAnswerTimings([]);
-              setSubmitStatus(null);
-              setBroadcastedAnswers(new Set());
-              pushDebug("phase:PICKING", "local answer state reset");
+            // BUG FIX: Phase guard — only apply DB state if phase advanced.
+            // Prevents DB notification from reverting optimistic broadcast state.
+            const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
+            const dbPhase = newData.arena_state.phase;
+            const localPhase = arenaStateRef.current?.phase;
+            if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+              setArenaState(newData.arena_state);
+              if (newData.arena_state.phase === "PICKING") {
+                setMyAnswer(null);
+                setNumericInput("");
+                setAnswerTimings([]);
+                setSubmitStatus(null);
+                setBroadcastedAnswers(new Set());
+                pushDebug("phase:PICKING", "local answer state reset");
+              }
             }
           }
         },
@@ -436,11 +446,9 @@ export default function ArenaBoard({
         submitTimeout();
       }
 
-      // Any client forces round to close after timer + 2s grace period.
-      // Previously only the host did this, but if the host disconnects,
-      // non-host clients would be stuck. force_close_question is idempotent
-      // (checks phase=OPEN first), so duplicate calls are harmless.
-      if (rawRemaining <= -2 && arenaState.phase === "OPEN") {
+      // Host auto-closes expired questions — only the HOST, not all clients.
+      // BUG FIX: prevents 4× RPC spam when all players see timer expire.
+      if (isHost && rawRemaining <= -2 && arenaState.phase === "OPEN") {
         console.log("[Arena] Timer expired, forcing question close");
         pushDebug("timer:force_close", `remaining:${rawRemaining.toFixed(1)}s host:${isHost}`);
         await supabase.rpc("force_close_question", { p_lobby_code: code });
@@ -457,7 +465,9 @@ export default function ArenaBoard({
   };
 
   const cleanId = (id: any) => String(id || "").trim();
-  const effectivePickerId = arenaState.pickerId || players[0]?.id;
+  // BUG FIX: Don't fallback to players[0]?.id — players is sorted by score.
+  // When someone scores, players[0] changes → picker identity shifts mid-game.
+  const effectivePickerId = arenaState.pickerId;
   const isPicker = cleanId(playerId) === cleanId(effectivePickerId);
   const pickerName =
     players.find((p) => cleanId(p.id) === cleanId(effectivePickerId))?.name ||

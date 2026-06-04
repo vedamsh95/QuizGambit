@@ -536,6 +536,10 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
     return Math.max(0, Math.ceil(endTime - Date.now() / 1000));
   };
 
+  // ── Ref for onLobbyChange phase guard ────────────────────────────────
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; });
+
   // ── Realtime channel ─────────────────────────────────────────────────
   const { isConnected, broadcast, onBroadcast } = useRealtimeChannel({
     channelName: `links:${gameCode}`,
@@ -548,9 +552,15 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
       if (payload.eventType === "DELETE" || !payload.new) { window.location.href = "/"; return; }
       const parsed = parseArenaState(payload.new.arena_state);
       if (parsed) {
-        setGameState(parsed);
-        if (parsed.phase === "PLAYING") { setSelectedLetter(null); setMyLetterPicks([]); setSubmitStatus(null); submitGuardRef.current = false; setPoisonAssignments({}); }
-        if (parsed.phase === "RESULTS") setIsGameOver(true);
+        // Phase guard: only apply DB state if phase advanced (don't revert optimistic broadcast state)
+        const phaseOrder: Record<string, number> = { LETTER_SELECT: 0, POISON_SETUP: 1, PLAYING: 2, RESULTS: 3, GAME_OVER: 4 };
+        const dbPhase = parsed.phase;
+        const localPhase = gameStateRef.current.phase;
+        if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          setGameState(parsed);
+          if (parsed.phase === "PLAYING") { setSelectedLetter(null); setMyLetterPicks([]); setSubmitStatus(null); submitGuardRef.current = false; setPoisonAssignments({}); }
+          if (parsed.phase === "RESULTS") setIsGameOver(true);
+        }
       }
     },
     onPlayerChange: async () => {
@@ -662,7 +672,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
       if (isConnected) return;
       try {
         const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
-        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) setGameState(parsed); }
+        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { LETTER_SELECT: 0, POISON_SETUP: 1, PLAYING: 2, RESULTS: 3, GAME_OVER: 4 }; const dbPhase = parsed.phase; const localPhase = gameStateRef.current?.phase; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) setGameState(parsed); } }
         const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false });
         if (playerData) setPlayers(playerData);
         const { data: wordsData } = await supabase.from("links_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true });

@@ -341,17 +341,29 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   const myScore = scores[effectivePlayerId] || 0;
   const otherPlayers = players.filter((p: any) => p.id !== effectivePlayerId);
 
+  // ── Ref for onLobbyChange/polling phase guard ──────────────────────
+  const lobbyPhaseGuardRef = useRef(gameState);
+  useEffect(() => { lobbyPhaseGuardRef.current = gameState; });
+
   // ── Realtime channel ─────────────────────────────────────────────────
   const { isConnected, broadcast, onBroadcast } = useRealtimeChannel({
     channelName: `links-sprint:${gameCode}`, enablePresence: false,
     subscribeLobby: gameCode, subscribePlayers: gameCode, subscribeArenaAnswers: gameCode, answersTableName: "links_sprint_words",
     onLobbyChange: (payload: any) => {
       if (payload.eventType === "DELETE" || !payload.new) { window.location.href = "/"; return; }
-      const parsed = parseArenaState(payload.new.arena_state); if (parsed) { setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); }
+      const parsed = parseArenaState(payload.new.arena_state); if (parsed) {
+        // Phase guard: only apply DB state if phase advanced
+        const phaseOrder: Record<string, number> = { WAVE_INTRO: 0, PLAYING: 1, WAVE_RESULTS: 2, GAME_OVER: 3 };
+        const dbPhase = parsed.phase;
+        const localPhase = lobbyPhaseGuardRef.current.phase;
+        if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true);
+        }
+      }
     },
     onPlayerChange: async () => { const { data } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (data) setPlayers(data); },
     onArenaAnswer: (payload: any) => { const newWord = payload.new as SprintWord; if (!newWord) return; setSprintWords((prev) => { if (prev.find(w => w.id === newWord.id)) return prev; return [...prev, newWord]; }); if (newWord.is_target && newWord.player_id === effectivePlayerId) { setTargetHitFlash({ word: newWord.word, level: newWord.target_level || 1 }); setTimeout(() => setTargetHitFlash(null), 2500); } },
-    onReconnect: async () => { const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); const parsed = parseArenaState(lobbyData?.arena_state); if (parsed) setGameState(parsed); },
+    onReconnect: async () => { const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); const parsed = parseArenaState(lobbyData?.arena_state); if (parsed) setGameState(parsed); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); },
   });
 
   // ── Connection banner ────────────────────────────────────────────────
@@ -374,6 +386,21 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
     const interval = setInterval(() => { setWaveIntroCountdown(prev => { const next = prev - 1; if (next <= 0 && isHostRef.current && !waveStartFiredRef.current) { waveStartFiredRef.current = true; handleStartWave(); } return next > 0 ? next : 0; }); }, 1000);
     return () => clearInterval(interval);
   }, [phase]); // handleStartWave intentionally omitted from deps — reads all values via refs
+
+  // ── Non-host wave start fallback (fixes host disconnect freeze) ──────
+  const nonHostWaveStartRef = useRef(false);
+  useEffect(() => {
+    if (phase !== "WAVE_INTRO" || isHost) { nonHostWaveStartRef.current = false; return; }
+    // If host is gone and intro countdown has passed, first non-host starts the wave
+    const timeout = setTimeout(() => {
+      if (!isHostRef.current && !waveStartFiredRef.current && !nonHostWaveStartRef.current) {
+        nonHostWaveStartRef.current = true;
+        waveStartFiredRef.current = true;
+        handleStartWave();
+      }
+    }, 12000); // 12s grace period (10s countdown + 2s buffer)
+    return () => clearTimeout(timeout);
+  }, [phase, isHost]);
 
   // ── Wave timer ───────────────────────────────────────────────────────
   const gameStateRef = useRef(gameState); useEffect(() => { gameStateRef.current = gameState; });
@@ -409,7 +436,8 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
   }, [phase, gameState.currentSegment, gameState.segmentTimerEnd]);
 
   // ── Polling fallback ─────────────────────────────────────────────────
-  useEffect(() => { const poll = setInterval(async () => { if (isConnected) return; try { const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); } } const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (playerData) setPlayers(playerData); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); } catch {} }, 3000); return () => clearInterval(poll); }, [gameCode, isConnected]);
+  useEffect(() => { const poll = setInterval(async () => { if (isConnected) return; try {        const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
+        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { WAVE_INTRO: 0, PLAYING: 1, WAVE_RESULTS: 2, GAME_OVER: 3 }; const dbPhase = parsed.phase; const localPhase = lobbyPhaseGuardRef.current?.phase; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) { setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); } } } const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (playerData) setPlayers(playerData); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); } catch {} }, 3000); return () => clearInterval(poll); }, [gameCode, isConnected]);
 
   // ── Word validation (redesigned: min 2 chars, at least 2 pool letters) ──
   const [validWordCache, setValidWordCache] = useState<Set<string> | null>(null);
