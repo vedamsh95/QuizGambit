@@ -271,7 +271,9 @@ export default function GameBoardV2({
   useEffect(() => {
     if (isLocal || lobbyCode === "LOCAL") return;
 
-    if (status === "BUZZING" || status === "ANSWERING") {
+    // BUG FIX #12: Include READING phase in polling — catches missed transitions
+    // after question opens/closes (previously only polled during BUZZING/ANSWERING)
+    if (status === "READING" || status === "BUZZING" || status === "ANSWERING") {
       pollRef.current = setInterval(async () => {
         const { data } = await supabase
           .from("lobbies")
@@ -372,8 +374,21 @@ export default function GameBoardV2({
     onReturnToLobby?.();
   }, [isLocal, lobbyCode, broadcast, onReturnToLobby]);
 
+  // Refs for prev state (used in rollback, avoids perpetual useCallback re-creation)
+  const prevActiveQRef = useRef(activeQuestion);
+  const prevRevealedRef = useRef(isAnswerRevealed);
+  const prevGradedRef = useRef(gradedPlayers);
+  const prevStatusRef = useRef(status);
+  const prevBuzzedRef = useRef(buzzedPlayerId);
+  useEffect(() => { prevActiveQRef.current = activeQuestion; });
+  useEffect(() => { prevRevealedRef.current = isAnswerRevealed; });
+  useEffect(() => { prevGradedRef.current = gradedPlayers; });
+  useEffect(() => { prevStatusRef.current = status; });
+  useEffect(() => { prevBuzzedRef.current = buzzedPlayerId; });
+
   const handleRevealQuestion = useCallback(
     async (q: any) => {
+      // BUG FIX #11: Save previous state for rollback on DB failure (uses refs to avoid re-creation)
       setActiveQuestion(q);
       setIsAnswerRevealed(false);
       setGradedPlayers({});
@@ -384,10 +399,19 @@ export default function GameBoardV2({
 
       if (!isLocal && lobbyCode !== "LOCAL") {
         broadcast("question:open", { questionId: q.id, category: q.category, points: q.points });
-        await supabase
+        const { error } = await supabase
           .from("lobbies")
           .update({ status: "READING", current_question_id: q.id, buzzed_player_id: null })
           .eq("code", lobbyCode);
+        if (error) {
+          // Rollback on DB failure — prevents stuck phantom question
+          console.error("[GameBoardV2] handleRevealQuestion DB error, rolling back:", error);
+          setActiveQuestion(prevActiveQRef.current);
+          setIsAnswerRevealed(prevRevealedRef.current);
+          setGradedPlayers(prevGradedRef.current);
+          setStatus(prevStatusRef.current);
+          setBuzzedPlayerId(prevBuzzedRef.current);
+        }
       }
     },
     [isLocal, lobbyCode, settings, broadcast]
@@ -401,23 +425,26 @@ export default function GameBoardV2({
     const shouldPersist = !isLocal && lobbyCode !== "LOCAL";
 
     if (isAnswerRevealed) {
+      // BUG FIX #16: Compute the update first, then fire RPC outside the state updater.
+      // React state updaters should be pure functions — side effects belong outside.
+      let updatedRound: Record<string, string[]> | null = null;
       setRevealedQuestions((prev) => {
         const roundArr = prev[roundKey] || [];
         if (roundArr.includes(qUid)) return prev;
-        const updated = { ...prev, [roundKey]: [...roundArr, qUid] };
-        // Fire-and-forget persistence with the correctly computed value
-        if (shouldPersist) {
-          supabase.rpc("update_lobby_setting_key", {
-            p_lobby_code: lobbyCode,
-            p_key: "revealed_questions_by_round",
-            p_value: updated,
-          }).then(
-            () => {},
-            (err) => console.error("[GameBoardV2] persist revealed_questions_by_round error:", err)
-          );
-        }
-        return updated;
+        updatedRound = { ...prev, [roundKey]: [...roundArr, qUid] };
+        return updatedRound;
       });
+      // Fire-and-forget persistence outside the state updater (no side effect in setState)
+      if (updatedRound && shouldPersist) {
+        supabase.rpc("update_lobby_setting_key", {
+          p_lobby_code: lobbyCode,
+          p_key: "revealed_questions_by_round",
+          p_value: updatedRound,
+        }).then(
+          () => {},
+          (err) => console.error("[GameBoardV2] persist revealed_questions_by_round error:", err)
+        );
+      }
     }
 
     setActiveQuestion(null);

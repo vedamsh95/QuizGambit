@@ -659,12 +659,27 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
   }, [gameCode, effectivePlayerId, playerName]);
 
   // ── Letter selection timer ───────────────────────────────────────────
+  // BUG FIX #13: Use server timerEndTime for drift-free sync instead of local Date.now().
+  // Previously each client used its own Date.now() → drift across different load times.
   useEffect(() => {
     if (phase !== "LETTER_SELECT") { letterSelectStartRef.current = null; setLetterSelectTimeLeft(LETTER_SELECT_TIMEOUT); return; }
+    
+    const serverEndTime = gameState.letterSelectEndTime;
+    if (serverEndTime && typeof serverEndTime === 'number') {
+      // Server-authoritative countdown — all clients in sync
+      letterSelectStartRef.current = null;
+      const interval = setInterval(() => {
+        const remaining = Math.max(0, Math.ceil(serverEndTime - Date.now() / 1000));
+        setLetterSelectTimeLeft(remaining);
+      }, 200);
+      return () => clearInterval(interval);
+    }
+    
+    // Fallback: local-only timer (used when serverEndTime not available)
     if (!letterSelectStartRef.current) letterSelectStartRef.current = Date.now();
     const interval = setInterval(() => { const elapsed = (Date.now() - (letterSelectStartRef.current || Date.now())) / 1000; setLetterSelectTimeLeft(Math.max(0, LETTER_SELECT_TIMEOUT - Math.floor(elapsed))); }, 200);
     return () => clearInterval(interval);
-  }, [phase]);
+  }, [phase, gameState.letterSelectEndTime]);
 
   // ── Polling fallback ─────────────────────────────────────────────────
   useEffect(() => {

@@ -149,7 +149,15 @@ export default function UnifiedLobby() {
         navigate("/");
         return;
       }
-      setLobby(updated);
+      // BUG FIX #15: Guard against null arena_state flicker during game start.
+      // When start handlers set arena_state to null before calling the RPC, the
+      // realtime subscription can fire with arena_state:null for one frame.
+      // Clone the payload first to avoid mutating the shared realtime object.
+      const prevArenaState = lobbyRef.current?.arena_state;
+      const patched = updated.arena_state === null && prevArenaState && prevArenaState.phase
+        ? { ...updated, arena_state: prevArenaState }
+        : updated;
+      setLobby(patched);
 
       // Mode changed — advance to setup (skip if user just returned from a game)
       if (updated.mode && !lobbyRef.current?.mode && !fromParamRef.current) {

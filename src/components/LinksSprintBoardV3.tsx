@@ -464,8 +464,35 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   const handleSetInput = useCallback((v: string) => { setTypedWord(v); if (v.length === 0) setWordFeedback({ type: "typing" }); else { const fb = validateWord(v); setWordFeedback(fb); } }, [validateWord]);
 
+  // BUG FIX #14: Add error state + retry for wave end failures
+  const [waveEndError, setWaveEndError] = useState(false);
+  const waveEndRetriesRef = useRef(0);
+
   // ── End wave ─────────────────────────────────────────────────────────
-  const handleEndWave = useCallback(async () => { if (!isHostRef.current) return; if (gameStateRef.current.phase !== "PLAYING") return; const { error } = await supabase.rpc("end_links_sprint_wave", { p_lobby_code: gameCode }); if (error) console.error("[SPRINT] end_links_sprint_wave error:", error); }, [gameCode]);
+  const handleEndWave = useCallback(async () => { if (!isHostRef.current) return; if (gameStateRef.current.phase !== "PLAYING") return;
+    setWaveEndError(false);
+    const { error } = await supabase.rpc("end_links_sprint_wave", { p_lobby_code: gameCode });
+    if (error) {
+      console.error("[SPRINT] end_links_sprint_wave error:", error);
+      setWaveEndError(true);
+      // Auto-retry once after 2s
+      if (waveEndRetriesRef.current < 1) {
+        waveEndRetriesRef.current++;
+        waveEndFiredRef.current = false;
+        setTimeout(() => {
+          if (isHostRef.current && gameStateRef.current.phase === "PLAYING") {
+            waveEndFiredRef.current = true;
+            supabase.rpc("end_links_sprint_wave", { p_lobby_code: gameCode }).then(({ error: retryErr }) => {
+              if (retryErr) console.error("[SPRINT] end_links_sprint_wave retry error:", retryErr);
+              else setWaveEndError(false);
+            });
+          }
+        }, 2000);
+      }
+    } else {
+      waveEndRetriesRef.current = 0;
+    }
+  }, [gameCode]);
 
   // ── Shared helper: generate letters + targets for a wave ────────────
   const generateLettersAndTargets = useCallback(async (letterCount: number, wave: number) => {
@@ -707,6 +734,13 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
               )}
 
               {submitStatus && <div className={`text-center text-xs font-bold mb-2 animate-clay-pop ${submitStatus.includes("+") || submitStatus.includes("🎯") ? "text-mint" : "text-peach"}`}>{submitStatus}</div>}
+
+              {/* Wave end error banner */}
+              {waveEndError && (
+                <div className="mb-3 px-3 py-2 rounded-xl bg-peach-light border border-peach/30 flex items-center gap-2">
+                  <span className="text-xs font-bold text-peach">Wave end sync issue — retrying...</span>
+                </div>
+              )}
 
               {/* Input */}
               <form onSubmit={(e) => { e.preventDefault(); handleSubmitWord(); }} key={shakeKey} className={`relative ${shakeKey ? 'animate-shake' : ''}`}>

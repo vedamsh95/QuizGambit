@@ -80,6 +80,10 @@ export default function ArenaBoard({
   const arenaStateRef = useRef(arenaState);
   useEffect(() => { arenaStateRef.current = arenaState; });
 
+  // Ref for playerId (prevents stale closure in onArenaAnswer callback)
+  const playerIdRef = useRef(playerId);
+  useEffect(() => { playerIdRef.current = playerId; });
+
   const [myAnswer, setMyAnswer] = useState<string | null>(null);
   const [numericInput, setNumericInput] = useState("");
   const [answerTimings, setAnswerTimings] = useState<any[]>([]);
@@ -91,6 +95,8 @@ export default function ArenaBoard({
   const roundTraceIdRef = useRef<string>("-");
 
   // ── Presence: track this player + all online players ────────────────────
+  // BUG FIX #9: Consolidate all subscriptions into one channel (was creating
+  // a duplicate supabase.channel("arena_sync") alongside useRealtimeChannel).
   const { presences, isConnected, broadcast, onBroadcast } = useRealtimeChannel({
     channelName: `arena:${code}`,
     enablePresence: true,
@@ -98,6 +104,60 @@ export default function ArenaBoard({
       playerId,
       name: playerName || "Player",
       status: "connected" as const,
+    },
+    subscribeLobby: code,
+    subscribePlayers: code,
+    subscribeArenaAnswers: code,
+    answersTableName: "arena_answers",
+    onLobbyChange: (payload: any) => {
+      const newData = payload.new as any;
+      if (newData.arena_state) {
+        // Phase guard: only apply DB state if phase advanced.
+        // Prevents DB notification from reverting optimistic broadcast state.
+        const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
+        const dbPhase = newData.arena_state.phase;
+        const localPhase = arenaStateRef.current?.phase;
+        if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          setArenaState(newData.arena_state);
+          if (newData.arena_state.phase === "PICKING") {
+            setMyAnswer(null);
+            setNumericInput("");
+            setAnswerTimings([]);
+            setSubmitStatus(null);
+            setBroadcastedAnswers(new Set());
+            pushDebug("phase:PICKING", "local answer state reset");
+          }
+        }
+      }
+    },
+    onPlayerChange: async () => {
+      const { data } = await supabase
+        .from("players")
+        .select("*")
+        .eq("lobby_code", code)
+        .order("score", { ascending: false });
+      if (data) setPlayers(data);
+    },
+    onArenaAnswer: (payload: any) => {
+      const newAnswer = payload.new as any;
+      // Use ref to avoid stale closure (playerId can change via name-collision fix)
+      if (newAnswer.player_id === playerIdRef.current) {
+        setMyAnswer(newAnswer.answer_text);
+        setSubmitStatus("Answer received");
+      }
+      pushDebug(
+        "answer:insert",
+        `${newAnswer.player_name || newAnswer.player_id} rank:${newAnswer.rank ?? "-"} points:${newAnswer.points_awarded ?? "-"}`,
+      );
+      setAnswerTimings((prev: any[]) => {
+        const exists = prev.find(
+          (a: any) => a.player_id === newAnswer.player_id,
+        );
+        if (exists) return prev;
+        return [...prev, newAnswer].sort(
+          (a: any, b: any) => a.answer_time_ms - b.answer_time_ms,
+        );
+      });
     },
   });
 
@@ -284,93 +344,8 @@ export default function ArenaBoard({
       if (pData) setPlayers(pData);
     };
     setupConnection();
-
-    // 2. Realtime Subscription
-    const channel = supabase
-      .channel("arena_sync")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "lobbies",
-          filter: `code=eq.${code}`,
-        },
-        (payload) => {
-          const newData = payload.new as any;
-          if (newData.arena_state) {
-            // BUG FIX: Phase guard — only apply DB state if phase advanced.
-            // Prevents DB notification from reverting optimistic broadcast state.
-            const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
-            const dbPhase = newData.arena_state.phase;
-            const localPhase = arenaStateRef.current?.phase;
-            if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
-              setArenaState(newData.arena_state);
-              if (newData.arena_state.phase === "PICKING") {
-                setMyAnswer(null);
-                setNumericInput("");
-                setAnswerTimings([]);
-                setSubmitStatus(null);
-                setBroadcastedAnswers(new Set());
-                pushDebug("phase:PICKING", "local answer state reset");
-              }
-            }
-          }
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "players",
-          filter: `lobby_code=eq.${code}`,
-        },
-        async () => {
-          const { data } = await supabase
-            .from("players")
-            .select("*")
-            .eq("lobby_code", code)
-            .order("score", { ascending: false });
-          if (data) setPlayers(data);
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "arena_answers",
-          filter: `lobby_code=eq.${code}`,
-        },
-        (payload) => {
-          const newAnswer = payload.new as any;
-          if (newAnswer.player_id === playerId) {
-            setMyAnswer(newAnswer.answer_text);
-            setSubmitStatus("Answer received");
-          }
-          pushDebug(
-            "answer:insert",
-            `${newAnswer.player_name || newAnswer.player_id} rank:${newAnswer.rank ?? "-"} points:${newAnswer.points_awarded ?? "-"}`,
-          );
-          setAnswerTimings((prev: any[]) => {
-            const exists = prev.find(
-              (a: any) => a.player_id === newAnswer.player_id,
-            );
-            if (exists) return prev;
-            return [...prev, newAnswer].sort(
-              (a: any, b: any) => a.answer_time_ms - b.answer_time_ms,
-            );
-          });
-        },
-      )
-      .subscribe((status) => {
-        console.log("[Arena] Realtime status:", status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    // BUG FIX #9: Standalone supabase.channel("arena_sync") removed — all subscriptions
+    // now consolidated into useRealtimeChannel above (single WebSocket, no duplicates).
   }, [code]); // Only re-init on code change — playerId sync handled via ref
 
   // Reset local input when active question changes (authoritative server phase + question id)
@@ -489,14 +464,17 @@ export default function ArenaBoard({
   }, [categories]);
 
   // Transition to game-over when all questions are exhausted
+  // BUG FIX #10: Also check revealed_questions_by_round (round-aware format) in addition to flat revealedQuestions
   useEffect(() => {
     if (arenaState.phase === "PICKING" && totalRevealableQuestions > 0) {
-      const revealed = arenaState.revealedQuestions || [];
-      if (revealed.length >= totalRevealableQuestions) {
+      const flatRevealed: string[] = arenaState.revealedQuestions || [];
+      const byRound: Record<string, string[]> = arenaState.revealed_questions_by_round || {};
+      const allRevealed = flatRevealed.length > 0 ? flatRevealed : Object.values(byRound).flat();
+      if (allRevealed.length >= totalRevealableQuestions) {
         setIsGameOver(true);
       }
     }
-  }, [arenaState.phase, arenaState.revealedQuestions, totalRevealableQuestions]);
+  }, [arenaState.phase, arenaState.revealedQuestions, arenaState.revealed_questions_by_round, totalRevealableQuestions]);
 
   // Actions
   const openQuestion = async (q: any, categoryName: string) => {
@@ -1026,10 +1004,11 @@ export default function ArenaBoard({
                         .map((q: any, rowIndex: number) => {
                           // FIX: Use cat.name (not cat.id) to match openQuestion format
                           const qId = q.id || `${cat.name}-${q.points}`;
-                          // Check synced revealed list
-                          const isRevealed = (
-                            arenaState.revealedQuestions || []
-                          ).includes(qId);
+                          // Check synced revealed list (both flat and round-aware formats)
+                          const flatRevealed: string[] = arenaState.revealedQuestions || [];
+                          const byRound: Record<string, string[]> = arenaState.revealed_questions_by_round || {};
+                          const allRevealed = flatRevealed.length > 0 ? flatRevealed : Object.values(byRound).flat();
+                          const isRevealed = allRevealed.includes(qId);
                           const opacity = 0.1 + rowIndex * 0.1;
 
                           return (
