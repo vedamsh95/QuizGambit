@@ -129,9 +129,12 @@ export default function SimultaneousBoard({
   // ── Derived: flat revealed array for current round ──
   // Simultaneous mode uses round "1" as the only round.
   // Backward compat: falls back to legacy revealedQuestions flat array from old DB rows.
-  const currentRoundRevealed: string[] =
-    gameState.revealed_questions_by_round?.["1"] ||
-    (Array.isArray(gameState.revealedQuestions) ? gameState.revealedQuestions : []);
+  // Deduplicate: defenses against DB duplicate entries (see migration 20260604000002).
+  const currentRoundRevealed: string[] = useMemo(() => {
+    const raw: string[] = gameState.revealed_questions_by_round?.["1"] ||
+      (Array.isArray(gameState.revealedQuestions) ? gameState.revealedQuestions : []);
+    return [...new Set(raw)];
+  }, [gameState.revealed_questions_by_round, gameState.revealedQuestions]);
 
   // Helper: immutably add a question ID to revealed_questions_by_round -> 1
   const appendRevealedRound1 = (prev: any, qId: string) => {
@@ -193,6 +196,10 @@ export default function SimultaneousBoard({
     nextTurnGuard: false,
   });
 
+  // ── Ref for onLobbyChange phase guard (declared BEFORE useRealtimeChannel to avoid TDZ) ──
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; });
+
   // ── Realtime channel (single channel for presence + broadcast + postgres_changes) ──
   const { presences, isConnected, broadcast, onBroadcast } = useRealtimeChannel({
     channelName: `simul:${code}`,
@@ -214,16 +221,24 @@ export default function SimultaneousBoard({
       }
       const newData = payload.new as any;
       if (newData.arena_state) {
-        setGameState(newData.arena_state);
-        if (newData.arena_state.phase === "PICKING") {
-          setSelectedAnswer(null);
-          setTypedAnswer("");
-          setSubmitStatus(null);
-          setAnswerTimings([]);
-          setBroadcastedAnswers(new Set());
-          syncStateRef.current.submitGuard = false;
-          syncStateRef.current.closeCalledForQuestion = null;
-          syncStateRef.current.nextTurnGuard = false;
+        // SYNCHRONIZATION GUARD: Only apply DB state if the phase has advanced.
+        // Prevents onLobbyChange from reverting optimistic broadcast state when
+        // the broadcast reached the client before the DB change notification.
+        const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
+        const dbPhase = newData.arena_state.phase;
+        const localPhase = gameStateRef.current.phase;
+        if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          setGameState(newData.arena_state);
+          if (newData.arena_state.phase === "PICKING") {
+            setSelectedAnswer(null);
+            setTypedAnswer("");
+            setSubmitStatus(null);
+            setAnswerTimings([]);
+            setBroadcastedAnswers(new Set());
+            syncStateRef.current.submitGuard = false;
+            syncStateRef.current.closeCalledForQuestion = null;
+            syncStateRef.current.nextTurnGuard = false;
+          }
         }
       }
     },
@@ -274,10 +289,6 @@ export default function SimultaneousBoard({
       }
     },
   });
-
-  // ── Ref for polling-overwrite guard (Bug #9: don't revert optimistic state) ──
-  const gameStateRef = useRef(gameState);
-  useEffect(() => { gameStateRef.current = gameState; });
 
   // ── Delayed connection-lost banner (smoother UX than instant flash) ──
   const [showDisconnected, setShowDisconnected] = useState(false);
@@ -866,13 +877,18 @@ export default function SimultaneousBoard({
     if (syncStateRef.current.nextTurnGuard) return;
     syncStateRef.current.nextTurnGuard = true;
 
-    // Optimistic local state update — instant phase change on picker's screen
-    setGameState((prev: any) => ({
-      ...prev,
-      phase: "PICKING",
-      activeQuestion: null,
-      timerEndTime: null,
-    }));
+    // Optimistic local state update — instant phase change on picker's screen.
+    // Append the closed question to the revealed list for immediate tile graying.
+    const closedId = activeQ?.id;
+    setGameState((prev: any) => {
+      const base = {
+        ...prev,
+        phase: "PICKING",
+        activeQuestion: null,
+        timerEndTime: null,
+      };
+      return closedId ? appendRevealedRound1(base, closedId) : base;
+    });
     setSelectedAnswer(null);
     setTypedAnswer("");
     setSubmitStatus(null);
