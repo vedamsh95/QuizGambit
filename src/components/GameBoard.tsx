@@ -162,6 +162,14 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
             setGradedPlayers({})
             setStatus('LOBBY')
             setBuzzedPlayerId(null)
+            // Track revealed question so grid stays synced across all clients
+            const qId = payload.questionId;
+            if (qId) {
+              setRevealedQuestions((prev) => {
+                if (prev.includes(qId)) return prev;
+                return [...prev, qId];
+              });
+            }
         }))
 
         return () => unsubs.forEach(fn => fn())

@@ -82,7 +82,9 @@ export default function GameBoardV2({
   const [status, setStatus] = useState<GamePhase>("LOBBY");
   const [activeQuestion, setActiveQuestion] = useState<any>(null);
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
-  const [revealedQuestions, setRevealedQuestions] = useState<string[]>([]);
+  // Round-aware: revealedQuestions is keyed by round number so switching
+  // rounds preserves each round's revealed tiles (no more resetting to [])
+  const [revealedQuestions, setRevealedQuestions] = useState<Record<number, string[]>>({});
   const [buzzedPlayerId, setBuzzedPlayerId] = useState<string | null>(null);
   const [gradedPlayers, setGradedPlayers] = useState<Record<string, "correct" | "wrong">>({});
   const [timer, setTimer] = useState(settings?.timer || 15);
@@ -95,6 +97,9 @@ export default function GameBoardV2({
   const [buzzTimestamps, setBuzzTimestamps] = useState<Record<string, number>>({});
 
   const totalRounds = settings?.rounds || 1;
+
+  // ── Derived: revealed questions for the current round only ────────────
+  const currentRoundRevealed = revealedQuestions[currentRound] || [];
 
   // ── Fetch remote categories (multiplayer) ──────────────────────────────
 
@@ -117,6 +122,22 @@ export default function GameBoardV2({
               cat.data.sort((a: any, b: any) => (a.points || 0) - (b.points || 0));
             });
             setRemoteCategories(Object.values(grouped));
+          }
+        });
+
+      // ── Restore persisted revealed questions (page refresh recovery) ──
+      supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", lobbyCode)
+        .single()
+        .then(({ data }) => {
+          // Prefer new round-aware format; fall back to legacy flat array
+          if (data?.settings?.revealed_questions_by_round) {
+            setRevealedQuestions(data.settings.revealed_questions_by_round);
+          } else if (data?.settings?.revealed_questions) {
+            // Legacy: treat flat array as round 1
+            setRevealedQuestions({ 1: data.settings.revealed_questions });
           }
         });
     }
@@ -145,6 +166,20 @@ export default function GameBoardV2({
     onPlayerChange: async () => {
       const { data } = await supabase.from("players").select("*").eq("lobby_code", lobbyCode);
       if (data) setPlayers(data.sort((a: any, b: any) => b.score - a.score));
+    },
+    onReconnect: async () => {
+      // Re-fetch revealed questions after WebSocket reconnection
+      const { data } = await supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", lobbyCode)
+        .single();
+      if (data?.settings?.revealed_questions_by_round) {
+        setRevealedQuestions(data.settings.revealed_questions_by_round);
+      } else if (data?.settings?.revealed_questions) {
+        // Legacy: treat flat array as round 1
+        setRevealedQuestions({ 1: data.settings.revealed_questions });
+      }
     },
   });
 
@@ -207,12 +242,22 @@ export default function GameBoardV2({
     );
 
     unsubs.push(
-      onBroadcast("question:close", () => {
+      onBroadcast("question:close", (payload: any) => {
         setActiveQuestion(null);
         setIsAnswerRevealed(false);
         setGradedPlayers({});
         setStatus("LOBBY");
         setBuzzedPlayerId(null);
+        // Track revealed question per round so grid stays synced across all clients
+        const qUid = payload.questionUid || payload.questionId;
+        const round = payload.round;
+        if (qUid && round) {
+          setRevealedQuestions((prev) => {
+            const roundArr = prev[round] || [];
+            if (roundArr.includes(qUid)) return prev;
+            return { ...prev, [round]: [...roundArr, qUid] };
+          });
+        }
       })
     );
 
@@ -347,8 +392,28 @@ export default function GameBoardV2({
   const handleCloseQuestion = useCallback(async () => {
     if (!activeQuestion) return;
 
+    const qUid = activeQuestion._uid || activeQuestion.id;
+    const roundKey = currentRound;
+    const shouldPersist = !isLocal && lobbyCode !== "LOCAL";
+
     if (isAnswerRevealed) {
-      setRevealedQuestions((prev) => [...prev, activeQuestion._uid || activeQuestion.id]);
+      setRevealedQuestions((prev) => {
+        const roundArr = prev[roundKey] || [];
+        if (roundArr.includes(qUid)) return prev;
+        const updated = { ...prev, [roundKey]: [...roundArr, qUid] };
+        // Fire-and-forget persistence with the correctly computed value
+        if (shouldPersist) {
+          supabase.rpc("update_lobby_setting_key", {
+            p_lobby_code: lobbyCode,
+            p_key: "revealed_questions_by_round",
+            p_value: updated,
+          }).then(
+            () => {},
+            (err) => console.error("[GameBoardV2] persist revealed_questions_by_round error:", err)
+          );
+        }
+        return updated;
+      });
     }
 
     setActiveQuestion(null);
@@ -358,14 +423,18 @@ export default function GameBoardV2({
     setBuzzedPlayerId(null);
     setIsTimerRunning(false);
 
-    if (!isLocal && lobbyCode !== "LOCAL") {
-      broadcast("question:close", { questionId: activeQuestion.id });
+    if (shouldPersist) {
+      broadcast("question:close", {
+        questionId: activeQuestion.id,
+        questionUid: qUid,
+        round: roundKey,
+      });
       await supabase
         .from("lobbies")
         .update({ status: "LOBBY", buzzed_player_id: null })
         .eq("code", lobbyCode);
     }
-  }, [activeQuestion, isAnswerRevealed, isLocal, lobbyCode, broadcast]);
+  }, [activeQuestion, isAnswerRevealed, currentRound, isLocal, lobbyCode, broadcast]);
 
   const handleOpenBuzzers = useCallback(async () => {
     setStatus("BUZZING");
@@ -511,11 +580,6 @@ export default function GameBoardV2({
   useEffect(() => { roundRef.current = currentRound; });
   useEffect(() => { buzzedPlayerIdRef.current = buzzedPlayerId; });
 
-  // ── Reset revealed questions when round changes ───────────────────────
-
-  useEffect(() => {
-    setRevealedQuestions([]);
-  }, [currentRound]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────
 
@@ -683,7 +747,7 @@ export default function GameBoardV2({
           ) : (
             <QuestionGrid
               categories={currentRoundCats}
-              revealedQuestions={revealedQuestions}
+              revealedQuestions={currentRoundRevealed}
               onSelect={handleRevealQuestion}
               colCount={Math.min(currentRoundCats.length, 6)}
             />

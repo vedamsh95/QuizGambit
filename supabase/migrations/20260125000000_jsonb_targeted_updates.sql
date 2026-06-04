@@ -78,9 +78,14 @@ BEGIN
     status = 'LOBBY',
     buzzed_player_id = NULL,
     current_question_id = NULL,
+    -- Clear round-aware revealed state (new format used by GameBoardV2 + SimultaneousBoard)
     settings = COALESCE(settings, '{}'::jsonb) - 'round_categories'
                                             - 'draft'
-                                            || '{"revealed_questions": []}'::jsonb
+                                            - 'revealed_questions'
+                                            - 'revealed_questions_by_round'
+                                            - 'simultaneous_categories',
+    -- Nuke stale arena_state so start_simultaneous_session doesn't "resume" old games
+    arena_state = NULL
   WHERE code = p_lobby_code;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

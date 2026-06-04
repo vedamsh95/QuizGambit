@@ -196,6 +196,23 @@ export default function BuzzerPlayerView() {
       })
     );
 
+    // ── Question open/close broadcasts — instant status sync, no DB wait ──
+    unsubs.push(
+      onBroadcast("question:open", () => {
+        setGameStatus("READING");
+        setBuzzedPlayerId(null);
+        setBuzzState("locked");
+      })
+    );
+
+    unsubs.push(
+      onBroadcast("question:close", () => {
+        setGameStatus("LOBBY");
+        setBuzzedPlayerId(null);
+        setBuzzState("locked");
+      })
+    );
+
     unsubs.push(
       onBroadcast("phase:change", (payload: any) => {
         setGameStatus(payload.phase);

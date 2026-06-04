@@ -70,6 +70,13 @@ function getAvatarColor(name: string, idx: number) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// BUG FIX #15: Stable sort for answer timings — ties broken by rank then player_id
+function stableAnswerSort(a: any, b: any): number {
+  if (a.answer_time_ms !== b.answer_time_ms) return a.answer_time_ms - b.answer_time_ms;
+  if (a.rank !== b.rank) return (a.rank ?? 999) - (b.rank ?? 999);
+  return (a.player_id || "").localeCompare(b.player_id || "");
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function SimultaneousBoard({
@@ -113,9 +120,32 @@ export default function SimultaneousBoard({
     phase: "PICKING",
     pickerId: null,
     activeQuestion: null,
-    revealedQuestions: [],
+    // Round-aware: revealed_questions_by_round = { "1": [...] } matches GameBoardV2
+    // Legacy fallback: old DB rows may have revealedQuestions (flat array)
+    revealed_questions_by_round: {},
     timerEndTime: null,
   });
+
+  // ── Derived: flat revealed array for current round ──
+  // Simultaneous mode uses round "1" as the only round.
+  // Backward compat: falls back to legacy revealedQuestions flat array from old DB rows.
+  const currentRoundRevealed: string[] =
+    gameState.revealed_questions_by_round?.["1"] ||
+    (Array.isArray(gameState.revealedQuestions) ? gameState.revealedQuestions : []);
+
+  // Helper: immutably add a question ID to revealed_questions_by_round -> 1
+  const appendRevealedRound1 = (prev: any, qId: string) => {
+    const existing = prev.revealed_questions_by_round?.["1"] ||
+      (Array.isArray(prev.revealedQuestions) ? prev.revealedQuestions : []);
+    if (existing.includes(qId)) return prev;
+    return {
+      ...prev,
+      revealed_questions_by_round: {
+        ...(prev.revealed_questions_by_round || {}),
+        "1": Array.from(new Set([...existing, qId])),
+      },
+    };
+  };
 
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [typedAnswer, setTypedAnswer] = useState("");
@@ -157,6 +187,10 @@ export default function SimultaneousBoard({
     lastBroadcastTick: 0,
     submitGuard: false,
     closeCalledForQuestion: null as string | null,  // prevent duplicate force_close calls
+    // Clock-skew fix: track when WE received the question (performance.now()), not the picker's clock
+    questionReceivedAt: 0,
+    // Debounce: prevent duplicate nextTurn from picker + winner clicking simultaneously
+    nextTurnGuard: false,
   });
 
   // ── Realtime channel (single channel for presence + broadcast + postgres_changes) ──
@@ -189,6 +223,7 @@ export default function SimultaneousBoard({
           setBroadcastedAnswers(new Set());
           syncStateRef.current.submitGuard = false;
           syncStateRef.current.closeCalledForQuestion = null;
+          syncStateRef.current.nextTurnGuard = false;
         }
       }
     },
@@ -203,9 +238,14 @@ export default function SimultaneousBoard({
     onArenaAnswer: (payload: any) => {
       const newAnswer = payload.new as AnswerTiming;
       setAnswerTimings((prev) => {
-        const exists = prev.find((a) => a.player_id === newAnswer.player_id);
-        if (exists) return prev;
-        return [...prev, newAnswer].sort((a, b) => a.answer_time_ms - b.answer_time_ms);
+        const existsIdx = prev.findIndex((a) => a.player_id === newAnswer.player_id);
+        if (existsIdx >= 0) {
+          // BUG FIX #12: Replace existing entry (handles timeout → real answer updates)
+          const updated = [...prev];
+          updated[existsIdx] = newAnswer;
+          return updated.sort(stableAnswerSort);
+        }
+        return [...prev, newAnswer].sort(stableAnswerSort);
       });
       if (newAnswer.player_id === effectivePlayerId) {
         setSubmitStatus(newAnswer.is_correct ? "✅ Correct!" : "❌ Wrong");
@@ -218,9 +258,26 @@ export default function SimultaneousBoard({
         .select("*")
         .eq("code", code)
         .maybeSingle();
-      if (lobbyData?.arena_state) setGameState(lobbyData.arena_state);
+      if (lobbyData?.arena_state) {
+        setGameState(lobbyData.arena_state);
+        // BUG FIX #7: Re-fetch answer timings if reconnecting during RESULTS
+        const qId = lobbyData.arena_state.activeQuestion?.id;
+        if (lobbyData.arena_state.phase === "RESULTS" && qId) {
+          const { data: answers } = await supabase
+            .from("simultaneous_answers")
+            .select("*")
+            .eq("lobby_code", code)
+            .eq("question_id", qId)
+            .order("rank", { ascending: true });
+          if (answers) setAnswerTimings(answers);
+        }
+      }
     },
   });
+
+  // ── Ref for polling-overwrite guard (Bug #9: don't revert optimistic state) ──
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; });
 
   // ── Delayed connection-lost banner (smoother UX than instant flash) ──
   const [showDisconnected, setShowDisconnected] = useState(false);
@@ -249,7 +306,10 @@ export default function SimultaneousBoard({
 
   const isHost = lobby?.host_id === effectivePlayerId;
   const cleanId = (id: any) => String(id || "").trim();
-  const effectivePickerId = gameState.pickerId || players[0]?.id;
+  // CRITICAL FIX: Don't fallback to players[0] — it's sorted by score and changes
+  // whenever someone scores, shifting picker identity mid-game. If pickerId is null
+  // (game not yet initialized), isPicker is false which is correct.
+  const effectivePickerId = gameState.pickerId;
   const isPicker = cleanId(effectivePlayerId) === cleanId(effectivePickerId);
   const pickerName = players.find((p) => cleanId(p.id) === cleanId(effectivePickerId))?.name || "Unknown";
   const activeQ = gameState.activeQuestion;
@@ -273,6 +333,8 @@ export default function SimultaneousBoard({
 
     unsubs.push(
       onBroadcast("answer:submit", (payload: any) => {
+        // BUG FIX #10: Don't show ourselves as "answering..." in sidebar
+        if (payload.playerId === effectivePlayerId) return;
         setBroadcastedAnswers((prev) => {
           const next = new Set(prev);
           next.add(payload.playerId);
@@ -282,12 +344,25 @@ export default function SimultaneousBoard({
     );
 
     unsubs.push(
-      onBroadcast("question:open", () => {
+      onBroadcast("question:open", (payload: any) => {
         setSelectedAnswer(null);
         setTypedAnswer("");
         setSubmitStatus(null);
         setBroadcastedAnswers(new Set());
         syncStateRef.current.submitGuard = false;
+        // Clock-skew fix: record when WE received the broadcast using our own monotonic clock
+        syncStateRef.current.questionReceivedAt = performance.now();
+        // Immediately show the question + mark tile revealed on ALL clients — broadcast-first, no DB wait
+        if (payload.question) {
+          // Each client derives timerEndTime from their OWN clock, eliminating cross-device clock skew
+          const localTimerEnd = Math.floor(Date.now() / 1000) + (payload.timerSecs || 15);
+          setGameState((prev: any) => appendRevealedRound1({
+            ...prev,
+            phase: "OPEN",
+            activeQuestion: payload.question,
+            timerEndTime: localTimerEnd,
+          }, payload.questionId));
+        }
       })
     );
 
@@ -301,6 +376,19 @@ export default function SimultaneousBoard({
           setBroadcastedAnswers(new Set());
           syncStateRef.current.submitGuard = false;
           syncStateRef.current.closeCalledForQuestion = null;
+          syncStateRef.current.nextTurnGuard = false;
+          // Immediately transition to PICKING phase + mark tile revealed on ALL clients
+          setGameState((prev: any) => {
+            const base = {
+              ...prev,
+              phase: "PICKING",
+              activeQuestion: null,
+              timerEndTime: null,
+            };
+            return payload.closedQuestionId
+              ? appendRevealedRound1(base, payload.closedQuestionId)
+              : base;
+          });
         }
       })
     );
@@ -308,7 +396,25 @@ export default function SimultaneousBoard({
     unsubs.push(
       onBroadcast("player:leave", (payload: any) => {
         if (payload.playerId) {
-          setPlayers((prev) => prev.filter((p) => p.id !== payload.playerId));
+          setPlayers((prev) => {
+            const remaining = prev.filter((p) => p.id !== payload.playerId);
+            // BUG FIX #8: If a player leaves during OPEN and all remaining
+            // have answered, force-close so the game doesn't wait forever
+            if (gameStateRef.current.phase === "OPEN" && remaining.length > 0) {
+              // Deduplicate: count unique players who answered (DB-confirmed or broadcasted)
+              const answeredPlayers = new Set([
+                ...answerTimings.map(a => a.player_id),
+                ...Array.from(broadcastedAnswers),
+              ]);
+              if (answeredPlayers.size >= remaining.length) {
+                supabase.rpc("force_close_simultaneous_question", { p_lobby_code: code }).then(
+                  () => {},
+                  () => {}
+                );
+              }
+            }
+            return remaining;
+          });
         }
       })
     );
@@ -451,7 +557,15 @@ export default function SimultaneousBoard({
         if (!lobbyData) return;
 
         setLobby(lobbyData);
-        if (lobbyData.arena_state) setGameState(lobbyData.arena_state);
+        // BUG FIX #9: Only apply polling state if DB phase advanced (don't revert optimistic state)
+        if (lobbyData.arena_state) {
+          const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
+          const dbPhase = lobbyData.arena_state.phase;
+          const localPhase = gameStateRef.current.phase;
+          if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+            setGameState(lobbyData.arena_state);
+          }
+        }
 
         // Fetch players
         const { data: playerData } = await supabase
@@ -510,14 +624,15 @@ export default function SimultaneousBoard({
     return count;
   }, [categories]);
 
+  // BUG FIX #11: Game-over detection in any phase when no question is active.
+  // Previously only checked in PICKING, requiring an extra "Next Round" click after
+  // the last question's RESULTS. Now also triggers from RESULTS without that click,
+  // but NOT during OPEN (would block players from seeing/answering the last question).
   useEffect(() => {
-    if (gameState.phase === "PICKING" && totalRevealableQuestions > 0) {
-      const revealed = gameState.revealedQuestions || [];
-      if (revealed.length >= totalRevealableQuestions) {
-        setIsGameOver(true);
-      }
+    if (!activeQ && totalRevealableQuestions > 0 && currentRoundRevealed.length >= totalRevealableQuestions) {
+      setIsGameOver(true);
     }
-  }, [gameState.phase, gameState.revealedQuestions, totalRevealableQuestions]);
+  }, [activeQ, currentRoundRevealed, totalRevealableQuestions]);
 
   // ── Timer Logic ──────────────────────────────────────────────────────
 
@@ -538,7 +653,8 @@ export default function SimultaneousBoard({
         broadcast("timer:tick", { remainingSec: displayRemaining });
       }
 
-      if (rawRemaining <= -2 && gameState.phase === "OPEN") {
+      // BUG FIX #4: Only the HOST auto-closes — prevents 4× RPC spam
+      if (isHost && rawRemaining <= -2 && gameState.phase === "OPEN") {
         const qId = gameState.activeQuestion?.id;
         if (qId && syncStateRef.current.closeCalledForQuestion !== qId) {
           syncStateRef.current.closeCalledForQuestion = qId;
@@ -568,46 +684,63 @@ export default function SimultaneousBoard({
     }
 
     const qId = q.id || `${categoryName}-${q.points}`;
-    if ((gameState.revealedQuestions || []).includes(qId)) return;
+    if (currentRoundRevealed.includes(qId)) return;
 
     setQuestionError("");
 
+    const timerSecs = lobby?.settings?.timer || 15;
+    // Clock-skew fix: send relative timerSecs instead of absolute timerEndTime.
+    // Each client computes timerEndTime from their OWN Date.now(), eliminating
+    // cross-device clock skew. The RPC still uses server time for persistence.
+    const questionData = { ...q, id: qId, category: categoryName };
+
+    // Broadcast FULL payload instantly — reaches all clients in <50ms via WebSocket
     broadcast("question:open", {
       questionId: qId,
       category: categoryName,
       points: q.points,
+      question: questionData,
+      timerSecs,
     });
 
-    const timerSecs = lobby?.settings?.timer || 15;
+    // Optimistic local state update — picker computes timerEndTime from THEIR own clock
+    const localTimerEnd = Math.floor(Date.now() / 1000) + timerSecs;
+    syncStateRef.current.questionReceivedAt = performance.now();
+    setGameState((prev: any) => appendRevealedRound1({
+      ...prev,
+      phase: "OPEN",
+      activeQuestion: questionData,
+      timerEndTime: localTimerEnd,
+    }, qId));
 
-    try {
-      const { data: qResult, error: qErr } = await supabase.rpc("open_simultaneous_question", {
-        p_lobby_code: code,
-        p_question_data: {
-          ...q,
-          id: qId,
-          category: categoryName,
-        },
-        p_timer_seconds: timerSecs,
-      });
-
-      if (qErr) {
-        console.error("[Simul] RPC open_simultaneous_question error:", qErr);
-        setQuestionError(qErr.message || "Failed to open question");
-        return;
+    // Fire-and-forget RPC for persistence — DB is NOT in the critical path
+    supabase.rpc("open_simultaneous_question", {
+      p_lobby_code: code,
+      p_question_data: { ...questionData, questionStartTime: Date.now() },
+      p_timer_seconds: timerSecs,
+    }).then(
+      ({ data: qResult, error: qErr }: any) => {
+        if (qErr) {
+          console.error("[Simul] RPC open_simultaneous_question error:", qErr);
+          setQuestionError(qErr.message || "Failed to open question");
+          // CRITICAL FIX: Roll back optimistic state — player is stuck on phantom overlay otherwise
+          setGameState((prev: any) => ({ ...prev, phase: "PICKING", activeQuestion: null, timerEndTime: null }));
+          return;
+        }
+        if (qResult?.success === false) {
+          console.error("[Simul] RPC returned failure:", qResult.error);
+          setQuestionError(qResult.error || "Cannot open question now");
+          // CRITICAL FIX: Roll back optimistic state
+          setGameState((prev: any) => ({ ...prev, phase: "PICKING", activeQuestion: null, timerEndTime: null }));
+        }
+      },
+      (err: any) => {
+        console.error("[Simul] openQuestion RPC exception:", err);
+        setQuestionError(err?.message || "Network error opening question");
+        // CRITICAL FIX: Roll back optimistic state
+        setGameState((prev: any) => ({ ...prev, phase: "PICKING", activeQuestion: null, timerEndTime: null }));
       }
-
-      if (qResult?.success === false) {
-        console.error("[Simul] RPC returned failure:", qResult.error);
-        setQuestionError(qResult.error || "Cannot open question now");
-        return;
-      }
-
-      console.log("[Simul] Question opened:", { qId, timerSecs, timerEndTime: qResult?.timerEndTime });
-    } catch (err: any) {
-      console.error("[Simul] openQuestion exception:", err);
-      setQuestionError(err?.message || "Network error opening question");
-    }
+    );
   };
 
   const handleAnswer = async (answer: string) => {
@@ -617,13 +750,14 @@ export default function SimultaneousBoard({
     setSelectedAnswer(answer);
     setSubmitStatus("Submitting...");
 
-    const startTime = activeQ.questionStartTime;
-    let clientTimeMs = startTime
-      ? Math.max(0, Date.now() - startTime)
+    // Clock-skew fix: use performance.now() delta since WE received the question,
+    // not the picker's absolute clock. This is accurate regardless of device clock drift.
+    const elapsed = syncStateRef.current.questionReceivedAt > 0
+      ? performance.now() - syncStateRef.current.questionReceivedAt
       : 0;
+    let clientTimeMs = Math.max(0, Math.round(elapsed));
     // Safety: ensure clientTimeMs is a valid integer (NaN/Infinity → 0)
     if (!Number.isFinite(clientTimeMs)) clientTimeMs = 0;
-    clientTimeMs = Math.round(clientTimeMs);
 
     // ── effectivePlayerId is guaranteed valid (see mount-time initialization) ──
     // No need for safePlayerId check — use directly.
@@ -724,15 +858,39 @@ export default function SimultaneousBoard({
   };
 
   const nextTurn = async () => {
-    if (!isPicker && effectivePlayerId !== answerTimings.find((a) => a.rank === 1)?.player_id) return;
+    // BUG FIX #14: Also allow anyone who has submitted an answer (optimistic) to click.
+    // If answerTimings hasn't synced yet, the rank-1 winner would otherwise be locked out.
+    const hasAnswered = selectedAnswer !== null || broadcastedAnswers.has(effectivePlayerId);
+    if (!isPicker && !hasAnswered && effectivePlayerId !== answerTimings.find((a) => a.rank === 1)?.player_id) return;
+    // BUG FIX #6: Debounce duplicate nextTurn from picker + winner clicking simultaneously
+    if (syncStateRef.current.nextTurnGuard) return;
+    syncStateRef.current.nextTurnGuard = true;
 
-    broadcast("phase:change", { phase: "PICKING" });
+    // Optimistic local state update — instant phase change on picker's screen
+    setGameState((prev: any) => ({
+      ...prev,
+      phase: "PICKING",
+      activeQuestion: null,
+      timerEndTime: null,
+    }));
+    setSelectedAnswer(null);
+    setTypedAnswer("");
+    setSubmitStatus(null);
+    setAnswerTimings([]);
+    setBroadcastedAnswers(new Set());
+    syncStateRef.current.submitGuard = false;
+    syncStateRef.current.closeCalledForQuestion = null;
+    syncStateRef.current.questionReceivedAt = 0;
 
-    const { data, error } = await supabase.rpc("next_simultaneous_turn", {
+    broadcast("phase:change", { phase: "PICKING", closedQuestionId: activeQ?.id });
+
+    // Fire-and-forget RPC — DB is NOT in the critical path
+    supabase.rpc("next_simultaneous_turn", {
       p_lobby_code: code,
-    });
-
-    if (error) console.error("next_simultaneous_turn error:", error);
+    }).then(
+      () => {},
+      (error) => console.error("next_simultaneous_turn error:", error)
+    );
   };
 
   // ── Render ───────────────────────────────────────────────────────────
@@ -1025,6 +1183,15 @@ export default function SimultaneousBoard({
             </div>
           ) : (
             /* ── 5×5 GRID ──────────────────────────────────────────── */
+            categories.length === 0 ? (
+              /* BUG FIX #13: Empty grid fallback — show error instead of blank screen */
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center space-y-3">
+                  <p className="text-warm-gray/50 font-medium text-sm">No categories loaded</p>
+                  <p className="text-warm-gray/40 text-xs">Please refresh the page or ask the host to restart the game.</p>
+                </div>
+              </div>
+            ) : (
             <div
               className="grid gap-1 sm:gap-2 h-full overflow-y-auto"
               style={{
@@ -1061,7 +1228,7 @@ export default function SimultaneousBoard({
                         .sort((a: any, b: any) => a.points - b.points)
                         .map((q: any) => {
                           const qId = q.id || `${displayName}-${q.points}`;
-                          const isRevealed = (gameState.revealedQuestions || []).includes(qId);
+                          const isRevealed = currentRoundRevealed.includes(qId);
                           const canClick = isPicker && gameState.phase === "PICKING" && !isRevealed;
 
                           return (
@@ -1081,6 +1248,7 @@ export default function SimultaneousBoard({
                 );
               })}
             </div>
+            )
           )}
         </div>
 

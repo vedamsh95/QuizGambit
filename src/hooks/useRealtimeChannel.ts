@@ -27,8 +27,8 @@ export interface BroadcastEvents {
   'timer:tick': { remainingSec: number }
   'timer:expired': { questionId: string }
   'turn:next': { nextPickerId: string }
-  'question:open': { questionId: string; category: string; points: number }
-  'question:close': { questionId: string }
+  'question:open': { questionId: string; category: string; points: number; question?: any; timerSecs?: number }
+  'question:close': { questionId: string; questionUid?: string; round?: number }
   'phase:change': { phase: string; data?: any }
   'heartbeat': { playerId: string }
   'score:update': { playerId: string; score: number }
