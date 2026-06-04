@@ -535,10 +535,14 @@ export default function SimultaneousBoard({
   }, [code]);
 
   // Reset local state when active question changes
+  // BUG FIX: Also set questionReceivedAt here — the lobby-change path (onLobbyChange)
+  // doesn't go through the broadcast handler, so questionReceivedAt stayed at 0 for
+  // non-host players, causing 0.0s answer times until they refreshed.
   useEffect(() => {
     const qId = activeQ?.id;
     if (!qId || syncStateRef.current.lastQuestionId === qId) return;
     syncStateRef.current.lastQuestionId = qId;
+    syncStateRef.current.questionReceivedAt = performance.now();
     setSelectedAnswer(null);
     setTypedAnswer("");
     setSubmitStatus(null);
@@ -547,15 +551,36 @@ export default function SimultaneousBoard({
     syncStateRef.current.submitGuard = false;
   }, [activeQ?.id]);
 
-  // ── Polling fallback (only when realtime isn't connected) ───────────
+  // ── Polling fallback ────────────────────────────────────────────────
+  // BUG FIX: Two-phase polling. Fast (3s) when disconnected, slow (10s) safety
+  // poll when connected. The first postgres_changes event after channel subscription
+  // can be silently dropped by Supabase Realtime, leaving players stuck on the grid.
+  // The slow safety poll catches missed events without excessive DB load.
 
   const isConnectedRef = useRef(isConnected);
   useEffect(() => { isConnectedRef.current = isConnected; });
 
+  // Track how long the channel has been connected — after 30s of stable connection,
+  // disable safety polling entirely (realtime is reliable by then).
+  const connectedSinceRef = useRef<number | null>(null);
   useEffect(() => {
+    if (isConnected && connectedSinceRef.current === null) {
+      connectedSinceRef.current = Date.now();
+    } else if (!isConnected) {
+      connectedSinceRef.current = null;
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+    const intervalMs = isConnectedRef.current ? 10000 : 3000; // 10s when connected, 3s when disconnected
+    const maxSafetyPollDuration = 30000; // Stop safety polling after 30s of stable connection
+
     const poll = setInterval(async () => {
-      // Skip polling when realtime channel is connected (avoid redundant DB calls)
-      if (isConnectedRef.current) return;
+      // During connection: skip safety poll if channel has been stable for >30s
+      if (isConnectedRef.current && connectedSinceRef.current) {
+        const stableDuration = Date.now() - connectedSinceRef.current;
+        if (stableDuration > maxSafetyPollDuration) return;
+      }
 
       try {
         // Fetch lobby state
