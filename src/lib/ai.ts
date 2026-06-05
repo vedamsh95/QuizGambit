@@ -1,6 +1,7 @@
 import { SYSTEM_PROMPT_STANDARD, SYSTEM_PROMPT_ARENA } from './prompts';
-
-// function mockData... (unchanged)
+import { generateQuestions, generateGridQuestions } from './ai/generator';
+import { formatAuditReport } from './ai/auditor';
+import type { GenerationConfig, GenerationResult, QuizGambitQuestion, PlayerPersona, GameMode } from './ai/types';
 
 // Aggressive Client-Side JSON Repair
 function aggressiveJsonRepair(raw: string): any {
@@ -194,7 +195,7 @@ export async function generateQuizQuestions(topics: string | string[], config: A
 }
 
 
-interface AIConfig {
+export interface AIConfig {
     provider: string;
     apiKey: string;
     model: string;
@@ -202,4 +203,108 @@ interface AIConfig {
     mode?: 'STANDARD' | 'ARENA';
     difficulty?: string;
     customPrompt?: string; // Allow Admin to inject raw prompt
+}
+
+// ─── New Unified Architecture (V2) ──────────────────────────────────
+
+/**
+ * Generate quiz questions using the unified PICCO prompt architecture.
+ * This uses the 10×5 lens/form matrix, backdoor engineering,
+ * micro-pyramidal pacing, and the 4-stage pipeline with calibrated LLM params.
+ * 
+ * Source: AI_QUESTION_UNIFIED_ARCHITECTURE.md
+ */
+export async function generateQuizQuestionsV2(
+    topics: string | string[],
+    config: AIConfig,
+    persona: PlayerPersona = 'Casual Explorer',
+): Promise<GenerationResult> {
+    const topicList = Array.isArray(topics) ? topics : [topics];
+
+    const genConfig: GenerationConfig = {
+        topics: topicList,
+        questionCount: config.questionCount || 5,
+        persona,
+        mode: (config.mode || 'STANDARD') as GameMode,
+        provider: config.provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        difficulty: config.difficulty,
+        customPrompt: config.customPrompt,
+    };
+
+    console.log(`[AI V2] Starting unified generation for ${topicList.length} topic(s)...`);
+    console.log(`[AI V2] Persona: ${persona}, Mode: ${config.mode}, Count: ${config.questionCount}`);
+
+    const result = await generateQuestions(genConfig);
+
+    console.log(`[AI V2] Generation complete:`);
+    console.log(`  Questions: ${result.questions.length}`);
+    console.log(`  API Calls: ${result.total_api_calls}`);
+    console.log(`  Regenerations: ${result.regenerations}`);
+    console.log(formatAuditReport(result.audit));
+
+    return result;
+}
+
+/**
+ * Convert V2 GenerationResult to the legacy category format.
+ * This enables gradual migration of existing code.
+ */
+export function v2ToLegacyFormat(
+    result: GenerationResult,
+    topicName: string,
+): Array<{
+    name: string;
+    main_category: string;
+    description: string;
+    data: QuizGambitQuestion[];
+    tags: string[];
+}> {
+    return [{
+        name: topicName,
+        main_category: topicName,
+        description: `AI Generated: ${topicName}`,
+        data: result.questions,
+        tags: [topicName],
+    }];
+}
+
+export type { GenerationResult, QuizGambitQuestion, PlayerPersona, GameMode };
+
+// ─── 5×5 Grid Mode Generation (V2) ─────────────────────────────────
+
+/**
+ * Generate 5×5 grid questions for a single topic.
+ * Produces exactly 5 questions at locked point tiers [100, 200, 300, 400, 500].
+ * Each question includes a "tag" for betting/intuition grid mode.
+ * 
+ * Use once per category/topic column for the 5×5 grid game.
+ */
+export async function generateGridQuizQuestions(
+    topic: string,
+    config: AIConfig,
+    persona: PlayerPersona = 'Casual Explorer',
+): Promise<GenerationResult> {
+    const genConfig: GenerationConfig = {
+        topics: [topic],
+        questionCount: 5,
+        persona,
+        mode: 'GRID' as GameMode,
+        provider: config.provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        difficulty: config.difficulty,
+    };
+
+    console.log(`[AI Grid] Generating 5×5 grid questions for: ${topic}`);
+    console.log(`[AI Grid] Persona: ${persona}, Provider: ${config.provider}`);
+
+    const result = await generateGridQuestions(genConfig);
+
+    console.log(`[AI Grid] Complete: ${result.questions.length} questions generated`);
+    console.log(`[AI Grid] API Calls: ${result.total_api_calls}, Regenerations: ${result.regenerations}`);
+    console.log(formatAuditReport(result.audit));
+
+    return result;
 }
