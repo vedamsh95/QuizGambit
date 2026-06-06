@@ -145,21 +145,25 @@ export interface QuizGambitQuestion {
 
 /** Backdoor logic section within the XML <analysis> block */
 export interface BackdoorLogic {
-  type: BackdoorType;
-  expert_clue: string;       // Words 1-8
-  bridge: string;             // Words 9-17
-  giveaway: string;           // Words 18-22
-  deduction_path: string;     // How a player figures this out without prior knowledge
+  type?: BackdoorType;
+  expert_clue?: string;
+  opening_hook?: string;
+  bridge?: string;
+  bridge_context?: string;
+  giveaway?: string;
+  giveaway_anchor?: string;
+  deduction_path?: string;
 }
 
 /** Constraint check section within the XML <analysis> block */
 export interface ConstraintCheck {
-  one_sentence: boolean;
-  under_word_limit: boolean;   // hard max 30 words (ideal ~25)
-  word_count: number;
-  banned_starter_avoided: boolean;
-  micro_pyramidal: boolean;
-  backdoor_present: boolean;
+  one_sentence?: boolean;
+  under_word_limit?: boolean;
+  word_count?: number | string;
+  banned_starter_avoided?: boolean;
+  micro_pyramidal?: boolean;
+  micro_pyramidal_flow?: boolean;
+  backdoor_present?: boolean;
   backdoor_pathway?: string;
 }
 

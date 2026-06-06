@@ -16,7 +16,6 @@ import {
   QuestionPreview,
   AuditPanel,
   GenerationLogs,
-  SaveToLibrary,
   LoadFromLibrary,
   GenerateButton,
 } from "./ai-generator";
@@ -581,6 +580,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         ...(generationMode === "themed" ? { theme: theme.trim(), subtopics } : {}),
       });
 
+      let finalResults = genResults;
       if (appending && results.length === 1) {
         // Append: merge new questions into the existing result for this topic
         const existing = results[0];
@@ -590,7 +590,8 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           total_api_calls: existing.total_api_calls + genResults[0].total_api_calls,
           regenerations: existing.regenerations + genResults[0].regenerations,
         };
-        setResults([merged]);
+        finalResults = [merged];
+        setResults(finalResults);
         addLog(
           `✅ Appended ${genResults[0].questions.length} questions — total: ${merged.questions.length}`,
           "success",
@@ -609,9 +610,74 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           store.addRecentTopic(topicNames[i] || topicList[i]);
         }
 
-        setResults(genResults);
+        setResults(finalResults);
       }
       setStatus("success");
+
+      // Auto-save logic
+      if (user) {
+        let savedCount = 0;
+        addLog("💾 Auto-saving to library...", "info");
+        for (let i = 0; i < finalResults.length; i++) {
+          const r = finalResults[i];
+          const topicName = topicNames[i] || `Topic ${i + 1}`;
+          const subtopicMeta = generationMode === "themed" ? subtopics[i] : undefined;
+          const tags = ["Grid", topicName];
+          if (generationMode === "themed" && theme.trim()) {
+            tags.push(`Theme:${theme.trim()}`);
+          }
+          if (subtopicMeta) {
+            tags.push(subtopicMeta.type, subtopicMeta.domain, subtopicMeta.style);
+          }
+          try {
+            // Check if topic exists in library for this user
+            const { data: existingTopic } = await supabase
+              .from("categories_library")
+              .select("id, data")
+              .eq("name", topicName)
+              .eq("created_by", user.id)
+              .single();
+
+            if (existingTopic) {
+              // Merge questions without duplicates (by question text)
+              const existingQuestions = existingTopic.data || [];
+              const newQuestions = r.questions.filter(
+                (nq) => !existingQuestions.some((eq: any) => eq.question === nq.question)
+              );
+
+              if (newQuestions.length > 0) {
+                const mergedQuestions = [...existingQuestions, ...newQuestions];
+                const { error } = await supabase
+                  .from("categories_library")
+                  .update({ data: mergedQuestions, tags })
+                  .eq("id", existingTopic.id);
+                if (!error) savedCount++;
+              } else {
+                addLog(`⚠️ No new questions appended for ${topicName} (all were duplicates).`, "info");
+              }
+            } else {
+              // Insert new topic
+              const { error } = await supabase.from("categories_library").insert([
+                {
+                  name: topicName,
+                  main_category: generationMode === "themed" && theme.trim() ? theme.trim() : topicName,
+                  description: `AI Generated: ${topicName}${generationMode === "themed" ? ` (Theme: ${theme.trim()})` : ""}`,
+                  data: r.questions,
+                  is_global: true,
+                  tags,
+                  created_by: user.id,
+                },
+              ]);
+              if (!error) savedCount++;
+            }
+          } catch (e: any) {
+            addLog(`❌ Auto-save failed for ${topicName}: ${e.message}`, "error");
+          }
+        }
+        if (savedCount > 0) {
+          addLog(`✅ Saved ${savedCount} topic(s) to your library!`, "success");
+        }
+      }
 
       // Auto-scroll to results
       setTimeout(() => {
@@ -622,26 +688,6 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
       setStatus("error");
     }
   };
-
-  // ── Convert results to TopicData for SaveToLibrary ────────────────
-  const saveTopics: TopicData[] = results.map((r, i) => {
-    const topicName = topicNames[i] || `Topic ${i + 1}`;
-    const subtopicMeta = generationMode === "themed" ? subtopics[i] : undefined;
-    const tags = ["Grid", topicName];
-    if (generationMode === "themed" && theme.trim()) {
-      tags.push(`Theme:${theme.trim()}`);
-    }
-    if (subtopicMeta) {
-      tags.push(subtopicMeta.type, subtopicMeta.domain, subtopicMeta.style);
-    }
-    return {
-      name: topicName,
-      mainCategory: generationMode === "themed" && theme.trim() ? theme.trim() : topicName,
-      questions: r.questions,
-      tags,
-      description: `AI Generated: ${topicName}${generationMode === "themed" ? ` (Theme: ${theme.trim()})` : ""}`,
-    };
-  });
 
   // ── Auth gate: non-authenticated users see a prompt ───────────────
   if (authChecked && !user) {
@@ -1013,28 +1059,12 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
                   </span>
                 </h3>
 
-                {/* Questions */}
-                <div className="space-y-3">
-                  {result.questions.map((q, qi) => (
-                    <QuestionPreview
-                      key={qi}
-                      question={q}
-                      index={qi}
-                      solverResult={
-                        result.solver_results?.[qi]
-                          ? {
-                              solved_correctly: result.solver_results[qi].solved_correctly,
-                              confidence: result.solver_results[qi].confidence,
-                            }
-                          : undefined
-                      }
-                      factCheckResult={
-                        result.fact_check
-                          ? { verified: result.fact_check.all_verified }
-                          : undefined
-                      }
-                    />
-                  ))}
+                {/* Questions Blocked for Suspense */}
+                <div className="clay p-5 text-center bg-soft-purple-light/20 border-soft-purple/30">
+                  <p className="font-outfit font-black text-soft-purple text-lg mb-1">🤫 Questions Hidden</p>
+                  <p className="text-sm font-medium text-plum/60">
+                    The {result.questions.length} questions have been auto-saved to your Library. We hide them here so you can play with your friends without seeing the answers!
+                  </p>
                 </div>
 
                 {/* Audit */}
@@ -1045,9 +1075,6 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
                 />
               </div>
             ))}
-
-            {/* Save to Library */}
-            <SaveToLibrary topics={saveTopics} />
 
             {/* Logs */}
             <GenerationLogs

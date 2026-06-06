@@ -29,7 +29,7 @@ import { competitiveDuelistInjection } from './prompts/personas/competitive-duel
 import { partyGroupInjection } from './prompts/personas/party-group';
 import { speedRunnerInjection } from './prompts/personas/speed-runner';
 import { deepLearnerInjection } from './prompts/personas/deep-learner';
-import { parseAnalysisBlocks, validateQuestion, parseJsonOutput, validateAnswersNotInQuestions } from './parser';
+import { validateQuestion, validateAnswersNotInQuestions } from './parser';
 import { auditDiversity, formatAuditReport, suggestAssignments } from './auditor';
 
 // ─── Persona Injection Map ──────────────────────────────────────────
@@ -63,7 +63,7 @@ export const CALIBRATED_PARAMS = {
   presence_penalty: 0.35,
   frequency_penalty: 0.18,
   top_p: 0.90,
-  max_tokens: 4096,
+  max_tokens: 20000,
 };
 
 // ─── Stage 0: Context Assembly ──────────────────────────────────────
@@ -110,8 +110,8 @@ GAME MODE: ${config.mode}
 SUGGESTED LENS/FORM ASSIGNMENTS (you may adjust for better creative fit):
 ${assignmentGuide}
 
-Begin with the <analysis> block, then the <diversity_audit>, and finally the <JSON_OUTPUT>.
-Remember: ${config.questionCount} questions, all 10 lenses unique, all 5 forms used.`;
+Output exactly one JSON object as instructed.
+Remember: ${config.questionCount} questions, all lenses unique, all forms rotated.`;
   }
 
   return { systemPrompt, userMessage };
@@ -159,6 +159,7 @@ export async function callLLM(
         presence_penalty: params.presence_penalty,
         frequency_penalty: params.frequency_penalty,
         max_tokens: params.max_tokens,
+        response_format: { type: "json_object" },
       }),
     });
 
@@ -185,6 +186,7 @@ export async function callLLM(
           temperature: params.temperature,
           topP: params.top_p,
           maxOutputTokens: params.max_tokens,
+          responseMimeType: "application/json",
         },
       }),
     });
@@ -206,18 +208,58 @@ export async function callLLM(
 
 // ─── Stage 2: Parse & Extract ───────────────────────────────────────
 
-/**
- * Parse the raw LLM output into structured data.
- * Extracts <analysis> blocks, validates constraints, and audits diversity.
- */
 export function parseAndValidate(
   rawOutput: string,
   questionCount: number,
 ): ParsedGeneration {
-  const analyses = parseAnalysisBlocks(rawOutput);
-  const questions = parseJsonOutput(rawOutput) as QuizGambitQuestion[];
+  // Extract top-level JSON
+  let parsed: any;
+  try {
+    let cleanOutput = rawOutput.trim();
+    if (cleanOutput.startsWith('```json')) {
+      cleanOutput = cleanOutput.replace(/^```json\s*/, '');
+    } else if (cleanOutput.startsWith('```')) {
+      cleanOutput = cleanOutput.replace(/^```\s*/, '');
+    }
+    if (cleanOutput.endsWith('```')) {
+      cleanOutput = cleanOutput.replace(/\s*```$/, '');
+    }
+    parsed = JSON.parse(cleanOutput);
+  } catch (err) {
+    console.error('[Generator] Failed to parse top-level JSON:', err);
+    parsed = { questions: [] };
+  }
 
-  // Build diversity audit from parsed analyses (programmatic, not from LLM self-report)
+  const questions: QuizGambitQuestion[] = [];
+  const analyses: QuestionAnalysis[] = [];
+
+  if (Array.isArray(parsed.questions)) {
+    for (const q of parsed.questions) {
+      questions.push({
+        lens: q.lens,
+        form: q.form,
+        tag: q.tag,
+        question_text: q.question_text,
+        answer_text: q.answer_text,
+        options: q.options,
+        backdoor_type: q.backdoor_type,
+        backdoor_explanation: q.backdoor_explanation,
+        points: q.points,
+        difficulty_tier: q.difficulty_tier,
+      });
+
+      const p = q.planning || {};
+      analyses.push({
+        lens: p.lens || q.lens,
+        form: p.form || q.form,
+        backdoor_type: p.backdoor_type || q.backdoor_type,
+        backdoor_logic: p.backdoor_logic || {},
+        constraint_check: p.constraint_check || {},
+        draft: q.question_text || '',
+      });
+    }
+  }
+
   const audit = auditDiversity(analyses, questionCount);
 
   return {
@@ -276,8 +318,8 @@ Please regenerate ONLY this one question. Follow all the hard constraints:
   If the answer is "Nintendo", the word "Nintendo" is strictly banned from the question.
 - Use the SAME lens (${instruction.previous_lens}) but choose a better form if needed
 
-Output only the <q${instruction.question_index + 1}>...</q${instruction.question_index + 1}> block.
-Include the complete <JSON_OUTPUT> entry for just this question.`;
+Output exactly one JSON object with a "questions" array containing ONLY this one regenerated question.
+The JSON object MUST match the exact schema defined in the system prompt.`;
 }
 
 // ─── Full Pipeline ──────────────────────────────────────────────────
@@ -348,14 +390,13 @@ export async function generateQuestions(
         totalApiCalls++;
 
         // Parse the regenerated question and replace the failed one
-        const regenAnalyses = parseAnalysisBlocks(regenOutput);
-        const regenQuestions = parseJsonOutput(regenOutput);
+        const regenParsed = parseAndValidate(regenOutput, 1);
 
-        if (regenAnalyses.length > 0) {
-          parsed.analysis[failure.question_index] = regenAnalyses[0];
+        if (regenParsed.analysis.length > 0) {
+          parsed.analysis[failure.question_index] = regenParsed.analysis[0];
         }
-        if (regenQuestions.length > 0) {
-          parsed.questions[failure.question_index] = regenQuestions[0];
+        if (regenParsed.questions.length > 0) {
+          parsed.questions[failure.question_index] = regenParsed.questions[0];
         }
 
         console.log(`[Generator] Regenerated Q${failure.question_index + 1}`);
@@ -411,7 +452,7 @@ TIER LOCK (DO NOT CHANGE):
   Q5 = 500pts (expert, subtle backdoor)
 
 ALL 5 LENSES UNIQUE. ALL 5 FORMS USED. EVERY QUESTION TAGGED.
-Begin with <analysis>, then <diversity_audit>, then <JSON_OUTPUT>.`;
+Output exactly one JSON object as instructed.`;
 
   return { systemPrompt, userMessage };
 }
@@ -473,7 +514,29 @@ export async function generateGridQuestions(
       }
     }
 
-    if (failures.length === 0) break;
+    if (failures.length === 0 && parsed.questions.length === 5) {
+      console.log('[Grid Generator] All questions passed validation!');
+      break;
+    }
+
+    if (parsed.questions.length === 0) {
+      console.log(`[Grid Generator] Catastrophic parse failure (0 questions). Retrying entire batch...`);
+      const newOutput = await callLLM(config, systemPrompt, userMessage + "\n\nCRITICAL NOTE: Your previous response failed to output valid JSON. Please ensure you output EXACTLY a valid JSON array of objects in <JSON_OUTPUT>.");
+      parsed = parseAndValidate(newOutput, 5);
+      retryCount++;
+      continue;
+    }
+
+    if (parsed.questions.length < 5) {
+       for (let i = parsed.questions.length; i < 5; i++) {
+         failures.push({
+            question_index: i,
+            failures: [`Question missing from output. Generate a new question.`],
+            previous_lens: 'Origin Story',
+            previous_form: 'Form 1 (Action-First)'
+         });
+       }
+    }
 
     console.log(`[Grid Generator] ${failures.length} failed, regenerating...`);
     regenerations += failures.length;
@@ -484,11 +547,10 @@ export async function generateGridQuestions(
         const regenOutput = await callLLM(gridConfig, systemPrompt, regenPrompt);
         totalApiCalls++;
 
-        const regenAnalyses = parseAnalysisBlocks(regenOutput);
-        const regenQuestions = parseJsonOutput(regenOutput);
+        const regenParsed = parseAndValidate(regenOutput, 1);
 
-        if (regenAnalyses.length > 0) parsed.analysis[failure.question_index] = regenAnalyses[0];
-        if (regenQuestions.length > 0) parsed.questions[failure.question_index] = regenQuestions[0];
+        if (regenParsed.analysis.length > 0) parsed.analysis[failure.question_index] = regenParsed.analysis[0];
+        if (regenParsed.questions.length > 0) parsed.questions[failure.question_index] = regenParsed.questions[0];
       } catch (err) {
         console.warn(`[Grid Generator] Failed to regenerate Q${failure.question_index + 1}`, err);
       }
@@ -556,7 +618,7 @@ GAME MODE: ${config.mode}
 SUGGESTED LENS/FORM ASSIGNMENTS (you may adjust for better creative fit):
 ${assignmentGuide}
 
-Begin with the <analysis> block, then the <diversity_audit>, and finally the <JSON_OUTPUT>.
+Output exactly one JSON object as instructed.
 Remember: ${config.questionCount} questions, all lenses unique, all forms rotated.`;
   }
 
@@ -620,9 +682,29 @@ export async function generateCustomQuestions(
       }
     }
 
-    if (failures.length === 0) {
+    if (failures.length === 0 && parsed.questions.length === config.questionCount) {
       console.log('[Custom Generator] All questions passed validation!');
       break;
+    }
+
+    if (parsed.questions.length === 0) {
+      console.log(`[Custom Generator] Catastrophic parse failure (0 questions). Retrying entire batch...`);
+      const newOutput = await callLLM(effectiveConfig, systemPrompt, userMessage + "\n\nCRITICAL NOTE: Your previous response failed to output valid JSON. Please ensure you output EXACTLY a valid JSON array of objects in <JSON_OUTPUT>.", config.customLLMParams);
+      parsed = parseAndValidate(newOutput, config.questionCount);
+      retryCount++;
+      continue;
+    }
+
+    if (parsed.questions.length < config.questionCount) {
+       // Fill in the missing questions with synthetic failures so the single-question regenerator can handle them
+       for (let i = parsed.questions.length; i < config.questionCount; i++) {
+         failures.push({
+            question_index: i,
+            failures: [`Question missing from output. Generate a new question.`],
+            previous_lens: 'Origin Story',
+            previous_form: 'Form 1 (Action-First)'
+         });
+       }
     }
 
     console.log(`[Custom Generator] ${failures.length} failed, regenerating...`);
@@ -634,11 +716,14 @@ export async function generateCustomQuestions(
         const regenOutput = await callLLM(effectiveConfig, systemPrompt, regenPrompt, config.customLLMParams);
         totalApiCalls++;
 
-        const regenAnalyses = parseAnalysisBlocks(regenOutput);
-        const regenQuestions = parseJsonOutput(regenOutput);
+        const regenParsed = parseAndValidate(regenOutput, 1);
 
-        if (regenAnalyses.length > 0) parsed.analysis[failure.question_index] = regenAnalyses[0];
-        if (regenQuestions.length > 0) parsed.questions[failure.question_index] = regenQuestions[0];
+        if (regenParsed.analysis.length > 0) {
+          parsed.analysis[failure.question_index] = regenParsed.analysis[0];
+        }
+        if (regenParsed.questions.length > 0) {
+          parsed.questions[failure.question_index] = regenParsed.questions[0];
+        }
       } catch (err) {
         console.warn(`[Custom Generator] Failed to regenerate Q${failure.question_index + 1}`, err);
       }

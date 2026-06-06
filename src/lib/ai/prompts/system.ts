@@ -106,39 +106,38 @@ Number of questions: ${questionCount}
            THE EXECUTION PROCESS
 ═══════════════════════════════════════════
 
-You MUST follow this exact process. Do not skip any step.
+You MUST output exactly one JSON object. Do not output any markdown formatting, XML, or conversational text. Your entire response must be parseable by JSON.parse().
 
-STEP 1: Output an <analysis> XML block containing, for each question:
-  <q{n}>
-    <lens>[Which of the 10 lenses]</lens>
-    <form>[Which of the 5 forms]</form>
-    <backdoor_type>[${ALL_BACKDOORS.join(' / ')}]</backdoor_type>
-    <backdoor_logic>
-      Opening hook: [The specific, intriguing opener]
-      Bridge context: [How this connects to common knowledge]
-      Giveaway anchor: [The recognizable detail near the end]
-      Deduction path: [How a player figures this out without prior knowledge]
-    </backdoor_logic>
-    <constraint_check>
-      1 sentence? [Yes/No]
-      Word count: [approximate — aim for ~25, hard max 30]
-      Banned starter avoided? [Yes/No]
-      Micro-pyramidal flow? [Opening hook → bridge → giveaway near end]
-      Backdoor present? [Yes/No — explain pathway]
-    </constraint_check>
-    <draft>[The complete question text]</draft>
-  </q{n}>
-
-STEP 2: After all questions are planned, output a <diversity_audit>:
-  - Confirm all lenses used are unique
-  - Confirm all 5 forms are represented
-  - Confirm no consecutive form repeats
-  - Confirm no two questions share the same grammatical pattern
-  - Confirm difficulty ramp from easy (Q1) to expert (Q${questionCount})
-
-STEP 3: Output the final questions in <JSON_OUTPUT>:
-  [
+The JSON object MUST match this exact schema:
+{
+  "diversity_audit": {
+    "lenses_used": ["list of lenses used"],
+    "forms_used": ["list of forms used"],
+    "all_lenses_unique": true,
+    "all_forms_represented": true,
+    "no_consecutive_form_repeats": true,
+    "difficulty_ramp_valid": true
+  },
+  "questions": [
     {
+      "planning": {
+        "lens": "[One of the 10 lenses]",
+        "form": "[One of the 5 forms]",
+        "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
+        "backdoor_logic": {
+          "opening_hook": "[The specific, intriguing opener]",
+          "bridge_context": "[How this connects to common knowledge]",
+          "giveaway_anchor": "[The recognizable detail near the end]",
+          "deduction_path": "[How a player figures this out without prior knowledge]"
+        },
+        "constraint_check": {
+          "one_sentence": true,
+          "word_count": "[approximate — aim for ~25, hard max 30]",
+          "banned_starter_avoided": true,
+          "micro_pyramidal_flow": true,
+          "backdoor_present": true
+        }
+      },
       "lens": "string",
       "form": "string", 
       "question_text": "string (~25 words, one sentence, hard max 30)",
@@ -150,6 +149,7 @@ STEP 3: Output the final questions in <JSON_OUTPUT>:
       "difficulty_tier": "easy" | "medium" | "challenging" | "expert"
     }
   ]
+}
 
 ═══════════════════════════════════════════
               WHAT NEVER TO DO
@@ -288,36 +288,40 @@ Questions: Exactly 5 (one per tier: 100, 200, 300, 400, 500)
            THE EXECUTION PROCESS
 ═══════════════════════════════════════════
 
-STEP 1: Output <analysis> XML with exactly 5 <q{n}> blocks:
-  <q{n}>
-    <points>[EXACTLY: 100|200|300|400|500 per tier lock]</points>
-    <lens>[Unique lens from the 10]</lens>
-    <form>[Unique form from the 5]</form>
-    <tag>[1-2 word thematic hint — intriguing, not revealing]</tag>
-    <backdoor_type>[${ALL_BACKDOORS.join(' / ')}]</backdoor_type>
-    <backdoor_logic>
-      Opening hook: [The specific, intriguing opener]
-      Bridge context: [How this connects to common knowledge]
-      Giveaway anchor: [The recognizable detail near the end]
-      Deduction path: [How a player figures this out]
-    </backdoor_logic>
-    <constraint_check>
-      Points locked? [100|200|300|400|500]
-      1 sentence? [Yes/No]
-      Word count: [approximate — aim ~25, hard max 30]
-      Banned starter avoided? [Yes/No]
-      Micro-pyramidal flow? [Opening hook → bridge → giveaway near end]
-      Backdoor present? [Yes/No]
-      Tag valid? [1-2 words, intriguing, not revealing]
-    </constraint_check>
-    <draft>[The complete question text]</draft>
-  </q{n}>
+You MUST output exactly one JSON object. Do not output any markdown formatting, XML, or conversational text. Your entire response must be parseable by JSON.parse().
 
-STEP 2: Output <diversity_audit> confirming all 5 lenses unique and all 5 forms used.
-
-STEP 3: Output <JSON_OUTPUT> — an array of exactly 5 questions:
-  [
+The JSON object MUST match this exact schema:
+{
+  "diversity_audit": {
+    "lenses_used": ["list of lenses used"],
+    "forms_used": ["list of forms used"],
+    "all_lenses_unique": true,
+    "all_forms_represented": true
+  },
+  "questions": [
     {
+      "planning": {
+        "points": "[100|200|300|400|500]",
+        "lens": "[Unique lens from the 10]",
+        "form": "[Unique form from the 5]",
+        "tag": "[1-2 word thematic hint — intriguing, not revealing]",
+        "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
+        "backdoor_logic": {
+          "opening_hook": "[The specific, intriguing opener]",
+          "bridge_context": "[How this connects to common knowledge]",
+          "giveaway_anchor": "[The recognizable detail near the end]",
+          "deduction_path": "[How a player figures this out without prior knowledge]"
+        },
+        "constraint_check": {
+          "points_locked": "[Yes/No]",
+          "one_sentence": true,
+          "word_count": "[approximate — aim for ~25, hard max 30]",
+          "banned_starter_avoided": true,
+          "micro_pyramidal_flow": true,
+          "backdoor_present": true,
+          "tag_valid": true
+        }
+      },
       "lens": "string",
       "form": "string",
       "tag": "string (1-2 words)",
@@ -328,9 +332,9 @@ STEP 3: Output <JSON_OUTPUT> — an array of exactly 5 questions:
       "backdoor_explanation": "string",
       "points": 100,
       "difficulty_tier": "easy"
-    },
-    ...
+    }
   ]
+}
 
 ═══════════════════════════════════════════
               WHAT NEVER TO DO
@@ -516,39 +520,38 @@ ${paramsNote}
            THE EXECUTION PROCESS
 ═══════════════════════════════════════════
 
-You MUST follow this exact process. Do not skip any step.
+You MUST output exactly one JSON object. Do not output any markdown formatting, XML, or conversational text. Your entire response must be parseable by JSON.parse().
 
-STEP 1: Output an <analysis> XML block containing, for each question:
-  <q{n}>
-    <lens>[One of: ${lenses.join(' / ')}]</lens>
-    <form>[One of: ${forms.join(' / ')}]</form>
-    <backdoor_type>[${backdoorList}]</backdoor_type>
-    <backdoor_logic>
-      Opening hook: [The specific, intriguing opener]
-      Bridge context: [How this connects to common knowledge]
-      Giveaway anchor: [The recognizable detail near the end]
-      Deduction path: [How a player figures this out without prior knowledge]
-    </backdoor_logic>
-    <constraint_check>
-      1 sentence? [Yes/No]
-      Word count: [approximate — aim for ~25, hard max 30]
-      Banned starter avoided? [Yes/No]
-      Micro-pyramidal flow? [Opening hook → bridge → giveaway near end]
-      Backdoor present? [Yes/No — explain pathway]
-    </constraint_check>
-    <draft>[The complete question text]</draft>
-  </q{n}>
-
-STEP 2: After all questions are planned, output a <diversity_audit>:
-  - Confirm all lenses used are unique
-  - Confirm all ${forms.length} available forms are represented
-  - Confirm no consecutive form repeats
-  - Confirm no two questions share the same grammatical pattern
-  - Confirm difficulty ramp from easy (Q1) to expert (Q${questionCount})
-
-STEP 3: Output the final questions in <JSON_OUTPUT>:
-  [
+The JSON object MUST match this exact schema:
+{
+  "diversity_audit": {
+    "lenses_used": ["list of lenses used"],
+    "forms_used": ["list of forms used"],
+    "all_lenses_unique": true,
+    "all_forms_represented": true,
+    "no_consecutive_form_repeats": true,
+    "difficulty_ramp_valid": true
+  },
+  "questions": [
     {
+      "planning": {
+        "lens": "[One of: ${lenses.join(' / ')}]",
+        "form": "[One of: ${forms.join(' / ')}]",
+        "backdoor_type": "[${backdoorList}]",
+        "backdoor_logic": {
+          "opening_hook": "[The specific, intriguing opener]",
+          "bridge_context": "[How this connects to common knowledge]",
+          "giveaway_anchor": "[The recognizable detail near the end]",
+          "deduction_path": "[How a player figures this out without prior knowledge]"
+        },
+        "constraint_check": {
+          "one_sentence": true,
+          "word_count": "[approximate — aim for ~25, hard max 30]",
+          "banned_starter_avoided": true,
+          "micro_pyramidal_flow": true,
+          "backdoor_present": true
+        }
+      },
       "lens": "string",
       "form": "string", 
       "question_text": "string (~25 words, one sentence, hard max 30)",
@@ -560,6 +563,7 @@ STEP 3: Output the final questions in <JSON_OUTPUT>:
       "difficulty_tier": "easy" | "medium" | "challenging" | "expert"
     }
   ]
+}
 
 ═══════════════════════════════════════════
               WHAT NEVER TO DO

@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  ArrowLeft, Search, X, ChevronDown, ChevronRight,
-  Check, Plus, Loader2, Sparkles, Trash2,
+  ArrowLeft, Search, X, Check, Loader2, Sparkles, Trash2, Filter, Info, ChevronDown, ChevronUp, CheckCircle2
 } from "lucide-react";
 import { store } from "../lib/storage";
+import ClayModal from "./ui/ClayModal";
+import ClayCard from "./ui/ClayCard";
+import ClayButton from "./ui/ClayButton";
+import ClayBadge from "./ui/ClayBadge";
+import ClayInput from "./ui/ClayInput";
+
+import { ALL_PERSONAS, ALL_LENSES, ALL_BACKDOORS, type PlayerPersona, type LensType, type BackdoorType } from "../lib/ai/types";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -50,9 +56,43 @@ function getThemeFromTags(tags?: string[]): string | null {
   return themeTag ? themeTag.replace("Theme:", "") : null;
 }
 
+function getPersonaFromTags(tags?: string[]): string | null {
+  if (!tags) return null;
+  const pTag = tags.find((t) => t.startsWith("Persona:"));
+  return pTag ? pTag.replace("Persona:", "") : null;
+}
+
+function getLensFromTags(tags?: string[]): string | null {
+  if (!tags) return null;
+  const lTag = tags.find((t) => t.startsWith("Lens:"));
+  return lTag ? lTag.replace("Lens:", "") : null;
+}
+
 function getCategoryDisplayName(name: string): string {
   return name.replace(" (Arena)", "").trim();
 }
+
+// Map personas/lenses to emojis for compact UI
+const personaIcons: Record<string, string> = {
+  "Casual Explorer": "🧘",
+  "Competitive Duelist": "⚔️",
+  "Party Group": "🎉",
+  "Speed Runner": "⚡",
+  "Deep Learner": "📚",
+};
+
+const lensIcons: Record<string, string> = {
+  "Origin Story": "🔮",
+  "The Unexpected": "⚡",
+  "The Human Element": "👤",
+  "Numbers & Scale": "📊",
+  "The Rivalry": "⚔️",
+  "The Oddity": "🤔",
+  "Behind the Scenes": "🎬",
+  "The Connection": "🔗",
+  "What If?": "🤷",
+  "The Legacy": "🏛️",
+};
 
 // ─── Sub-component: CategoryCard (browse) ──────────────────────────────
 
@@ -62,61 +102,79 @@ function BrowseCategoryCard({
   isUnavailable,
   canPick,
   onPick,
+  draftedByAvatar,
 }: {
   cat: Category;
   isSelected: boolean;
   isUnavailable: boolean;
   canPick: boolean;
   onPick: () => void;
+  draftedByAvatar?: React.ReactNode;
 }) {
+  const persona = getPersonaFromTags(cat.tags);
+  const lens = getLensFromTags(cat.tags);
+  
   return (
-    <button
+    <ClayCard
       onClick={onPick}
-      disabled={!canPick || isUnavailable}
-      className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all group
-        ${isSelected
-          ? "bg-soft-purple-light/30 ring-2 ring-soft-purple"
-          : "bg-warm-white border border-warm-gray/10 hover:border-soft-purple/30 hover:shadow-sm"}
-        ${isUnavailable || !canPick ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+      elevation={isSelected ? "pressed" : "floating"}
+      padding="none"
+      className={`w-full flex flex-col p-4 text-left transition-all relative ${
+        isSelected
+          ? "bg-soft-purple-light/20 ring-2 ring-soft-purple"
+          : "hover:-translate-y-1"
+      } ${(isUnavailable && !isSelected) || !canPick ? "opacity-50 cursor-not-allowed grayscale-[30%]" : "cursor-pointer"}`}
     >
-      {/* Q-count badge */}
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-outfit font-black text-xs
-        ${isSelected ? "bg-soft-purple text-white" : "bg-soft-purple-light/30 text-soft-purple"}`}>
-        {cat.data?.length || 0}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="font-outfit font-bold text-sm text-plum truncate">
+      <div className="flex items-start justify-between gap-3 w-full mb-2">
+        <h4 className="font-outfit font-bold text-plum text-[15px] leading-tight break-words pr-2 w-full">
           {getCategoryDisplayName(cat.name)}
-        </div>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <span className="text-[9px] font-bold text-plum/40">
-            {cat.data?.length || 0} Qs
-          </span>
-          {cat.is_global && (
-            <span className="text-[8px] font-black text-sky/60 bg-sky-light/30 px-1.5 py-0.5 rounded">Global</span>
+        </h4>
+        
+        {/* Selection Indicator / Action Button */}
+        <div className="flex-shrink-0 mt-0.5">
+          {draftedByAvatar ? (
+             <div className="w-7 h-7 rounded-full flex items-center justify-center bg-clay-border/50 ring-2 ring-warm-white shadow-sm overflow-hidden text-[10px]">
+               {draftedByAvatar}
+             </div>
+          ) : isSelected ? (
+            <div className="w-6 h-6 rounded-full bg-soft-purple text-white flex items-center justify-center shadow-inner">
+              <Check className="w-3.5 h-3.5" />
+            </div>
+          ) : isUnavailable ? (
+            <div className="text-[10px] font-black uppercase text-plum/30 tracking-wider bg-warm-gray/5 px-2 py-1 rounded">
+              Taken
+            </div>
+          ) : (
+            <div className="w-6 h-6 rounded-full border-2 border-clay-border flex items-center justify-center text-plum/30 transition-colors group-hover:border-soft-purple/40 group-hover:text-soft-purple/70">
+              <span className="text-[14px] leading-none mb-[2px]">+</span>
+            </div>
           )}
-          {cat.tags?.filter((t) => t !== "Grid" && !t.startsWith("Theme:")).slice(0, 2).map((tag) => (
-            <span key={tag} className="text-[8px] text-plum/30 bg-warm-gray/5 px-1.5 py-0.5 rounded">{tag}</span>
-          ))}
         </div>
       </div>
 
-      <div className="flex-shrink-0">
-        {isSelected ? (
-          <span className="w-8 h-8 rounded-lg bg-soft-purple text-white flex items-center justify-center">
-            <Check className="w-4 h-4" />
-          </span>
-        ) : isUnavailable ? (
-          <span className="text-[10px] font-bold text-plum/30">Taken</span>
-        ) : (
-          <span className="w-8 h-8 rounded-lg bg-warm-gray/5 flex items-center justify-center text-plum/20
-            group-hover:bg-soft-purple-light/30 group-hover:text-soft-purple transition-colors">
-            <Plus className="w-4 h-4" />
-          </span>
+      <div className="flex items-center gap-2 mt-auto pt-1 flex-wrap">
+        <ClayBadge color="gray" className="text-[10px] font-black flex items-center gap-1 px-2 py-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-plum/20" />
+          {cat.data?.length || 0} Qs
+        </ClayBadge>
+        
+        {persona && (
+          <ClayBadge color="peach" className="text-[10px] font-bold flex items-center gap-1" title={`Persona: ${persona}`}>
+            {personaIcons[persona] || "👤"} <span className="opacity-90">{persona}</span>
+          </ClayBadge>
+        )}
+        
+        {lens && (
+          <ClayBadge color="sky" className="text-[10px] font-bold flex items-center gap-1" title={`Lens: ${lens}`}>
+            {lensIcons[lens] || "🔍"} <span className="opacity-90">{lens}</span>
+          </ClayBadge>
+        )}
+        
+        {cat.is_global && (
+          <ClayBadge color="mint" className="text-[10px] font-black">Global</ClayBadge>
         )}
       </div>
-    </button>
+    </ClayCard>
   );
 }
 
@@ -127,42 +185,47 @@ function SelectedCategoryCard({
   index,
   canRemove,
   onRemove,
+  draftedBy,
 }: {
   cat: Category;
   index: number;
   canRemove: boolean;
   onRemove: () => void;
+  draftedBy?: string;
 }) {
   const colors = [
-    "bg-lavender border-soft-purple/30",
-    "bg-sky-light/60 border-sky/30",
-    "bg-peach-light/60 border-peach/30",
-    "bg-mint-light/60 border-mint/30",
-    "bg-butter-light/60 border-butter/30",
+    "bg-soft-purple-light text-soft-purple",
+    "bg-sky-light text-sky",
+    "bg-peach-light text-peach",
+    "bg-mint-light text-mint",
+    "bg-butter-light text-butter",
   ];
-  const color = colors[index % colors.length];
+  const colorClass = colors[index % colors.length];
 
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-xl border animate-slide-up-fade ${color}`}>
-      <span className="font-outfit font-black text-xs text-plum/40 w-5 text-center flex-shrink-0">
+    <ClayCard padding="none" elevation="flat" className="flex items-center gap-3 p-3 animate-slide-up-fade">
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-outfit font-black text-xs flex-shrink-0 shadow-inner ${colorClass}`}>
         {index + 1}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="font-outfit font-bold text-sm text-plum truncate">
+      </div>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <span className="font-outfit font-black text-[15px] text-plum break-words">
           {getCategoryDisplayName(cat.name)}
+        </span>
+        <div className="flex items-center gap-2 mt-0.5">
+           <span className="text-[10px] font-semibold text-warm-gray/70">{cat.data?.length || 0} questions</span>
+           {draftedBy && <ClayBadge color="purple">{draftedBy}</ClayBadge>}
         </div>
-        <span className="text-[10px] font-bold text-plum/40">{cat.data?.length || 0} questions</span>
       </div>
       {canRemove && (
         <button
           onClick={onRemove}
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-plum/30
+          className="w-8 h-8 rounded-full flex items-center justify-center text-plum/30
             hover:bg-peach/10 hover:text-peach transition-colors flex-shrink-0"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-5 h-5" />
         </button>
       )}
-    </div>
+    </ClayCard>
   );
 }
 
@@ -185,19 +248,27 @@ export default function CategoryPicker({
   mode = "host-pick",
 }: CategoryPickerProps) {
   const isHost = playerId === hostPlayerId;
-    const rounds = initialSettings?.rounds || 1;
+  const rounds = initialSettings?.rounds || 1;
   const catsPerRound = initialSettings?.catsPerRound || 5;
 
   // ── State ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeThemeFilter, setActiveThemeFilter] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Record<number, Category[]>>(
     initialSettings?.selectedCategories || {},
   );
   const [activeRound, setActiveRound] = useState(1);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
   const [mobileTab, setMobileTab] = useState<"browse" | "selected">("browse");
+
+  // Filter States
+  const [selectedThemes, setSelectedThemes] = useState<Set<string>>(new Set());
+  const [selectedPersonas, setSelectedPersonas] = useState<Set<string>>(new Set());
+  const [selectedLenses, setSelectedLenses] = useState<Set<string>>(new Set());
+  
+  // Active Theme (Drill-down view)
+  const [activeTheme, setActiveTheme] = useState<string | null>(null);
+  // Modals
+  const [infoModalOpen, setInfoModalOpen] = useState<"persona" | "lens" | null>(null);
 
   // ── Draft state ────────────────────────────────────────────────────
   const [draftPicks, setDraftPicks] = useState<DraftPick[]>(initialSettings?.draftPicks || []);
@@ -207,14 +278,16 @@ export default function CategoryPicker({
   const isDraft = mode === "player-draft";
   const canHostPick = isHost && mode === "host-pick";
 
-  // ── Recently used ──────────────────────────────────────────────────
-  const recentIds = store.getRecentCategoryIds();
-  const recentCategories = useMemo(
-    () => recentIds.map((id) => allCategories.find((c) => c.id === id)).filter(Boolean) as Category[],
-    [allCategories, recentIds],
-  );
+  // ── Derived Data ───────────────────────────────────────────────────
+  const themeOptions = useMemo(() => {
+    const set = new Set<string>();
+    allCategories.forEach(c => {
+      const t = getThemeFromTags(c.tags);
+      if (t) set.add(t);
+    });
+    return Array.from(set).sort();
+  }, [allCategories]);
 
-  // ── Selected IDs ───────────────────────────────────────────────────
   const activeSelectedIds = useMemo(
     () => new Set((selectedCategories[activeRound] || []).map((c) => c.id)),
     [selectedCategories, activeRound],
@@ -230,26 +303,15 @@ export default function CategoryPicker({
 
   const draftPickedIds = useMemo(() => new Set(draftPicks.map((p) => p.categoryId)), [draftPicks]);
 
-  // ── Active round's selected categories ─────────────────────────────
+  // Active round's selected categories
   const activeSelected = selectedCategories[activeRound] || [];
   const activeCount = activeSelected.length;
-  const isRoundFull = activeCount >= catsPerRound;
 
-  // ── Theme filters ──────────────────────────────────────────────────
-  const themeFilters = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const cat of allCategories) {
-      const theme = getThemeFromTags(cat.tags);
-      if (theme) map.set(theme, (map.get(theme) || 0) + 1);
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, count]) => ({ name, count }));
-  }, [allCategories]);
-
-  // ── Filtered & grouped categories ──────────────────────────────────
+  // Filtering Logic
   const filteredCategories = useMemo(() => {
     let cats = allCategories;
+    
+    // 1. Search Query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       cats = cats.filter(
@@ -259,38 +321,52 @@ export default function CategoryPicker({
           (c.tags || []).some((t) => t.toLowerCase().includes(q)),
       );
     }
-    if (activeThemeFilter) {
-      cats = cats.filter((c) => getThemeFromTags(c.tags) === activeThemeFilter);
+    
+    // 2. Themes (OR logic within themes)
+    if (selectedThemes.size > 0) {
+      cats = cats.filter((c) => {
+        const t = getThemeFromTags(c.tags);
+        return t && selectedThemes.has(t);
+      });
     }
-    return cats;
-  }, [allCategories, searchQuery, activeThemeFilter]);
 
-  const groupedCategories = useMemo(() => {
-    const groups = new Map<string, Category[]>();
-    for (const cat of filteredCategories) {
-      const key = cat.main_category || "Uncategorized";
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(cat);
+    // 3. Personas (OR logic within personas)
+    if (selectedPersonas.size > 0) {
+       cats = cats.filter(c => {
+         const p = getPersonaFromTags(c.tags);
+         return p && selectedPersonas.has(p);
+       });
     }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    // 4. Lenses (OR logic within lenses)
+    if (selectedLenses.size > 0) {
+       cats = cats.filter(c => {
+         const l = getLensFromTags(c.tags);
+         return l && selectedLenses.has(l);
+       });
+    }
+
+    return cats;
+  }, [allCategories, searchQuery, selectedThemes, selectedPersonas, selectedLenses]);
+
+  const groupedByTheme = useMemo(() => {
+    const groups: Record<string, Category[]> = {};
+    filteredCategories.forEach(c => {
+      const t = getThemeFromTags(c.tags) || "Uncategorized";
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(c);
+    });
+    return groups;
   }, [filteredCategories]);
 
-  // ── Auto-expand first 3 sections ───────────────────────────────────
-  useEffect(() => {
-    if (expandedSections.size === 0 && groupedCategories.length > 0) {
-      setExpandedSections(new Set(groupedCategories.slice(0, 3).map(([k]) => k)));
-    }
-  }, [groupedCategories.length]);
 
   // ── Handlers ───────────────────────────────────────────────────────
-  const toggleSection = useCallback((key: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  const toggleFilter = (set: Set<string>, val: string, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    const next = new Set(set);
+    if (next.has(val)) next.delete(val);
+    else next.add(val);
+    setter(next);
+  };
 
   const toggleCategory = useCallback(
     (cat: Category) => {
@@ -336,22 +412,6 @@ export default function CategoryPicker({
     broadcast("settings:update", { selectedCategories: newSelected });
   }, [canHostPick, selectedCategories, activeRound, updateLobbySetting, broadcast]);
 
-  const fillWithTheme = useCallback(
-    (themeName: string) => {
-      if (!canHostPick) return;
-      const themeCats = allCategories.filter(
-        (c) => getThemeFromTags(c.tags) === themeName && !allSelectedIds.has(c.id),
-      );
-      const toAdd = themeCats.slice(0, catsPerRound);
-      const newSelected = { ...selectedCategories, [activeRound]: toAdd };
-      setSelectedCategories(newSelected);
-      updateLobbySetting("selectedCategories", newSelected);
-      broadcast("settings:update", { selectedCategories: newSelected });
-      toAdd.forEach((c) => store.addRecentCategory(c.id));
-    },
-    [canHostPick, allCategories, allSelectedIds, selectedCategories, activeRound, catsPerRound, updateLobbySetting, broadcast],
-  );
-
   const handleDraftPick = useCallback(
     (cat: Category) => {
       if (draftPhase !== "in_progress") return;
@@ -362,7 +422,7 @@ export default function CategoryPicker({
       const newPick: DraftPick = {
         playerId, playerName,
         categoryId: cat.id, categoryName: cat.name,
-        round: activeRound, slotIndex: draftPicks.length,
+        round: activeRound, slotIndex: draftPicks.filter(p => p.round === activeRound).length,
       };
       const updatedPicks = [...draftPicks, newPick];
       setDraftPicks(updatedPicks);
@@ -403,14 +463,17 @@ export default function CategoryPicker({
     return () => unsubs.forEach((fn) => fn());
   }, [onBroadcast]);
 
-  // ── Total selected across all rounds ───────────────────────────────
+  // ── Validations ───────────────────────────────────────────────
   const totalSelected = Object.values(selectedCategories).reduce((s, c) => s + (c?.length || 0), 0);
-  const allRoundsFull = rounds > 0 && Array.from({ length: rounds }, (_, i) => i + 1).every(
-    (r) => (selectedCategories[r] || []).length >= catsPerRound,
-  );
-
-  // ── Dots ───────────────────────────────────────────────────────────
-  const dots = Array.from({ length: catsPerRound }, (_, i) => i < activeCount);
+  
+  let allRoundsFull = false;
+  if (isDraft) {
+     allRoundsFull = draftPicks.length >= (rounds * catsPerRound);
+  } else {
+     allRoundsFull = rounds > 0 && Array.from({ length: rounds }, (_, i) => i + 1).every(
+      (r) => (selectedCategories[r] || []).length >= catsPerRound,
+    );
+  }
 
   // ── Loading ────────────────────────────────────────────────────────
   if (catsLoading) {
@@ -424,278 +487,332 @@ export default function CategoryPicker({
     );
   }
 
-  // ── Shared: Browser panel content ─────────────────────────────────
+  // ── UI Components: Filter Bank ─────────────────────────────────────
+  const FilterPill = ({ label, icon, active, onClick }: { label: string; icon?: string; active: boolean; onClick: () => void }) => (
+    <button
+      onClick={onClick}
+      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border
+        ${active 
+          ? "bg-soft-purple-light border-soft-purple/30 text-soft-purple shadow-[inset_1px_1px_0px_rgba(255,255,255,0.7)]" 
+          : "bg-warm-white text-plum/60 border-clay-border/50 hover:border-soft-purple/30 hover:bg-soft-purple-light/10"}`}
+    >
+      {icon && <span>{icon}</span>}
+      {label}
+    </button>
+  );
+
+  // ── Shared: Browser panel content (Left) ─────────────────────────────────
   const browserContent = (
-    <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-plum/20" />
-        <input
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-clay-cream">
+      {/* Fixed Header & Filters */}
+      <div className="shrink-0 p-4 pb-2 space-y-4 bg-warm-white/80 border-b border-clay-border/30 backdrop-blur-md z-10 shadow-sm">
+        
+        {/* Search */}
+        <ClayInput
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search categories..."
-          className="w-full clay-input pl-10 pr-10 py-2.5 text-sm font-outfit font-bold text-plum
-            placeholder:text-plum/20 rounded-2xl"
+          placeholder="Search 500+ topics..."
+          icon={<Search className="w-4 h-4" />}
           autoComplete="off"
         />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg
-              flex items-center justify-center text-plum/30 hover:text-plum hover:bg-warm-gray/5 transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
+
+        {/* Filter Bank */}
+        <div className="space-y-3">
+          {/* Themes */}
+          {themeOptions.length > 0 && (
+             <div className="flex items-center gap-2">
+               <span className="text-[10px] font-black uppercase text-plum/40 w-14 shrink-0">Themes</span>
+               <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                 {themeOptions.map(theme => (
+                   <FilterPill 
+                     key={theme} 
+                     label={theme} 
+                     active={selectedThemes.has(theme)} 
+                     onClick={() => toggleFilter(selectedThemes, theme, setSelectedThemes)} 
+                   />
+                 ))}
+               </div>
+             </div>
+          )}
+
+          {/* Personas */}
+          <div className="flex items-center gap-2">
+             <div className="flex items-center gap-1 w-14 shrink-0">
+               <span className="text-[10px] font-black uppercase text-plum/40">Persona</span>
+               <button onClick={() => setInfoModalOpen("persona")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
+             </div>
+             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+               {ALL_PERSONAS.map(persona => (
+                 <FilterPill 
+                   key={persona} 
+                   label={persona.split(' ')[0]} 
+                   icon={personaIcons[persona]}
+                   active={selectedPersonas.has(persona)} 
+                   onClick={() => toggleFilter(selectedPersonas, persona, setSelectedPersonas)} 
+                 />
+               ))}
+             </div>
+          </div>
+
+          {/* Lenses */}
+          <div className="flex items-center gap-2">
+             <div className="flex items-center gap-1 w-14 shrink-0">
+               <span className="text-[10px] font-black uppercase text-plum/40">Lenses</span>
+               <button onClick={() => setInfoModalOpen("lens")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
+             </div>
+             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+               {ALL_LENSES.map(lens => (
+                 <FilterPill 
+                   key={lens} 
+                   label={lens} 
+                   icon={lensIcons[lens]}
+                   active={selectedLenses.has(lens)} 
+                   onClick={() => toggleFilter(selectedLenses, lens, setSelectedLenses)} 
+                 />
+               ))}
+             </div>
+          </div>
+          
+        </div>
       </div>
 
-      {/* Theme filter pills */}
-      {themeFilters.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-          <button
-            onClick={() => setActiveThemeFilter(null)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black transition-colors ${
-              !activeThemeFilter
-                ? "bg-soft-purple text-white shadow-sm"
-                : "bg-warm-gray/5 text-plum/40 border border-warm-gray/10 hover:border-soft-purple/30 hover:text-soft-purple"
-            }`}
-          >
-            All
-          </button>
-          {themeFilters.map(({ name, count }) => (
-            <button
-              key={name}
-              onClick={() => setActiveThemeFilter(name)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold transition-colors flex items-center gap-1.5 ${
-                activeThemeFilter === name
-                  ? "bg-soft-purple text-white shadow-sm"
-                  : "bg-warm-gray/5 text-plum/40 border border-warm-gray/10 hover:border-soft-purple/30 hover:text-soft-purple"
-              }`}
-            >
-              {name}
-              <span className="opacity-60">{count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Fill with Theme quick action */}
-      {canHostPick && activeThemeFilter && !isRoundFull && (
-        <div className="clay p-3 flex items-center gap-3">
-          <Sparkles className="w-4 h-4 text-soft-purple flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-plum">
-              Fill Round {activeRound} with "{activeThemeFilter}"
-            </p>
+      {/* Scrollable Grid of Category Cards */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {Object.keys(groupedByTheme).length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-60">
+            <div className="w-20 h-20 rounded-full bg-clay-border/50 flex items-center justify-center">
+               <Search className="w-8 h-8 text-plum/40" />
+            </div>
+            <div>
+              <h3 className="font-outfit font-black text-lg text-plum">No categories found</h3>
+              <p className="text-sm font-medium text-plum/50 max-w-[250px] mx-auto mt-1">Try removing some filters or searching for something else.</p>
+            </div>
           </div>
-          <button
-            onClick={() => fillWithTheme(activeThemeFilter!)}
-            className="clay-btn shrink-0 px-4 py-1.5 rounded-xl font-outfit font-bold text-xs
-              bg-soft-purple text-white hover:bg-soft-purple/90 transition-colors"
-          >
-            Fill
-          </button>
-        </div>
-      )}
-
-      {/* Recently Used */}
-      {recentCategories.length > 0 && !searchQuery && (
-        <div className="space-y-2">
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-plum/30 px-1">
-            Recently Used
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {recentCategories.map((cat) => {
-              const isSelected = activeSelectedIds.has(cat.id);
-              const isUnavailable = !canHostPick && draftPickedIds.has(cat.id);
-              return (
-                <BrowseCategoryCard
-                  key={cat.id}
-                  cat={cat}
-                  isSelected={isSelected}
-                  isUnavailable={isUnavailable}
-                  canPick={canHostPick || (isDraft && draftPhase === "in_progress")}
-                  onPick={() => {
-                    if (canHostPick) toggleCategory(cat);
-                    else if (isDraft && !draftPickedIds.has(cat.id)) handleDraftPick(cat);
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Accordion categories */}
-      <div className="space-y-1">
-        <h3 className="text-[10px] font-black uppercase tracking-wider text-plum/30 px-1 mb-2">
-          {searchQuery ? `Results for "${searchQuery}"` : "All Categories"}
-        </h3>
-
-        {groupedCategories.length === 0 ? (
-          <div className="clay p-8 text-center space-y-2">
-            <span className="text-2xl">📭</span>
-            <p className="font-outfit font-bold text-sm text-plum/30">
-              {searchQuery ? "No matching categories" : "No categories available"}
-            </p>
+        ) : activeTheme === null ? (
+          // THEME GRID VIEW (Tier 1)
+          <div className="space-y-4 pb-12 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-warm-gray/70">
+                {Object.keys(groupedByTheme).length} Themes Available
+              </h3>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {Object.entries(groupedByTheme).sort(([a], [b]) => a.localeCompare(b)).map(([theme, cats]) => (
+                <ClayCard 
+                  key={theme} 
+                  elevation="floating" 
+                  padding="md"
+                  onClick={() => setActiveTheme(theme)}
+                  className="flex flex-col items-center justify-center text-center aspect-square cursor-pointer hover:bg-soft-purple-light/20 transition-all hover:-translate-y-1"
+                >
+                   <div className="w-12 h-12 rounded-full bg-soft-purple-light/30 flex items-center justify-center mb-3 text-soft-purple/80">
+                     <Sparkles className="w-6 h-6" />
+                   </div>
+                   <h3 className="font-outfit font-black text-sm md:text-base text-plum mb-2 break-words w-full">{theme}</h3>
+                   <ClayBadge color="purple">{cats.length} Topics</ClayBadge>
+                </ClayCard>
+              ))}
+            </div>
           </div>
         ) : (
-          groupedCategories.map(([groupName, cats]) => {
-            const isExpanded = expandedSections.has(groupName);
-            const selectedInGroup = cats.filter((c) => activeSelectedIds.has(c.id)).length;
-            const draftPickedInGroup = isDraft ? cats.filter((c) => draftPickedIds.has(c.id)).length : 0;
-
-            return (
-              <div key={groupName} className="rounded-2xl overflow-hidden">
-                <button
-                  onClick={() => toggleSection(groupName)}
-                  className="w-full clay p-3 flex items-center gap-3 text-left
-                    hover:shadow-sm transition-shadow"
+          // TOPIC SELECTION VIEW (Tier 2)
+          <div className="space-y-4 pb-12 animate-in slide-in-from-right-4 duration-300">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setActiveTheme(null)}
+                  className="flex items-center justify-center w-8 h-8 rounded-full bg-warm-gray/10 hover:bg-soft-purple-light/20 text-plum/60 hover:text-soft-purple transition-colors"
                 >
-                  <div className="flex-1 flex items-center gap-2 min-w-0">
-                    <span className="font-outfit font-bold text-sm text-plum truncate">{groupName}</span>
-                    <span className="text-[10px] font-black text-plum/30 bg-warm-gray/5 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                      {cats.length}
-                    </span>
-                    {selectedInGroup > 0 && (
-                      <span className="text-[10px] font-black text-soft-purple bg-soft-purple-light/40 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                        {selectedInGroup}
-                      </span>
-                    )}
-                  </div>
-                  {isExpanded
-                    ? <ChevronDown className="w-4 h-4 text-plum/30 flex-shrink-0" />
-                    : <ChevronRight className="w-4 h-4 text-plum/30 flex-shrink-0" />}
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
-
-                {isExpanded && (
-                  <div className="px-3 pb-3 space-y-1.5 animate-slide-up-fade">
-                    {cats.map((cat) => {
-                      const isSelected = activeSelectedIds.has(cat.id);
-                      const isDraftPicked = draftPickedIds.has(cat.id);
-                      const isUnavailable = (!canHostPick && !isDraft) || isDraftPicked;
-                      const canPick = canHostPick || (isDraft && draftPhase === "in_progress");
-
-                      return (
-                        <BrowseCategoryCard
-                          key={cat.id}
-                          cat={cat}
-                          isSelected={isSelected}
-                          isUnavailable={isUnavailable}
-                          canPick={canPick}
-                          onPick={() => {
-                            if (canHostPick) toggleCategory(cat);
-                            else if (isDraft && !isDraftPicked) handleDraftPick(cat);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                <h3 className="font-outfit font-black text-xl text-plum">{activeTheme}</h3>
               </div>
-            );
-          })
+              <ClayBadge color="purple">{(groupedByTheme[activeTheme] || []).length} Topics</ClayBadge>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+              {(groupedByTheme[activeTheme] || []).map(cat => {
+                const isSelected = activeSelectedIds.has(cat.id);
+                const isDraftPicked = draftPickedIds.has(cat.id);
+                const isUnavailable = (!canHostPick && !isDraft) || isDraftPicked;
+                const canPick = canHostPick || (isDraft && draftPhase === "in_progress");
+
+                let draftedByStr: string | undefined;
+                if (isDraftPicked) {
+                    const pick = draftPicks.find(p => p.categoryId === cat.id);
+                    draftedByStr = pick?.playerName.substring(0, 2).toUpperCase();
+                }
+
+                return (
+                  <BrowseCategoryCard
+                    key={cat.id}
+                    cat={cat}
+                    isSelected={isSelected}
+                    isUnavailable={isUnavailable}
+                    canPick={canPick}
+                    draftedByAvatar={draftedByStr}
+                    onPick={() => {
+                      if (canHostPick) toggleCategory(cat);
+                      else if (isDraft && !isDraftPicked) handleDraftPick(cat);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 
-  // ── Shared: Selected panel content ──────────────────────────────────
+  // ── Shared: Selected panel content (Right / Bottom Drawer) ────────────────────────
+  
+  // Calculate which slots are filled for the active round
+  let activeRoundPicks: any[] = [];
+  if (isDraft) {
+     activeRoundPicks = draftPicks.filter(p => p.round === activeRound);
+  } else {
+     activeRoundPicks = activeSelected;
+  }
+  
+  const currentCount = activeRoundPicks.length;
+  const dots = Array.from({ length: catsPerRound }, (_, i) => i < currentCount);
+
   const selectedPanelContent = (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-warm-white shadow-[-10px_0_30px_rgba(0,0,0,0.03)] z-20 relative">
+      
+      {/* Draft Board Header */}
+      <div className="shrink-0 p-5 pb-4 border-b border-clay-border/40">
+         <h2 className="font-outfit font-black text-xl text-plum flex items-center gap-2">
+            📋 Draft Board
+         </h2>
+         <p className="text-xs font-bold text-plum/40 mt-1">
+            Build your game grid
+         </p>
+      </div>
+
       {/* Round tabs */}
       {rounds > 1 && (
-        <div className="flex items-center gap-1.5 p-3 overflow-x-auto scrollbar-hide">
+        <div className="shrink-0 flex items-center gap-2 p-4 pb-2 overflow-x-auto scrollbar-hide border-b border-clay-border/20">
           {Array.from({ length: rounds }, (_, i) => i + 1).map((r) => {
-            const count = (selectedCategories[r] || []).length;
-            const isComplete = count >= catsPerRound;
+            let countForR = 0;
+            if (isDraft) countForR = draftPicks.filter(p => p.round === r).length;
+            else countForR = (selectedCategories[r] || []).length;
+            
+            const isComplete = countForR >= catsPerRound;
+            
             return (
               <button
                 key={r}
                 onClick={() => setActiveRound(r)}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black transition-all flex items-center gap-1 ${
+                className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border-2 ${
                   activeRound === r
-                    ? "bg-soft-purple text-white shadow-sm"
+                    ? "bg-soft-purple text-white border-soft-purple shadow-md"
                     : isComplete
-                      ? "bg-mint-light/50 text-mint"
-                      : "bg-warm-gray/5 text-plum/40 border border-warm-gray/15"
+                      ? "bg-mint-light/30 text-mint border-mint/30 hover:bg-mint-light/50"
+                      : "bg-warm-gray/5 text-plum/40 border-transparent hover:bg-warm-gray/10"
                 }`}
               >
-                {isComplete && <Check className="w-3 h-3" />}
-                R{r}
-                <span className="opacity-60">({count}/{catsPerRound})</span>
+                {isComplete && <CheckCircle2 className="w-3.5 h-3.5" />}
+                Round {r}
               </button>
             );
           })}
         </div>
       )}
 
+      {/* Draft Turn Banner */}
+      {isDraft && draftPhase === "in_progress" && (
+        <div className="shrink-0 px-5 py-3 bg-soft-purple-light/30 border-b border-soft-purple/15 flex items-center justify-center text-center">
+          {players[draftTurnIndex % players.length]?.id === playerId ? (
+            <p className="font-outfit font-black text-sm text-soft-purple animate-pulse flex items-center gap-2">
+              🎮 It's your turn to pick!
+            </p>
+          ) : (
+            <p className="font-outfit font-bold text-sm text-plum/60 flex items-center gap-2">
+              Waiting for {players[draftTurnIndex % players.length]?.name}...
+              <Loader2 className="w-3 h-3 animate-spin opacity-50" />
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Selected cards list */}
-      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-        {activeSelected.length === 0 ? (
-          <div className="text-center py-12 space-y-3">
-            <div className="text-3xl opacity-30">{isDraft ? "🎯" : "📋"}</div>
-            <p className="text-sm font-bold text-plum/25">
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        {activeRoundPicks.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center space-y-3 opacity-40">
+            <div className="text-4xl">🎯</div>
+            <p className="text-sm font-bold text-plum/80 max-w-[200px]">
               {isDraft
                 ? draftPhase === "in_progress"
-                  ? "Categories will appear here as players pick"
-                  : "Draft hasn't started yet"
+                  ? "Categories will appear here as players draft them."
+                  : "Draft hasn't started yet."
                 : canHostPick
-                  ? "Tap categories on the left to add them here"
-                  : "Waiting for host to select categories"}
+                  ? "Select categories from the left to build this round."
+                  : "Waiting for host to select categories..."}
             </p>
           </div>
         ) : (
-          activeSelected.map((cat, idx) => (
-            <SelectedCategoryCard
-              key={cat.id}
-              cat={cat}
-              index={idx}
-              canRemove={canHostPick}
-              onRemove={() => removeCategory(cat.id)}
-            />
-          ))
+          activeRoundPicks.map((pick, idx) => {
+            // Handle both Category objects (host mode) and DraftPick objects (draft mode)
+            const cat = isDraft ? { id: pick.categoryId, name: pick.categoryName } as Category : pick as Category;
+            const draftedBy = isDraft ? pick.playerName : undefined;
+            
+            return (
+              <SelectedCategoryCard
+                key={isDraft ? `draft-${idx}` : cat.id}
+                cat={cat}
+                index={idx}
+                canRemove={canHostPick && !isDraft}
+                onRemove={() => removeCategory(cat.id)}
+                draftedBy={draftedBy}
+              />
+            );
+          })
         )}
 
-        {/* Empty slots */}
-        {canHostPick && activeSelected.length < catsPerRound && (
-          Array.from({ length: catsPerRound - activeSelected.length }).map((_, i) => (
-            <div
+        {/* Empty slots placeholders */}
+        {activeRoundPicks.length < catsPerRound && (
+          Array.from({ length: catsPerRound - activeRoundPicks.length }).map((_, i) => (
+            <ClayCard
               key={`empty-${i}`}
-              className="p-3 rounded-xl border-2 border-dashed border-warm-gray/15 flex items-center justify-center"
+              elevation="pressed"
+              padding="sm"
+              className="flex items-center justify-center min-h-[60px]"
             >
-              <span className="text-[10px] font-bold text-plum/20 uppercase tracking-wider">
-                Empty slot {activeSelected.length + i + 1}
+              <span className="text-[10px] font-black text-plum/20 uppercase tracking-widest">
+                Empty slot {activeRoundPicks.length + i + 1}
               </span>
-            </div>
+            </ClayCard>
           ))
         )}
       </div>
 
-      {/* Bottom actions */}
-      <div className="shrink-0 p-3 border-t border-clay-border/30 space-y-3 bg-warm-white/50">
-        {/* Dots + count */}
+      {/* Sticky Bottom Actions */}
+      <div className="shrink-0 p-5 bg-warm-white border-t border-clay-border/50 shadow-[0_-10px_20px_rgba(0,0,0,0.02)] z-10 space-y-4">
+        
+        {/* Progress Dots */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             {dots.map((filled, i) => (
               <div
                 key={i}
-                className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
+                className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-300 ${
                   filled
-                    ? "bg-soft-purple border-soft-purple"
-                    : "bg-transparent border-warm-gray/20"
+                    ? "bg-soft-purple border-soft-purple scale-110"
+                    : "bg-transparent border-clay-border"
                 }`}
               />
             ))}
-            <span className="text-[10px] font-bold text-plum/40 ml-1">
-              {activeCount}/{catsPerRound}
+            <span className="text-[11px] font-black text-plum/40 ml-2">
+              {currentCount} / {catsPerRound}
             </span>
           </div>
 
-          {canHostPick && activeCount > 0 && (
+          {canHostPick && currentCount > 0 && !isDraft && (
             <button
               onClick={clearRound}
-              className="flex items-center gap-1 text-[10px] font-bold text-peach/60 hover:text-peach transition-colors"
+              className="flex items-center gap-1.5 text-[11px] font-bold text-peach/60 hover:text-peach transition-colors uppercase tracking-wider bg-peach/5 px-2 py-1 rounded-lg"
             >
               <Trash2 className="w-3 h-3" />
               Clear
@@ -703,193 +820,179 @@ export default function CategoryPicker({
           )}
         </div>
 
-        {/* Confirm button */}
-        {canHostPick && (
-          <button
-            onClick={handleConfirmStart}
+        {/* Action Buttons */}
+        {isDraft && isHost && draftPhase === "pending" ? (
+           <ClayButton
+             variant="primary"
+             size="lg"
+             className="w-full"
+             onClick={() => {
+               setDraftPhase("in_progress");
+               setDraftTurnIndex(0);
+               updateLobbySetting("draftPhase", "in_progress");
+               updateLobbySetting("draftTurnIndex", 0);
+               broadcast("draft:start", { turnIndex: 0 });
+               broadcast("settings:update", { draftPhase: "in_progress", draftTurnIndex: 0 });
+             }}
+           >
+             Start Player Draft
+           </ClayButton>
+        ) : (canHostPick && !isDraft) || (isDraft && isHost && draftPhase === "complete") ? (
+          <ClayButton
+            variant={allRoundsFull ? "success" : "ghost"}
+            size="lg"
+            className="w-full"
+            loading={isStarting}
             disabled={isStarting || !allRoundsFull}
-            className="w-full clay-btn py-3 rounded-xl font-outfit font-bold text-sm
-              bg-soft-purple text-white hover:bg-soft-purple/90 transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed
-              flex items-center justify-center gap-2"
-          >
-            {isStarting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Starting...
-              </>
-            ) : allRoundsFull ? (
-              "Confirm & Start Game"
-            ) : (
-              `Select ${rounds * catsPerRound - totalSelected} more categories`
-            )}
-          </button>
-        )}
-
-        {!canHostPick && !isDraft && (
-          <div className="text-center py-2">
-            <div className="animate-pulse flex items-center justify-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-soft-purple" />
-              <span className="text-xs font-bold text-plum/50">Host is selecting categories...</span>
-            </div>
-          </div>
-        )}
-
-        {isDraft && draftPhase === "complete" && isHost && (
-          <button
             onClick={handleConfirmStart}
-            disabled={isStarting}
-            className="w-full clay-btn py-3 rounded-xl font-outfit font-bold text-sm
-              bg-mint text-white hover:bg-mint/90 transition-colors
-              flex items-center justify-center gap-2"
+            style={{ backgroundColor: !allRoundsFull ? "rgba(166, 157, 145, 0.1)" : undefined }}
           >
-            {isStarting ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Starting...</>
-            ) : (
-              "Start Game"
-            )}
-          </button>
-        )}
+            {allRoundsFull ? "Confirm & Start Game" : `Select ${rounds * catsPerRound - totalSelected} more topics`}
+          </ClayButton>
+        ) : null}
       </div>
     </div>
   );
 
-  // ── Draft-specific overlays ─────────────────────────────────────────
-  const draftOverlay = isDraft && (
-    <>
-      {/* Start Draft button (host) */}
-      {isHost && draftPhase === "pending" && (
-        <div className="shrink-0 px-4 py-3 bg-soft-purple-light/30 border-t border-soft-purple/15 text-center">
-          <p className="font-outfit font-bold text-sm text-plum/60 mb-2">
-            Ready to start the category draft?
+  // ── Info Modals ────────────────────────────────────────────────────────
+  const renderInfoModalContent = () => {
+    if (infoModalOpen === "persona") {
+      return (
+        <div className="space-y-4">
+          <p className="text-sm text-plum/60 leading-relaxed font-medium">
+            Personas control the tone, difficulty curve, and "vibe" of the AI-generated questions.
           </p>
-          <button
-            onClick={() => {
-              setDraftPhase("in_progress");
-              setDraftTurnIndex(0);
-              updateLobbySetting("draftPhase", "in_progress");
-              updateLobbySetting("draftTurnIndex", 0);
-              broadcast("draft:start", { turnIndex: 0 });
-              broadcast("settings:update", { draftPhase: "in_progress", draftTurnIndex: 0 });
-            }}
-            className="clay-btn px-6 py-2.5 rounded-xl font-outfit font-bold text-sm
-              bg-soft-purple text-white hover:bg-soft-purple/90 transition-colors"
-          >
-            Start Draft
-          </button>
+          <div className="space-y-3">
+            {[
+              { icon: "🧘", name: "Casual Explorer", desc: "Warm, inviting tone. Very strong logical backdoors so anyone can guess the answer even without prior knowledge." },
+              { icon: "⚔️", name: "Competitive Duelist", desc: "Sharp, edgy tone. Moderate backdoors designed for trivia hobbyists." },
+              { icon: "🎉", name: "Party Group", desc: "Fun, chaotic, and highly accessible for mixed-level groups." },
+              { icon: "⚡", name: "Speed Runner", desc: "Rapid, punchy questions. Less fluff, subtle backdoors for quick recall." },
+              { icon: "📚", name: "Deep Learner", desc: "Scholarly, rich tone. Subtle backdoors that reward deep topic expertise." }
+            ].map(p => (
+               <ClayCard key={p.name} elevation="flat" padding="sm" className="flex gap-3">
+                  <span className="text-2xl">{p.icon}</span>
+                  <div>
+                    <h4 className="font-outfit font-bold text-plum text-sm">{p.name}</h4>
+                    <p className="text-xs text-plum/50 mt-1 leading-snug">{p.desc}</p>
+                  </div>
+               </ClayCard>
+            ))}
+          </div>
         </div>
-      )}
-
-      {/* Turn banner */}
-      {draftPhase === "in_progress" && (
-        <div className="shrink-0 px-4 py-3 bg-soft-purple-light/50 border-t border-soft-purple/20 text-center">
-          {players[draftTurnIndex % players.length]?.id === playerId ? (
-            <p className="font-outfit font-black text-sm text-soft-purple animate-pulse">
-              🎮 It's your turn! Pick a category
-            </p>
-          ) : (
-            <p className="font-outfit font-bold text-sm text-plum/50">
-              {players[draftTurnIndex % players.length]?.name || "Someone"}'s turn
-            </p>
-          )}
+      );
+    }
+    if (infoModalOpen === "lens") {
+      return (
+        <div className="space-y-4">
+          <p className="text-sm text-plum/60 leading-relaxed font-medium">
+            Lenses act as the "camera angle" for the question. They change how the factual information is framed.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+             {[
+               { icon: "🔮", name: "Origin Story", desc: "How did this begin? The spark that started it all." },
+               { icon: "⚡", name: "The Unexpected", desc: "Contradicts common belief. The 'wait, what?!' moment." },
+               { icon: "👤", name: "The Human Element", desc: "The person, struggle, or drama behind the fact." },
+               { icon: "📊", name: "Numbers & Scale", desc: "Awe-inspiring statistics. How big, fast, or many?" },
+               { icon: "⚔️", name: "The Rivalry", desc: "Tension and conflict. Who was fighting whom?" },
+               { icon: "🤔", name: "The Oddity", desc: "Amusement and curiosity. The weirdest detail." },
+               { icon: "🎬", name: "Behind the Scenes", desc: "Insider feeling. What was hidden from view?" },
+               { icon: "🔗", name: "The Connection", desc: "Mind-blown links. How do two unrelated things connect?" }
+             ].map(l => (
+                <ClayCard key={l.name} elevation="flat" padding="sm" className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                     <span>{l.icon}</span>
+                     <h4 className="font-outfit font-bold text-plum text-xs">{l.name}</h4>
+                  </div>
+                  <p className="text-[11px] text-plum/50 leading-snug">{l.desc}</p>
+                </ClayCard>
+             ))}
+          </div>
         </div>
-      )}
-    </>
-  );
+      );
+    }
+    return null;
+  };
 
   // ── RENDER ──────────────────────────────────────────────────────────
   return (
-    <div className="h-dvh bg-clay-cream flex flex-col overflow-hidden">
+    <div className="h-dvh bg-clay-cream flex flex-col overflow-hidden font-inter relative">
+      
+      {/* ── Info Modal ──────────────────────────────────────────────── */}
+      <ClayModal 
+        open={infoModalOpen !== null} 
+        onClose={() => setInfoModalOpen(null)}
+        title={infoModalOpen === "persona" ? "AI Personas Explained" : "AI Lenses Explained"}
+        icon={infoModalOpen === "persona" ? <span className="text-2xl leading-none -mt-1">👥</span> : <span className="text-2xl leading-none -mt-1">🔍</span>}
+      >
+         {renderInfoModalContent()}
+      </ClayModal>
+
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/80 backdrop-blur-sm">
+      <header className="shrink-0 px-4 md:px-6 py-4 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/90 backdrop-blur-md z-30 shadow-sm relative">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs font-bold text-plum/60 hover:text-plum transition-colors"
+          className="flex items-center gap-1.5 text-xs font-bold text-plum/50 hover:text-soft-purple transition-colors bg-warm-gray/5 hover:bg-soft-purple-light/20 px-3 py-1.5 rounded-full"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          Lobby
+          <span className="hidden sm:inline">Back to Lobby</span>
         </button>
 
-        <div className="flex items-center gap-3">
-          <h1 className="font-outfit font-black text-sm text-plum">
-            🎯 Select Categories
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+          <h1 className="font-outfit font-black text-lg md:text-xl text-plum flex items-center gap-2">
+            <span className="text-2xl">📚</span> Topic Library
           </h1>
-          <span className="text-[10px] font-bold text-soft-purple bg-soft-purple-light/40 px-2 py-0.5 rounded-full">
-            {totalSelected}/{rounds * catsPerRound}
-          </span>
         </div>
 
-        <button
-          onClick={onBack}
-          className="text-[10px] font-bold text-plum/40 hover:text-plum/60 transition-colors"
-        >
-          Cancel
-        </button>
+        <div className="flex items-center">
+          <span className="text-xs font-black text-soft-purple bg-soft-purple-light/30 px-3 py-1.5 rounded-full border border-soft-purple/20">
+            {allCategories.length} Total
+          </span>
+        </div>
       </header>
 
-      {/* ── Mobile tabs ─────────────────────────────────────────────── */}
-      <div className="lg:hidden shrink-0 flex border-b border-clay-border/30 bg-warm-white/50">
+      {/* ── Mobile tabs (Bottom Nav Style) ───────────────────────────── */}
+      <div className="lg:hidden absolute bottom-0 left-0 right-0 shrink-0 flex border-t border-clay-border/50 bg-warm-white/95 backdrop-blur-md z-40 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
         <button
           onClick={() => setMobileTab("browse")}
-          className={`flex-1 py-2.5 text-xs font-outfit font-bold transition-colors relative ${
-            mobileTab === "browse" ? "text-soft-purple" : "text-plum/30"
+          className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
+            mobileTab === "browse" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
           }`}
         >
-          Browse
-          {mobileTab === "browse" && (
-            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-soft-purple rounded-full" />
-          )}
+          <Search className="w-5 h-5 mb-0.5" />
+          Discover
         </button>
         <button
           onClick={() => setMobileTab("selected")}
-          className={`flex-1 py-2.5 text-xs font-outfit font-bold transition-colors relative ${
-            mobileTab === "selected" ? "text-soft-purple" : "text-plum/30"
+          className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
+            mobileTab === "selected" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
           }`}
         >
-          Selected ({activeCount}/{catsPerRound})
-          {mobileTab === "selected" && (
-            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-soft-purple rounded-full" />
-          )}
+          <div className="relative">
+             <CheckCircle2 className="w-5 h-5 mb-0.5" />
+             {currentCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 bg-peach text-white text-[9px] w-4 h-4 flex items-center justify-center rounded-full border-2 border-warm-white">
+                  {currentCount}
+                </span>
+             )}
+          </div>
+          Draft Board
         </button>
       </div>
 
-      {/* ── Mobile: Tab-based view ──────────────────────────────────── */}
-      <div className="lg:hidden flex-1 flex flex-col overflow-hidden">
-        {mobileTab === "browse" && browserContent}
-        {mobileTab === "selected" && selectedPanelContent}
-        {draftOverlay}
-      </div>
-
-      {/* ── Desktop: Two-panel split ─────────────────────────────────── */}
-      <div className="hidden lg:flex flex-1 overflow-hidden">
-        {/* Left: Browser */}
-        <div className="flex-1 flex flex-col overflow-hidden border-r border-clay-border/30">
+      {/* ── Main Layout (Desktop: 70/30 Split | Mobile: Tab View) ────── */}
+      <div className="flex-1 flex overflow-hidden lg:pb-0 pb-[72px]">
+        
+        {/* Left: Discover/Filter (70% on Desktop, 100% on Mobile when active) */}
+        <div className={`w-full lg:w-[65%] xl:w-[70%] flex-col overflow-hidden border-r border-clay-border/50 ${mobileTab === "browse" ? "flex" : "hidden lg:flex"}`}>
           {browserContent}
         </div>
 
-        {/* Right: Selected panel */}
-        <div className="w-88 flex flex-col overflow-hidden bg-warm-white/30">
-          {/* Draft board header */}
-          {isDraft && draftPicks.length > 0 && (
-            <div className="shrink-0 px-4 py-2 border-b border-clay-border/20">
-              <h3 className="text-[10px] font-black uppercase tracking-wider text-plum/40">
-                Draft Board ({draftPicks.length} picked)
-              </h3>
-              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                {draftPicks.map((p, i) => (
-              <div key={i} className="flex items-center gap-2 text-[10px]">
-                <span className="font-bold text-plum/30 w-8">R{p.round}-S{p.slotIndex + 1}</span>
-                    <span className="font-bold text-plum truncate flex-1">{p.categoryName}</span>
-                    <span className="text-plum/50 flex-shrink-0">{p.playerName}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
+        {/* Right: Draft Board (30% on Desktop, 100% on Mobile when active) */}
+        <div className={`w-full lg:w-[35%] xl:w-[30%] flex-col overflow-hidden ${mobileTab === "selected" ? "flex" : "hidden lg:flex"}`}>
           {selectedPanelContent}
-          {draftOverlay}
         </div>
+        
       </div>
     </div>
   );

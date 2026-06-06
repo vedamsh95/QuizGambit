@@ -104,11 +104,11 @@ export {
 
 // ─── Parser & Validator ─────────────────────────────────────────────
 export {
-  parseAnalysisBlocks,
+
   validateQuestion,
   validateAllQuestions,
-  parseJsonOutput,
-  parseDiversityAudit,
+
+
 } from './parser';
 
 // ─── Diversity Auditor ──────────────────────────────────────────────
