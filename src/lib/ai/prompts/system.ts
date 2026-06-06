@@ -594,6 +594,9 @@ function describeLensSubset(lenses: LensType[]): string {
     'The Connection': 'How does this link to something unexpected? Tone: mind-blown.',
     'What If?': 'Alternative history. The road not taken. Tone: imagination, play.',
     'The Legacy': 'How did this change everything? Tone: significance, meaning.',
+    'The Butterfly Effect': 'A tiny event that caused a massive historical outcome. Tone: awe, realization.',
+    'The Evolution': 'How something drastically changed or adapted over time. Tone: progression, reflection.',
+    'The Cultural Impact': 'How a factual event shaped modern society, slang, or media. Tone: relevance, familiarity.',
   };
   return lenses
     .map((l, i) => `${i + 1}. ${l} — ${descriptions[l] || ''}`)
@@ -607,6 +610,11 @@ function describeFormSubset(forms: FormType[]): string {
     'Form 3 (Sensory Clue)': 'Start with color, texture, or physical shape. Sensory opener → context → physical connection → giveaway near end.',
     'Form 4 (Active Quote)': 'Start with iconic phrase or nickname. Quote setup → context → twist → identity reveal near end.',
     'Form 5 (Direct Narrative)': 'Clean story-driven opener. Action → mechanism detail → bridge → satisfying reveal near end.',
+    'Form 6 (The Contradiction)': 'Start by setting up an assumption, then pivot. "Despite being known as a fierce carnivore..."',
+    'Form 7 (The Question Lead)': 'Start with a rhetorical question or thought experiment. "What happens when you mix potassium and water?"',
+    'Form 8 (The Timeline)': 'Frame the clue as a rapid chronological sequence. "First developed in 1991, then adopted in 2001..."',
+    'Form 9 (The Misdirection)': 'Sounds like it\'s describing one thing, but shifts to the real answer. "It may sound like a type of fancy Italian pasta, but..."',
+    'Form 10 (Defining Trait)': 'Lead heavily with adjectives and defining characteristics. "Flightless, nocturnal, and highly endangered..."',
   };
   return forms
     .map(f => `• ${f}: ${descriptions[f] || ''}`)
@@ -622,6 +630,9 @@ function describeBackdoorSubset(backdoors: BackdoorType[]): string {
     'Sequence Pattern': 'Names/facts form recognizable sequence (e.g. "Lee... Harvey..." → Oswald)',
     'Sensory Logic': 'Physical properties lead to answer (e.g. "Vibrant pink" → Pink Ball)',
     'Category Elimination': 'Narrows field dramatically (e.g. "Southern Indian cricketing state")',
+    'Etymology / Name Logic': 'Translates root words to deduce answer (e.g. "Greek for star sailor" → Astronaut)',
+    'Functional Logic': 'Describes how something works or its purpose (e.g. "passing current through a tungsten filament" → Lightbulb)',
+    'Pop Culture Hook': 'Drops a subtle reference to a famous movie, song, or meme related to the factual topic.',
   };
   return backdoors
     .map(b => `• ${b}: ${descriptions[b] || ''}`)

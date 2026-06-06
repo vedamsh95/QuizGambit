@@ -74,14 +74,35 @@ export default function PickerGrid({
             </span>
           )}
         </div>
-        {onToggleCollapse && (
-          <button
-            onClick={onToggleCollapse}
-            className="text-[10px] font-bold text-plum/50 hover:text-soft-purple uppercase tracking-wider transition-colors"
-          >
-            {collapsed ? "Customize ▸" : "Collapse ▾"}
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {!collapsed && !maxSelect && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => onChange(items.map((item) => item.id))}
+                className="text-[9px] font-bold text-soft-purple hover:underline transition-colors"
+              >
+                Select All
+              </button>
+              <span className="text-plum/20 text-[9px] font-bold">|</span>
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-[9px] font-bold text-peach hover:underline transition-colors"
+              >
+                Deselect All
+              </button>
+            </div>
+          )}
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="text-[10px] font-bold text-plum/50 hover:text-soft-purple uppercase tracking-wider transition-colors"
+            >
+              {collapsed ? "Customize ▸" : "Collapse ▾"}
+            </button>
+          )}
+        </div>
       </div>
 
       {subtitle && (

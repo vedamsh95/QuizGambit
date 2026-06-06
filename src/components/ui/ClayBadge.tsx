@@ -1,9 +1,9 @@
-import { type ReactNode } from "react";
+import { type HTMLAttributes, type ReactNode } from "react";
 import clsx from "clsx";
 
 type BadgeColor = "purple" | "mint" | "peach" | "sky" | "butter" | "gray";
 
-export interface ClayBadgeProps {
+export interface ClayBadgeProps extends HTMLAttributes<HTMLSpanElement> {
   color?: BadgeColor;
   dot?: boolean;
   children?: ReactNode;
@@ -24,11 +24,12 @@ export default function ClayBadge({
   dot = false,
   children,
   className,
+  ...props
 }: ClayBadgeProps) {
   const c = colorMap[color];
 
   return (
-    <span className={clsx("clay-badge", c.bg, c.text, className)}>
+    <span className={clsx("clay-badge", c.bg, c.text, className)} {...props}>
       {dot && <span className={clsx("inline-block w-2 h-2 rounded-full", c.dotColor)} />}
       {children}
     </span>

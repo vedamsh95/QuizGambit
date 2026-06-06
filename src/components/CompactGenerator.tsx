@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { ArrowLeft, Sparkles, ChevronDown, LogIn } from "lucide-react";
+import clsx from "clsx";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { generateCompactQuizQuestions } from "../lib/ai";
@@ -39,7 +40,7 @@ const LENS_ITEMS = ALL_LENSES.map((l: LensType) => ({
 
 const FORM_ITEMS = ALL_FORMS.map((f: FormType) => ({
   id: f,
-  label: f.replace(/^Form \d \((.+)\)$/, "$1"),
+  label: f.replace(/^Form \d+ \((.+)\)$/, "$1"),
   subtitle: getFormSubtitle(f),
   icon: getFormIcon(f),
   color: "sky" as const,
@@ -65,6 +66,9 @@ function getLensIcon(lens: LensType): string {
     "The Connection": "🔗",
     "What If?": "🤷",
     "The Legacy": "🏛️",
+    "The Butterfly Effect": "🦋",
+    "The Evolution": "🦎",
+    "The Cultural Impact": "🌍",
   };
   return map[lens] || "💡";
 }
@@ -81,6 +85,9 @@ function getLensSubtitle(lens: LensType): string {
     "The Connection": "Mind-blown",
     "What If?": "Imagination, play",
     "The Legacy": "Significance, meaning",
+    "The Butterfly Effect": "Small action, huge result",
+    "The Evolution": "Change over time",
+    "The Cultural Impact": "Shaped modern society",
   };
   return map[lens] || "";
 }
@@ -92,6 +99,11 @@ function getFormIcon(form: FormType): string {
     "Form 3 (Sensory Clue)": "👁️",
     "Form 4 (Active Quote)": "💬",
     "Form 5 (Direct Narrative)": "📖",
+    "Form 6 (The Contradiction)": "🔄",
+    "Form 7 (The Question Lead)": "❓",
+    "Form 8 (The Timeline)": "📅",
+    "Form 9 (The Misdirection)": "🎭",
+    "Form 10 (Defining Trait)": "🏷️",
   };
   return map[form] || "📝";
 }
@@ -103,6 +115,11 @@ function getFormSubtitle(form: FormType): string {
     "Form 3 (Sensory Clue)": "Color, texture",
     "Form 4 (Active Quote)": "Iconic phrase",
     "Form 5 (Direct Narrative)": "Story-driven",
+    "Form 6 (The Contradiction)": "Pivot on assumption",
+    "Form 7 (The Question Lead)": "Thought experiment",
+    "Form 8 (The Timeline)": "Chronological sequence",
+    "Form 9 (The Misdirection)": "Sounds like X, is Y",
+    "Form 10 (Defining Trait)": "Adjective heavy",
   };
   return map[form] || "";
 }
@@ -116,6 +133,9 @@ function getBackdoorIcon(b: BackdoorType): string {
     "Sequence Pattern": "🔢",
     "Sensory Logic": "👃",
     "Category Elimination": "🎯",
+    "Etymology / Name Logic": "🗣️",
+    "Functional Logic": "⚙️",
+    "Pop Culture Hook": "🎬",
   };
   return map[b] || "🚪";
 }
@@ -129,6 +149,9 @@ function getBackdoorSubtitle(b: BackdoorType): string {
     "Sequence Pattern": "Recognizable order",
     "Sensory Logic": "Physical properties",
     "Category Elimination": "Narrowing field",
+    "Etymology / Name Logic": "Name/root translation",
+    "Functional Logic": "How it works/purpose",
+    "Pop Culture Hook": "Movie/meme reference",
   };
   return map[b] || "";
 }
@@ -145,6 +168,9 @@ function getLensDescription(lens: LensType): string {
     "The Connection": "Unexpected links between seemingly unrelated things. The mind-blowing realization that two worlds collide.",
     "What If?": "Alternative history and roads not taken. Imagination-driven questions that explore counterfactuals.",
     "The Legacy": "How did this change everything? Questions about lasting impact, significance, and meaning.",
+    "The Butterfly Effect": "A tiny event that caused a massive historical outcome. Tone: awe, realization.",
+    "The Evolution": "How something drastically changed or adapted over time. Tone: progression, reflection.",
+    "The Cultural Impact": "How a factual event shaped modern society, slang, or media. Tone: relevance, familiarity.",
   };
   return map[lens] || "";
 }
@@ -156,6 +182,11 @@ function getFormDescription(form: FormType): string {
     "Form 3 (Sensory Clue)": "Begins with color, texture, or physical description. Paints a vivid picture before revealing the question.",
     "Form 4 (Active Quote)": "Starts with an iconic phrase, nickname, or quote. Humanizes the question through voice and character.",
     "Form 5 (Direct Narrative)": "Clean, elegant, story-driven opener. Classic storytelling structure with a satisfying reveal.",
+    "Form 6 (The Contradiction)": "Starts by setting up an assumption, then pivot. \"Despite being known as...\"",
+    "Form 7 (The Question Lead)": "Start with a rhetorical question or thought experiment. \"What happens when you mix...\"",
+    "Form 8 (The Timeline)": "Frame the clue as a rapid chronological sequence. \"First developed in 1991, then adopted in 2001...\"",
+    "Form 9 (The Misdirection)": "Sounds like it's describing one thing, but shifts to the real answer. \"It may sound like a type of fancy Italian pasta, but...\"",
+    "Form 10 (Defining Trait)": "Lead heavily with adjectives and defining characteristics. \"Flightless, nocturnal, and highly endangered...\"",
   };
   return map[form] || "";
 }
@@ -169,6 +200,9 @@ function getBackdoorDescription(b: BackdoorType): string {
     "Sequence Pattern": "Names or facts form a recognizable sequence. Players spot the pattern to find the answer.",
     "Sensory Logic": "Physical properties like color, texture, or sound lead to the answer. Sensory reasoning is the key.",
     "Category Elimination": "Narrows the field dramatically through qualifiers (e.g. \"Southern Indian cricketing state\"). Process of elimination works.",
+    "Etymology / Name Logic": "Translates root words to deduce answer (e.g. \"Greek for star sailor\" → Astronaut).",
+    "Functional Logic": "Describes how something works or its purpose (e.g. \"passing current through a tungsten filament\" → Lightbulb).",
+    "Pop Culture Hook": "Drops a subtle reference to a famous movie, song, or meme related to the factual topic.",
   };
   return map[b] || "";
 }
@@ -240,6 +274,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   const [selectedBackdoors, setSelectedBackdoors] = useState<string[]>(
     ALL_BACKDOORS.map((b) => b),
   );
+  const [advancedViewMode, setAdvancedViewMode] = useState<"tiles" | "detailed">("tiles");
 
   // ── Auth modal state ────────────────────────────────────────────
   const [showAuth, setShowAuth] = useState(false);
@@ -629,6 +664,16 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           if (subtopicMeta) {
             tags.push(subtopicMeta.type, subtopicMeta.domain, subtopicMeta.style);
           }
+          const topicPersona = personas[i % personas.length] || "Casual Explorer";
+          const uniquePersonas = new Set<string>();
+          const uniqueLenses = new Set<string>();
+          r.questions.forEach((q: any) => {
+            if (q.persona) uniquePersonas.add(q.persona);
+            else if (topicPersona) uniquePersonas.add(topicPersona);
+            if (q.lens) uniqueLenses.add(q.lens);
+          });
+          uniquePersonas.forEach((p) => tags.push(`Persona:${p}`));
+          uniqueLenses.forEach((l) => tags.push(`Lens:${l}`));
           try {
             // Check if topic exists in library for this user
             const { data: existingTopic } = await supabase
@@ -642,7 +687,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
               // Merge questions without duplicates (by question text)
               const existingQuestions = existingTopic.data || [];
               const newQuestions = r.questions.filter(
-                (nq) => !existingQuestions.some((eq: any) => eq.question === nq.question)
+                (nq) => !existingQuestions.some((eq: any) => (eq.question_text || eq.question) === nq.question_text)
               );
 
               if (newQuestions.length > 0) {
@@ -914,74 +959,308 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
             Advanced Options
             {!showAdvanced && (
               <span className="text-[10px] text-plum/30 font-normal ml-auto">
-                Using all 10 lenses, 5 forms, 7 backdoors
+                {selectedLenses.length === ALL_LENSES.length &&
+                selectedForms.length === ALL_FORMS.length &&
+                selectedBackdoors.length === ALL_BACKDOORS.length
+                  ? `Using all ${ALL_LENSES.length} lenses, ${ALL_FORMS.length} forms, ${ALL_BACKDOORS.length} backdoors`
+                  : `Custom: ${selectedLenses.length}/${ALL_LENSES.length} lenses, ${selectedForms.length}/${ALL_FORMS.length} forms, ${selectedBackdoors.length}/${ALL_BACKDOORS.length} backdoors`}
               </span>
             )}
           </button>
 
           {showAdvanced && (
             <div className="space-y-6 pt-4 animate-slide-up-fade">
-              {/* Lenses */}
-              <PickerGrid
-                label="🎨 Conceptual Lenses"
-                subtitle="Pick which lenses to use. Each question gets a unique lens."
-                items={LENS_ITEMS}
-                selected={selectedLenses}
-                onChange={setSelectedLenses}
-              />
+              {/* View Toggle */}
+              <div className="flex items-center justify-between border-b border-clay-border pb-3">
+                <span className="text-[10px] text-plum/50 font-bold uppercase tracking-wider">
+                  Selection View
+                </span>
+                <div className="flex gap-1 bg-clay-cream p-0.5 rounded-lg border border-clay-border">
+                  <button
+                    onClick={() => setAdvancedViewMode("tiles")}
+                    className={clsx(
+                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      advancedViewMode === "tiles"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                  >
+                    🎴 Tiles
+                  </button>
+                  <button
+                    onClick={() => setAdvancedViewMode("detailed")}
+                    className={clsx(
+                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      advancedViewMode === "detailed"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                  >
+                    📖 Detailed List
+                  </button>
+                </div>
+              </div>
 
-              {/* Forms */}
-              <PickerGrid
-                label="📝 Syntactic Forms"
-                subtitle="Pick which sentence structures to use. Rotate through all selected."
-                items={FORM_ITEMS}
-                selected={selectedForms}
-                onChange={setSelectedForms}
-                columns={5}
-              />
+              {advancedViewMode === "tiles" ? (
+                <>
+                  {/* Lenses */}
+                  <PickerGrid
+                    label="🎨 Conceptual Lenses"
+                    subtitle="Pick which lenses to use. Each question gets a unique lens."
+                    items={LENS_ITEMS}
+                    selected={selectedLenses}
+                    onChange={setSelectedLenses}
+                  />
 
-              {/* Backdoors */}
-              <PickerGrid
-                label="🔑 Backdoor Types"
-                subtitle="Pick which logical pathways are available. LLM picks the best fit per question."
-                items={BACKDOOR_ITEMS}
-                selected={selectedBackdoors}
-                onChange={setSelectedBackdoors}
-              />
+                  {/* Forms */}
+                  <PickerGrid
+                    label="📝 Syntactic Forms"
+                    subtitle="Pick which sentence structures to use. Rotate through all selected."
+                    items={FORM_ITEMS}
+                    selected={selectedForms}
+                    onChange={setSelectedForms}
+                    columns={5}
+                  />
 
-              {/* Selection summary */}
-              {(selectedLenses.length < ALL_LENSES.length ||
-                selectedForms.length < ALL_FORMS.length ||
-                selectedBackdoors.length < ALL_BACKDOORS.length) && (
-                <DescriptionPanel
-                  title="Custom Selection Summary"
-                  items={[
-                    ...selectedLenses.map((l: string) => ({
-                      id: l,
-                      label: l,
-                      subtitle: getLensSubtitle(l as LensType),
-                      description: getLensDescription(l as LensType),
-                      icon: getLensIcon(l as LensType),
-                      color: "purple" as const,
-                    })),
-                    ...selectedForms.map((f: string) => ({
-                      id: f,
-                      label: f.replace(/^Form \d \((.+)\)$/, "$1"),
-                      subtitle: getFormSubtitle(f as FormType),
-                      description: getFormDescription(f as FormType),
-                      icon: getFormIcon(f as FormType),
-                      color: "sky" as const,
-                    })),
-                    ...selectedBackdoors.map((b: string) => ({
-                      id: b,
-                      label: b,
-                      subtitle: getBackdoorSubtitle(b as BackdoorType),
-                      description: getBackdoorDescription(b as BackdoorType),
-                      icon: getBackdoorIcon(b as BackdoorType),
-                      color: "mint" as const,
-                    })),
-                  ]}
-                />
+                  {/* Backdoors */}
+                  <PickerGrid
+                    label="🔑 Backdoor Types"
+                    subtitle="Pick which logical pathways are available. LLM picks the best fit per question."
+                    items={BACKDOOR_ITEMS}
+                    selected={selectedBackdoors}
+                    onChange={setSelectedBackdoors}
+                  />
+
+                  {/* Selection summary */}
+                  {(selectedLenses.length < ALL_LENSES.length ||
+                    selectedForms.length < ALL_FORMS.length ||
+                    selectedBackdoors.length < ALL_BACKDOORS.length) && (
+                    <DescriptionPanel
+                      title="Custom Selection Summary"
+                      items={[
+                        ...selectedLenses.map((l: string) => ({
+                          id: l,
+                          label: l,
+                          subtitle: getLensSubtitle(l as LensType),
+                          description: getLensDescription(l as LensType),
+                          icon: getLensIcon(l as LensType),
+                          color: "purple" as const,
+                        })),
+                        ...selectedForms.map((f: string) => ({
+                          id: f,
+                          label: f.replace(/^Form \d+ \((.+)\)$/, "$1"),
+                          subtitle: getFormSubtitle(f as FormType),
+                          description: getFormDescription(f as FormType),
+                          icon: getFormIcon(f as FormType),
+                          color: "sky" as const,
+                        })),
+                        ...selectedBackdoors.map((b: string) => ({
+                          id: b,
+                          label: b,
+                          subtitle: getBackdoorSubtitle(b as BackdoorType),
+                          description: getBackdoorDescription(b as BackdoorType),
+                          icon: getBackdoorIcon(b as BackdoorType),
+                          color: "mint" as const,
+                        })),
+                      ]}
+                    />
+                  )}
+                </>
+              ) : (
+                <div className="space-y-8">
+                  {/* Detailed Lenses */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-outfit font-bold text-sm text-plum">🎨 Conceptual Lenses</h4>
+                        <p className="text-[10px] text-plum/50 font-medium">Pick which lenses to use. Each question gets a unique lens.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedLenses(ALL_LENSES.map(l => l))}
+                          className="text-[9px] font-bold text-soft-purple hover:underline"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-plum/20 text-[9px] font-bold">|</span>
+                        <button
+                          onClick={() => setSelectedLenses([])}
+                          className="text-[9px] font-bold text-peach hover:underline"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {ALL_LENSES.map((l) => {
+                        const isSelected = selectedLenses.includes(l);
+                        return (
+                          <label
+                            key={l}
+                            className={clsx(
+                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                              isSelected && "ring-1 ring-soft-purple/20 bg-soft-purple-light/5"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedLenses(selectedLenses.filter(x => x !== l));
+                                } else {
+                                  setSelectedLenses([...selectedLenses, l]);
+                                }
+                              }}
+                              className="mt-1 accent-soft-purple rounded"
+                            />
+                            <span className="text-lg flex-shrink-0">{getLensIcon(l)}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{l}</span>
+                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-soft-purple bg-soft-purple-light/20 px-1.5 py-0.5 rounded">
+                                  {getLensSubtitle(l)}
+                                </span>
+                              </div>
+                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                {getLensDescription(l)}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Detailed Forms */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-outfit font-bold text-sm text-plum">📝 Syntactic Forms</h4>
+                        <p className="text-[10px] text-plum/50 font-medium">Pick which sentence structures to use. Rotate through all selected.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedForms(ALL_FORMS.map(f => f))}
+                          className="text-[9px] font-bold text-soft-purple hover:underline"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-plum/20 text-[9px] font-bold">|</span>
+                        <button
+                          onClick={() => setSelectedForms([])}
+                          className="text-[9px] font-bold text-peach hover:underline"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {ALL_FORMS.map((f) => {
+                        const isSelected = selectedForms.includes(f);
+                        const label = f.replace(/^Form \d+ \((.+)\)$/, "$1");
+                        return (
+                          <label
+                            key={f}
+                            className={clsx(
+                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                              isSelected && "ring-1 ring-sky/20 bg-sky-light/5"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedForms(selectedForms.filter(x => x !== f));
+                                } else {
+                                  setSelectedForms([...selectedForms, f]);
+                                }
+                              }}
+                              className="mt-1 accent-sky rounded"
+                            />
+                            <span className="text-lg flex-shrink-0">{getFormIcon(f)}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{label}</span>
+                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-sky bg-sky-light/20 px-1.5 py-0.5 rounded">
+                                  {getFormSubtitle(f)}
+                                </span>
+                              </div>
+                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                {getFormDescription(f)}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Detailed Backdoors */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-outfit font-bold text-sm text-plum">🔑 Backdoor Types</h4>
+                        <p className="text-[10px] text-plum/50 font-medium">Pick which logical pathways are available. LLM picks the best fit per question.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedBackdoors(ALL_BACKDOORS.map(b => b))}
+                          className="text-[9px] font-bold text-soft-purple hover:underline"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-plum/20 text-[9px] font-bold">|</span>
+                        <button
+                          onClick={() => setSelectedBackdoors([])}
+                          className="text-[9px] font-bold text-peach hover:underline"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {ALL_BACKDOORS.map((b) => {
+                        const isSelected = selectedBackdoors.includes(b);
+                        return (
+                          <label
+                            key={b}
+                            className={clsx(
+                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                              isSelected && "ring-1 ring-mint/20 bg-mint-light/5"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedBackdoors(selectedBackdoors.filter(x => x !== b));
+                                } else {
+                                  setSelectedBackdoors([...selectedBackdoors, b]);
+                                }
+                              }}
+                              className="mt-1 accent-mint rounded"
+                            />
+                            <span className="text-lg flex-shrink-0">{getBackdoorIcon(b)}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{b}</span>
+                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-mint bg-mint-light/20 px-1.5 py-0.5 rounded">
+                                  {getBackdoorSubtitle(b)}
+                                </span>
+                              </div>
+                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                {getBackdoorDescription(b)}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}

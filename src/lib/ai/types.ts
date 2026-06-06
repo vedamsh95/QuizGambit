@@ -19,12 +19,15 @@ export type LensType =
   | 'Behind the Scenes'    // Insider-feeling — what's hidden from view?
   | 'The Connection'       // Mind-blown — how does this link unexpectedly?
   | 'What If?'             // Imagination, play — alternative history
-  | 'The Legacy';          // Significance, meaning — how did this change everything?
+  | 'The Legacy'           // Significance, meaning — how did this change everything?
+  | 'The Butterfly Effect' // Small action, massive consequence
+  | 'The Evolution'        // How something drastically changed or adapted over time
+  | 'The Cultural Impact'; // How a factual event shaped modern society, slang, or media
 
 export const ALL_LENSES: LensType[] = [
   'Origin Story', 'The Unexpected', 'The Human Element', 'Numbers & Scale',
   'The Rivalry', 'The Oddity', 'Behind the Scenes', 'The Connection',
-  'What If?', 'The Legacy',
+  'What If?', 'The Legacy', 'The Butterfly Effect', 'The Evolution', 'The Cultural Impact',
 ];
 
 // ─── Form Types (5) ─────────────────────────────────────────────────
@@ -35,7 +38,12 @@ export type FormType =
   | 'Form 2 (Parenthetical Hook)'   // Dramatic contrast: "Unlike..."
   | 'Form 3 (Sensory Clue)'         // Color/texture: "Vibrant pink..."
   | 'Form 4 (Active Quote)'         // Iconic phrase: "Mockingly..."
-  | 'Form 5 (Direct Narrative)';    // Story-driven: "Scrambling..."
+  | 'Form 5 (Direct Narrative)'     // Story-driven: "Scrambling..."
+  | 'Form 6 (The Contradiction)'    // Pivots on assumption: "Despite being known as..."
+  | 'Form 7 (The Question Lead)'    // Rhetorical hook: "What happens when..."
+  | 'Form 8 (The Timeline)'         // Chronological sequence: "First developed in 1991..."
+  | 'Form 9 (The Misdirection)'     // Sounds like X, is actually Y: "It may sound like..."
+  | 'Form 10 (Defining Trait)';     // Adjective heavy: "Flightless, nocturnal, and..."
 
 export const ALL_FORMS: FormType[] = [
   'Form 1 (Action-First)',
@@ -43,6 +51,11 @@ export const ALL_FORMS: FormType[] = [
   'Form 3 (Sensory Clue)',
   'Form 4 (Active Quote)',
   'Form 5 (Direct Narrative)',
+  'Form 6 (The Contradiction)',
+  'Form 7 (The Question Lead)',
+  'Form 8 (The Timeline)',
+  'Form 9 (The Misdirection)',
+  'Form 10 (Defining Trait)',
 ];
 
 // ─── Backdoor Types (7) ─────────────────────────────────────────────
@@ -55,12 +68,16 @@ export type BackdoorType =
   | 'Anagram-Wordplay'       // Answer embedded in text structure: "At an angle" → TELANGANA
   | 'Sequence Pattern'       // Names/facts form recognizable sequence: "Lee... Harvey..." → Oswald
   | 'Sensory Logic'          // Physical properties lead to answer: "Vibrant pink" → Pink Ball
-  | 'Category Elimination';  // Narrows field dramatically: "Southern Indian cricketing state"
+  | 'Category Elimination'   // Narrows field dramatically: "Southern Indian cricketing state"
+  | 'Etymology / Name Logic' // Translates root words: "Greek for 'star sailor'" → Astronaut
+  | 'Functional Logic'       // How something works/its purpose: "passing current through filament" → Lightbulb
+  | 'Pop Culture Hook';      // Reference to a famous movie, song, or meme
 
 export const ALL_BACKDOORS: BackdoorType[] = [
   'Synonym Bridge', 'Contrast Pop', 'Everyday Link',
   'Anagram-Wordplay', 'Sequence Pattern', 'Sensory Logic',
-  'Category Elimination',
+  'Category Elimination', 'Etymology / Name Logic',
+  'Functional Logic', 'Pop Culture Hook',
 ];
 
 // ─── Player Personas (5) ────────────────────────────────────────────

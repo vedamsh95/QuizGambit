@@ -56,21 +56,147 @@ function getThemeFromTags(tags?: string[]): string | null {
   return themeTag ? themeTag.replace("Theme:", "") : null;
 }
 
-function getPersonaFromTags(tags?: string[]): string | null {
-  if (!tags) return null;
-  const pTag = tags.find((t) => t.startsWith("Persona:"));
-  return pTag ? pTag.replace("Persona:", "") : null;
+function getPersonasForCategory(cat: Category): Set<string> {
+  const personas = new Set<string>();
+  if (cat.tags) {
+    cat.tags.forEach((t) => {
+      if (t.startsWith("Persona:")) {
+        personas.add(t.replace("Persona:", ""));
+      }
+    });
+  }
+  if (personas.size === 0 && cat.data && Array.isArray(cat.data)) {
+    cat.data.forEach((q) => {
+      if (q.persona) personas.add(q.persona);
+    });
+  }
+  return personas;
 }
 
-function getLensFromTags(tags?: string[]): string | null {
-  if (!tags) return null;
-  const lTag = tags.find((t) => t.startsWith("Lens:"));
-  return lTag ? lTag.replace("Lens:", "") : null;
+function getLensesForCategory(cat: Category): Set<string> {
+  const lenses = new Set<string>();
+  if (cat.tags) {
+    cat.tags.forEach((t) => {
+      if (t.startsWith("Lens:")) {
+        lenses.add(t.replace("Lens:", ""));
+      }
+    });
+  }
+  if (lenses.size === 0 && cat.data && Array.isArray(cat.data)) {
+    cat.data.forEach((q) => {
+      if (q.lens) lenses.add(q.lens);
+    });
+  }
+  return lenses;
+}
+
+function getThemeFontSizeClass(theme: string): string {
+  const len = theme.length;
+  if (len > 16) return "text-[10px] md:text-[11px] leading-tight";
+  if (len >= 13) return "text-[11px] md:text-xs leading-tight";
+  return "text-xs md:text-sm leading-tight";
 }
 
 function getCategoryDisplayName(name: string): string {
   return name.replace(" (Arena)", "").trim();
 }
+
+function getThemeColor(theme: string): "purple" | "mint" | "peach" | "sky" | "butter" | "gray" {
+  const t = theme.toLowerCase();
+  if (t.includes("science") || t.includes("tech") || t.includes("nature") || t.includes("geography") || t.includes("math")) return "mint";
+  if (t.includes("history") || t.includes("literature") || t.includes("art") || t.includes("society") || t.includes("philosophy")) return "purple";
+  if (t.includes("pop") || t.includes("movie") || t.includes("music") || t.includes("tv") || t.includes("entertainment") || t.includes("show")) return "sky";
+  if (t.includes("sport") || t.includes("gaming") || t.includes("game")) return "peach";
+  if (t.includes("food") || t.includes("drink") || t.includes("general") || t.includes("trivia")) return "butter";
+  
+  // Stable hash fallback
+  const colors: ("purple" | "mint" | "peach" | "sky" | "butter")[] = ["purple", "mint", "peach", "sky", "butter"];
+  let hash = 0;
+  for (let i = 0; i < theme.length; i++) {
+    hash = theme.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function getThemeEmoji(theme: string): string {
+  const t = theme.toLowerCase();
+  if (t.includes("science") || t.includes("tech")) return "🔬";
+  if (t.includes("nature") || t.includes("environment")) return "🌿";
+  if (t.includes("geography") || t.includes("world")) return "🌍";
+  if (t.includes("math")) return "📐";
+  if (t.includes("history")) return "🏛️";
+  if (t.includes("literature") || t.includes("book")) return "📚";
+  if (t.includes("art")) return "🎨";
+  if (t.includes("society") || t.includes("philosophy")) return "🧠";
+  if (t.includes("pop") || t.includes("show")) return "✨";
+  if (t.includes("movie") || t.includes("cinema") || t.includes("film")) return "🎬";
+  if (t.includes("music")) return "🎵";
+  if (t.includes("tv")) return "📺";
+  if (t.includes("entertainment")) return "🎭";
+  if (t.includes("sport")) return "⚽";
+  if (t.includes("gaming") || t.includes("game")) return "🎮";
+  if (t.includes("food") || t.includes("drink")) return "🍕";
+  if (t.includes("general") || t.includes("trivia")) return "💡";
+  
+  // Emojis array for fallback
+  const emojis = ["🎯", "🧩", "🌟", "🔮", "🔥", "⚡", "🍀", "🌈"];
+  let hash = 0;
+  for (let i = 0; i < theme.length; i++) {
+    hash = theme.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return emojis[Math.abs(hash) % emojis.length];
+}
+
+const themeColorConfig = {
+  purple: {
+    gradient: "from-soft-purple-light/40 to-transparent",
+    ring: "hover:ring-soft-purple/40",
+    bg: "bg-soft-purple",
+    activeBg: "bg-soft-purple-light/20",
+    activeRing: "ring-soft-purple",
+    accent: "text-soft-purple",
+  },
+  mint: {
+    gradient: "from-mint-light/40 to-transparent",
+    ring: "hover:ring-mint/40",
+    bg: "bg-mint",
+    activeBg: "bg-mint-light/20",
+    activeRing: "ring-mint",
+    accent: "text-mint",
+  },
+  peach: {
+    gradient: "from-peach-light/40 to-transparent",
+    ring: "hover:ring-peach/40",
+    bg: "bg-peach",
+    activeBg: "bg-peach-light/20",
+    activeRing: "ring-peach",
+    accent: "text-peach",
+  },
+  sky: {
+    gradient: "from-sky-light/40 to-transparent",
+    ring: "hover:ring-sky/40",
+    bg: "bg-sky",
+    activeBg: "bg-sky-light/20",
+    activeRing: "ring-sky",
+    accent: "text-sky",
+  },
+  butter: {
+    gradient: "from-butter-light/40 to-transparent",
+    ring: "hover:ring-butter/40",
+    bg: "bg-butter",
+    activeBg: "bg-butter-light/20",
+    activeRing: "ring-butter",
+    accent: "text-butter",
+  },
+  gray: {
+    gradient: "from-gray-light/40 to-transparent",
+    ring: "hover:ring-gray/40",
+    bg: "bg-gray",
+    activeBg: "bg-gray-light/20",
+    activeRing: "ring-gray",
+    accent: "text-plum/50",
+  },
+};
 
 // Map personas/lenses to emojis for compact UI
 const personaIcons: Record<string, string> = {
@@ -111,18 +237,23 @@ function BrowseCategoryCard({
   onPick: () => void;
   draftedByAvatar?: React.ReactNode;
 }) {
-  const persona = getPersonaFromTags(cat.tags);
-  const lens = getLensFromTags(cat.tags);
+  const personas = getPersonasForCategory(cat);
+  const lenses = getLensesForCategory(cat);
+  const persona = personas.values().next().value || null;
+  const lens = lenses.values().next().value || null;
+  const theme = getThemeFromTags(cat.tags) || "Uncategorized";
+  const color = getThemeColor(theme);
+  const cfg = themeColorConfig[color];
   
   return (
     <ClayCard
       onClick={onPick}
-      elevation={isSelected ? "pressed" : "floating"}
+      elevation={isSelected ? "pressed" : "flat"}
       padding="none"
-      className={`w-full flex flex-col p-4 text-left transition-all relative ${
+      className={`w-full flex flex-col p-4 text-left transition-all relative bg-warm-white ${
         isSelected
-          ? "bg-soft-purple-light/20 ring-2 ring-soft-purple"
-          : "hover:-translate-y-1"
+          ? `${cfg.activeBg} ring-2 ${cfg.activeRing}`
+          : `hover:-translate-y-1 hover:ring-2 ${cfg.ring} bg-gradient-to-br ${cfg.gradient}`
       } ${(isUnavailable && !isSelected) || !canPick ? "opacity-50 cursor-not-allowed grayscale-[30%]" : "cursor-pointer"}`}
     >
       <div className="flex items-start justify-between gap-3 w-full mb-2">
@@ -137,7 +268,7 @@ function BrowseCategoryCard({
                {draftedByAvatar}
              </div>
           ) : isSelected ? (
-            <div className="w-6 h-6 rounded-full bg-soft-purple text-white flex items-center justify-center shadow-inner">
+            <div className={`w-6 h-6 rounded-full ${cfg.bg} text-white flex items-center justify-center shadow-inner`}>
               <Check className="w-3.5 h-3.5" />
             </div>
           ) : isUnavailable ? (
@@ -145,33 +276,33 @@ function BrowseCategoryCard({
               Taken
             </div>
           ) : (
-            <div className="w-6 h-6 rounded-full border-2 border-clay-border flex items-center justify-center text-plum/30 transition-colors group-hover:border-soft-purple/40 group-hover:text-soft-purple/70">
+            <div className="w-6 h-6 rounded-full border-2 border-clay-border flex items-center justify-center text-plum/30 transition-all hover:scale-105 active:scale-95">
               <span className="text-[14px] leading-none mb-[2px]">+</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-auto pt-1 flex-wrap">
-        <ClayBadge color="gray" className="text-[10px] font-black flex items-center gap-1 px-2 py-0.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-plum/20" />
+      <div className="flex items-center gap-1.5 mt-auto pt-1 flex-wrap">
+        <ClayBadge color="gray" className="text-[9px] sm:text-[10px] font-black flex items-center gap-1 px-1.5 py-0.5">
+          <span className="w-1 h-1 rounded-full bg-plum/20" />
           {cat.data?.length || 0} Qs
         </ClayBadge>
         
         {persona && (
-          <ClayBadge color="peach" className="text-[10px] font-bold flex items-center gap-1" title={`Persona: ${persona}`}>
+          <ClayBadge color="peach" className="text-[9px] sm:text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5" title={`Persona: ${persona}`}>
             {personaIcons[persona] || "👤"} <span className="opacity-90">{persona}</span>
           </ClayBadge>
         )}
         
         {lens && (
-          <ClayBadge color="sky" className="text-[10px] font-bold flex items-center gap-1" title={`Lens: ${lens}`}>
+          <ClayBadge color="sky" className="text-[9px] sm:text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5" title={`Lens: ${lens}`}>
             {lensIcons[lens] || "🔍"} <span className="opacity-90">{lens}</span>
           </ClayBadge>
         )}
         
         {cat.is_global && (
-          <ClayBadge color="mint" className="text-[10px] font-black">Global</ClayBadge>
+          <ClayBadge color="mint" className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5">Global</ClayBadge>
         )}
       </div>
     </ClayCard>
@@ -193,22 +324,27 @@ function SelectedCategoryCard({
   onRemove: () => void;
   draftedBy?: string;
 }) {
-  const colors = [
-    "bg-soft-purple-light text-soft-purple",
-    "bg-sky-light text-sky",
-    "bg-peach-light text-peach",
-    "bg-mint-light text-mint",
-    "bg-butter-light text-butter",
-  ];
-  const colorClass = colors[index % colors.length];
+  const theme = getThemeFromTags(cat.tags) || "Uncategorized";
+  const color = getThemeColor(theme);
+  const cfg = themeColorConfig[color];
+
+  const colorClassMap = {
+    purple: "bg-soft-purple-light text-soft-purple",
+    mint: "bg-mint-light text-mint",
+    peach: "bg-peach-light text-peach",
+    sky: "bg-sky-light text-sky",
+    butter: "bg-butter-light text-butter",
+    gray: "bg-gray-light text-plum/50",
+  };
+  const colorClass = colorClassMap[color];
 
   return (
-    <ClayCard padding="none" elevation="flat" className="flex items-center gap-3 p-3 animate-slide-up-fade">
+    <ClayCard padding="none" elevation="flat" className={`flex items-center gap-3 p-3 animate-slide-up-fade bg-warm-white bg-gradient-to-br ${cfg.gradient}`}>
       <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-outfit font-black text-xs flex-shrink-0 shadow-inner ${colorClass}`}>
         {index + 1}
       </div>
       <div className="flex-1 min-w-0 flex flex-col">
-        <span className="font-outfit font-black text-[15px] text-plum break-words">
+        <span className="font-outfit font-bold text-sm text-plum break-words leading-tight">
           {getCategoryDisplayName(cat.name)}
         </span>
         <div className="flex items-center gap-2 mt-0.5">
@@ -261,9 +397,9 @@ export default function CategoryPicker({
   const [mobileTab, setMobileTab] = useState<"browse" | "selected">("browse");
 
   // Filter States
-  const [selectedThemes, setSelectedThemes] = useState<Set<string>>(new Set());
   const [selectedPersonas, setSelectedPersonas] = useState<Set<string>>(new Set());
   const [selectedLenses, setSelectedLenses] = useState<Set<string>>(new Set());
+  const [showFilters, setShowFilters] = useState(false);
   
   // Active Theme (Drill-down view)
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
@@ -321,33 +457,25 @@ export default function CategoryPicker({
           (c.tags || []).some((t) => t.toLowerCase().includes(q)),
       );
     }
-    
-    // 2. Themes (OR logic within themes)
-    if (selectedThemes.size > 0) {
-      cats = cats.filter((c) => {
-        const t = getThemeFromTags(c.tags);
-        return t && selectedThemes.has(t);
-      });
-    }
 
-    // 3. Personas (OR logic within personas)
+    // 2. Personas (OR logic within personas)
     if (selectedPersonas.size > 0) {
        cats = cats.filter(c => {
-         const p = getPersonaFromTags(c.tags);
-         return p && selectedPersonas.has(p);
+         const personas = getPersonasForCategory(c);
+         return Array.from(personas).some(p => selectedPersonas.has(p));
        });
     }
 
-    // 4. Lenses (OR logic within lenses)
+    // 3. Lenses (OR logic within lenses)
     if (selectedLenses.size > 0) {
        cats = cats.filter(c => {
-         const l = getLensFromTags(c.tags);
-         return l && selectedLenses.has(l);
+         const lenses = getLensesForCategory(c);
+         return Array.from(lenses).some(l => selectedLenses.has(l));
        });
     }
 
     return cats;
-  }, [allCategories, searchQuery, selectedThemes, selectedPersonas, selectedLenses]);
+  }, [allCategories, searchQuery, selectedPersonas, selectedLenses]);
 
   const groupedByTheme = useMemo(() => {
     const groups: Record<string, Category[]> = {};
@@ -491,89 +619,109 @@ export default function CategoryPicker({
   const FilterPill = ({ label, icon, active, onClick }: { label: string; icon?: string; active: boolean; onClick: () => void }) => (
     <button
       onClick={onClick}
-      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border
+      className={`shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-outfit font-black border-2 shadow-sm transition-all duration-200 hover:-translate-y-0.5
         ${active 
-          ? "bg-soft-purple-light border-soft-purple/30 text-soft-purple shadow-[inset_1px_1px_0px_rgba(255,255,255,0.7)]" 
-          : "bg-warm-white text-plum/60 border-clay-border/50 hover:border-soft-purple/30 hover:bg-soft-purple-light/10"}`}
+          ? "bg-soft-purple text-white border-soft-purple shadow-md shadow-soft-purple/20" 
+          : "bg-warm-white border-warm-gray/15 text-plum/70 hover:border-soft-purple/30 hover:bg-soft-purple-light/20"}`}
     >
-      {icon && <span>{icon}</span>}
+      {icon && <span className="text-sm">{icon}</span>}
       {label}
     </button>
   );
+
+  const totalActiveFilters = selectedPersonas.size + selectedLenses.size;
 
   // ── Shared: Browser panel content (Left) ─────────────────────────────────
   const browserContent = (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-clay-cream">
       {/* Fixed Header & Filters */}
-      <div className="shrink-0 p-4 pb-2 space-y-4 bg-warm-white/80 border-b border-clay-border/30 backdrop-blur-md z-10 shadow-sm">
+      <div className="shrink-0 p-4 pb-3 space-y-3 bg-warm-white/80 border-b border-clay-border/30 backdrop-blur-md z-10 shadow-sm">
         
-        {/* Search */}
-        <ClayInput
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search 500+ topics..."
-          icon={<Search className="w-4 h-4" />}
-          autoComplete="off"
-        />
+        {/* Search & Collapsible Filters Toggle */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <ClayInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search 500+ topics..."
+              icon={<Search className="w-4 h-4" />}
+              autoComplete="off"
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`shrink-0 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border-2 font-outfit font-black text-xs transition-all duration-200 hover:-translate-y-0.5 cursor-pointer
+              ${showFilters || totalActiveFilters > 0
+                ? "bg-soft-purple text-white border-soft-purple shadow-md shadow-soft-purple/20"
+                : "bg-warm-white border-clay-border/50 text-plum/60 hover:bg-soft-purple-light/10"}`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Filters</span>
+            {totalActiveFilters > 0 && (
+              <span className="bg-peach text-white text-[9px] w-4.5 h-4.5 flex items-center justify-center rounded-full border border-warm-white font-black animate-scale-in">
+                {totalActiveFilters}
+              </span>
+            )}
+          </button>
+        </div>
 
-        {/* Filter Bank */}
-        <div className="space-y-3">
-          {/* Themes */}
-          {themeOptions.length > 0 && (
-             <div className="flex items-center gap-2">
-               <span className="text-[10px] font-black uppercase text-plum/40 w-14 shrink-0">Themes</span>
+        {/* Collapsible Filter Bank */}
+        {showFilters && (
+          <div className="pt-3 border-t border-clay-border/20 space-y-3 animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-plum/40">Filter Options</span>
+              {totalActiveFilters > 0 && (
+                <button
+                  onClick={() => {
+                    setSelectedPersonas(new Set());
+                    setSelectedLenses(new Set());
+                  }}
+                  className="text-[10px] font-black text-peach/70 hover:text-peach uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+
+            {/* Personas */}
+            <div className="flex items-center gap-2">
+               <div className="flex items-center gap-1 w-14 shrink-0">
+                 <span className="text-[10px] font-black uppercase text-plum/40">Persona</span>
+                 <button onClick={() => setInfoModalOpen("persona")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
+               </div>
                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                 {themeOptions.map(theme => (
+                 {ALL_PERSONAS.map(persona => (
                    <FilterPill 
-                     key={theme} 
-                     label={theme} 
-                     active={selectedThemes.has(theme)} 
-                     onClick={() => toggleFilter(selectedThemes, theme, setSelectedThemes)} 
+                     key={persona} 
+                     label={persona.split(' ')[0]} 
+                     icon={personaIcons[persona]}
+                     active={selectedPersonas.has(persona)} 
+                     onClick={() => toggleFilter(selectedPersonas, persona, setSelectedPersonas)} 
                    />
                  ))}
                </div>
-             </div>
-          )}
+            </div>
 
-          {/* Personas */}
-          <div className="flex items-center gap-2">
-             <div className="flex items-center gap-1 w-14 shrink-0">
-               <span className="text-[10px] font-black uppercase text-plum/40">Persona</span>
-               <button onClick={() => setInfoModalOpen("persona")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
-             </div>
-             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-               {ALL_PERSONAS.map(persona => (
-                 <FilterPill 
-                   key={persona} 
-                   label={persona.split(' ')[0]} 
-                   icon={personaIcons[persona]}
-                   active={selectedPersonas.has(persona)} 
-                   onClick={() => toggleFilter(selectedPersonas, persona, setSelectedPersonas)} 
-                 />
-               ))}
-             </div>
+            {/* Lenses */}
+            <div className="flex items-center gap-2">
+               <div className="flex items-center gap-1 w-14 shrink-0">
+                 <span className="text-[10px] font-black uppercase text-plum/40">Lenses</span>
+                 <button onClick={() => setInfoModalOpen("lens")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
+               </div>
+               <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                 {ALL_LENSES.map(lens => (
+                   <FilterPill 
+                     key={lens} 
+                     label={lens} 
+                     icon={lensIcons[lens]}
+                     active={selectedLenses.has(lens)} 
+                     onClick={() => toggleFilter(selectedLenses, lens, setSelectedLenses)} 
+                   />
+                 ))}
+               </div>
+            </div>
           </div>
-
-          {/* Lenses */}
-          <div className="flex items-center gap-2">
-             <div className="flex items-center gap-1 w-14 shrink-0">
-               <span className="text-[10px] font-black uppercase text-plum/40">Lenses</span>
-               <button onClick={() => setInfoModalOpen("lens")} className="text-plum/30 hover:text-soft-purple transition-colors p-0.5 rounded-full hover:bg-soft-purple-light/20"><Info className="w-3 h-3" /></button>
-             </div>
-             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-               {ALL_LENSES.map(lens => (
-                 <FilterPill 
-                   key={lens} 
-                   label={lens} 
-                   icon={lensIcons[lens]}
-                   active={selectedLenses.has(lens)} 
-                   onClick={() => toggleFilter(selectedLenses, lens, setSelectedLenses)} 
-                 />
-               ))}
-             </div>
-          </div>
-          
-        </div>
+        )}
       </div>
 
       {/* Scrollable Grid of Category Cards */}
@@ -596,22 +744,31 @@ export default function CategoryPicker({
                 {Object.keys(groupedByTheme).length} Themes Available
               </h3>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {Object.entries(groupedByTheme).sort(([a], [b]) => a.localeCompare(b)).map(([theme, cats]) => (
-                <ClayCard 
-                  key={theme} 
-                  elevation="floating" 
-                  padding="md"
-                  onClick={() => setActiveTheme(theme)}
-                  className="flex flex-col items-center justify-center text-center aspect-square cursor-pointer hover:bg-soft-purple-light/20 transition-all hover:-translate-y-1"
-                >
-                   <div className="w-12 h-12 rounded-full bg-soft-purple-light/30 flex items-center justify-center mb-3 text-soft-purple/80">
-                     <Sparkles className="w-6 h-6" />
-                   </div>
-                   <h3 className="font-outfit font-black text-sm md:text-base text-plum mb-2 break-words w-full">{theme}</h3>
-                   <ClayBadge color="purple">{cats.length} Topics</ClayBadge>
-                </ClayCard>
-              ))}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3.5">
+              {Object.entries(groupedByTheme).sort(([a], [b]) => a.localeCompare(b)).map(([theme, cats]) => {
+                const color = getThemeColor(theme);
+                const emoji = getThemeEmoji(theme);
+                const cfg = themeColorConfig[color];
+                return (
+                  <ClayCard 
+                    key={theme} 
+                    elevation="elevated" 
+                    padding="sm"
+                    onClick={() => setActiveTheme(theme)}
+                    className={`flex flex-col items-center justify-center text-center aspect-[1.1] cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:ring-2 ${cfg.ring} bg-warm-white bg-gradient-to-br ${cfg.gradient}`}
+                  >
+                     <div className={`w-10 h-10 rounded-xl ${cfg.bg} flex items-center justify-center mb-2 shadow-md`}>
+                       <span className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-inner text-sm">
+                         {emoji}
+                       </span>
+                     </div>
+                     <h3 className={`font-outfit font-black text-plum mb-1.5 break-normal w-full px-1 line-clamp-2 ${getThemeFontSizeClass(theme)}`} title={theme}>
+                       {theme}
+                     </h3>
+                     <ClayBadge color={color} className="text-[9px] py-0.5 px-2">{cats.length} Topics</ClayBadge>
+                  </ClayCard>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -630,7 +787,7 @@ export default function CategoryPicker({
               <ClayBadge color="purple">{(groupedByTheme[activeTheme] || []).length} Topics</ClayBadge>
             </div>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(groupedByTheme[activeTheme] || []).map(cat => {
                 const isSelected = activeSelectedIds.has(cat.id);
                 const isDraftPicked = draftPickedIds.has(cat.id);
@@ -757,11 +914,12 @@ export default function CategoryPicker({
             // Handle both Category objects (host mode) and DraftPick objects (draft mode)
             const cat = isDraft ? { id: pick.categoryId, name: pick.categoryName } as Category : pick as Category;
             const draftedBy = isDraft ? pick.playerName : undefined;
+            const fullCat = allCategories.find((c) => c.id === cat.id) || cat;
             
             return (
               <SelectedCategoryCard
                 key={isDraft ? `draft-${idx}` : cat.id}
-                cat={cat}
+                cat={fullCat}
                 index={idx}
                 canRemove={canHostPick && !isDraft}
                 onRemove={() => removeCategory(cat.id)}
@@ -916,7 +1074,7 @@ export default function CategoryPicker({
 
   // ── RENDER ──────────────────────────────────────────────────────────
   return (
-    <div className="h-dvh bg-clay-cream flex flex-col overflow-hidden font-inter relative">
+    <div className="h-screen w-screen bg-clay-cream overflow-hidden font-inter flex items-center justify-center p-0 md:p-6 lg:p-8">
       
       {/* ── Info Modal ──────────────────────────────────────────────── */}
       <ClayModal 
@@ -928,71 +1086,76 @@ export default function CategoryPicker({
          {renderInfoModalContent()}
       </ClayModal>
 
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="shrink-0 px-4 md:px-6 py-4 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/90 backdrop-blur-md z-30 shadow-sm relative">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-xs font-bold text-plum/50 hover:text-soft-purple transition-colors bg-warm-gray/5 hover:bg-soft-purple-light/20 px-3 py-1.5 rounded-full"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Back to Lobby</span>
-        </button>
+      {/* Surface Clay Card container for the whole category picker */}
+      <div className="w-full h-full md:w-[85%] lg:w-[75%] md:max-w-7xl md:clay-elevated md:border-2 md:border-clay-border/60 bg-warm-white flex flex-col overflow-hidden md:rounded-[2.5rem] shadow-2xl relative">
+        
+        {/* ── Header ──────────────────────────────────────────────────── */}
+        <header className="shrink-0 px-4 md:px-6 py-4 flex items-center justify-between border-b border-clay-border/50 bg-warm-white/90 backdrop-blur-md z-30 shadow-sm relative">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-xs font-bold text-plum/50 hover:text-soft-purple transition-colors bg-warm-gray/5 hover:bg-soft-purple-light/20 px-3 py-1.5 rounded-full"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Back to Lobby</span>
+          </button>
 
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-          <h1 className="font-outfit font-black text-lg md:text-xl text-plum flex items-center gap-2">
-            <span className="text-2xl">📚</span> Topic Library
-          </h1>
-        </div>
-
-        <div className="flex items-center">
-          <span className="text-xs font-black text-soft-purple bg-soft-purple-light/30 px-3 py-1.5 rounded-full border border-soft-purple/20">
-            {allCategories.length} Total
-          </span>
-        </div>
-      </header>
-
-      {/* ── Mobile tabs (Bottom Nav Style) ───────────────────────────── */}
-      <div className="lg:hidden absolute bottom-0 left-0 right-0 shrink-0 flex border-t border-clay-border/50 bg-warm-white/95 backdrop-blur-md z-40 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-        <button
-          onClick={() => setMobileTab("browse")}
-          className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
-            mobileTab === "browse" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
-          }`}
-        >
-          <Search className="w-5 h-5 mb-0.5" />
-          Discover
-        </button>
-        <button
-          onClick={() => setMobileTab("selected")}
-          className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
-            mobileTab === "selected" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
-          }`}
-        >
-          <div className="relative">
-             <CheckCircle2 className="w-5 h-5 mb-0.5" />
-             {currentCount > 0 && (
-                <span className="absolute -top-1.5 -right-2.5 bg-peach text-white text-[9px] w-4 h-4 flex items-center justify-center rounded-full border-2 border-warm-white">
-                  {currentCount}
-                </span>
-             )}
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <h1 className="font-outfit font-black text-lg md:text-xl text-plum flex items-center gap-2">
+              <span className="text-2xl">📚</span> Topic Library
+            </h1>
           </div>
-          Draft Board
-        </button>
-      </div>
 
-      {/* ── Main Layout (Desktop: 70/30 Split | Mobile: Tab View) ────── */}
-      <div className="flex-1 flex overflow-hidden lg:pb-0 pb-[72px]">
-        
-        {/* Left: Discover/Filter (70% on Desktop, 100% on Mobile when active) */}
-        <div className={`w-full lg:w-[65%] xl:w-[70%] flex-col overflow-hidden border-r border-clay-border/50 ${mobileTab === "browse" ? "flex" : "hidden lg:flex"}`}>
-          {browserContent}
+          <div className="flex items-center">
+            <span className="text-xs font-black text-soft-purple bg-soft-purple-light/30 px-3 py-1.5 rounded-full border border-soft-purple/20">
+              {allCategories.length} Total
+            </span>
+          </div>
+        </header>
+
+        {/* ── Mobile tabs (Bottom Nav Style) ───────────────────────────── */}
+        <div className="lg:hidden absolute bottom-0 left-0 right-0 shrink-0 flex border-t border-clay-border/50 bg-warm-white/95 backdrop-blur-md z-40 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+          <button
+            onClick={() => setMobileTab("browse")}
+            className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
+              mobileTab === "browse" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
+            }`}
+          >
+            <Search className="w-5 h-5 mb-0.5" />
+            Discover
+          </button>
+          <button
+            onClick={() => setMobileTab("selected")}
+            className={`flex-1 py-4 flex flex-col items-center gap-1 text-xs font-outfit font-black transition-colors relative ${
+              mobileTab === "selected" ? "text-soft-purple" : "text-plum/30 hover:text-plum/50"
+            }`}
+          >
+            <div className="relative">
+               <CheckCircle2 className="w-5 h-5 mb-0.5" />
+               {currentCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 bg-peach text-white text-[9px] w-4 h-4 flex items-center justify-center rounded-full border-2 border-warm-white">
+                    {currentCount}
+                  </span>
+               )}
+            </div>
+            Draft Board
+          </button>
         </div>
 
-        {/* Right: Draft Board (30% on Desktop, 100% on Mobile when active) */}
-        <div className={`w-full lg:w-[35%] xl:w-[30%] flex-col overflow-hidden ${mobileTab === "selected" ? "flex" : "hidden lg:flex"}`}>
-          {selectedPanelContent}
+        {/* ── Main Layout (Desktop: 70/30 Split | Mobile: Tab View) ────── */}
+        <div className="flex-1 flex overflow-hidden lg:pb-0 pb-[72px]">
+          
+          {/* Left: Discover/Filter (70% on Desktop, 100% on Mobile when active) */}
+          <div className={`w-full lg:w-[65%] xl:w-[70%] flex flex-col overflow-hidden border-r border-clay-border/50 ${mobileTab === "browse" ? "flex" : "hidden lg:flex"}`}>
+            {browserContent}
+          </div>
+
+          {/* Right: Draft Board (30% on Desktop, 100% on Mobile when active) */}
+          <div className={`w-full lg:w-[35%] xl:w-[30%] flex flex-col overflow-hidden ${mobileTab === "selected" ? "flex" : "hidden lg:flex"}`}>
+            {selectedPanelContent}
+          </div>
+          
         </div>
-        
+
       </div>
     </div>
   );
