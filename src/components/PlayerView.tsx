@@ -101,38 +101,6 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
     joinLobby();
   }, [code, playerId, name]);
 
-  // ARENA MODE DETECTION: use one authoritative fetch driven by the shared lobby status stream.
-  useEffect(() => {
-    if (!code) return;
-
-    const checkAndRedirectArena = async () => {
-      const { data: lobbyData } = await supabase
-        .from("lobbies")
-        .select("mode, status, settings")
-        .eq("code", code)
-        .single();
-
-      if (lobbyData?.mode !== "ARENA") return;
-
-      const isDraftComplete = lobbyData.settings?.draft?.isComplete === true;
-      const isGameActive = ["PLAYING", "READING", "RACE"].includes(
-        lobbyData.status,
-      );
-
-      if (isGameActive || isDraftComplete) {
-        console.log(
-          "[PlayerView] Arena game ready, redirecting to ArenaBoard. DraftComplete:",
-          isDraftComplete,
-          "Status:",
-          lobbyData.status,
-        );
-        navigate(`/play?code=${code}&mode=arena`);
-      }
-    };
-
-    checkAndRedirectArena();
-  }, [code, status, navigate]);
-
   // Load categories if drafting
   useEffect(() => {
     if (status === "SELECTING") {
@@ -160,15 +128,6 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
           console.log("[Player] Categories fetched (RPC):", data.length);
 
           let finalCats = data;
-          if (lobbyData.settings?.categoryFilter === "Arena") {
-            finalCats = data.filter(
-              (c: any) =>
-                (c.tags && Array.isArray(c.tags) && c.tags.includes("Arena")) ||
-                c.main_category === "Arena",
-            );
-            console.log("[Player] Filtered for Arena:", finalCats.length);
-          }
-
           setCategories(finalCats);
         }
       };
@@ -232,7 +191,7 @@ export default function PlayerView({ code, name }: PlayerViewProps) {
           checkDraftStatus(payload.new);
           setLobby(payload.new);
           if (payload.new.status === "PLAYING") {
-            navigate(`/play?code=${code}&mode=arena`);
+            navigate(`/play?code=${code}`);
           }
         },
       )

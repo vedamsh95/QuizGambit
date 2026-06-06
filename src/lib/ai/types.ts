@@ -239,6 +239,102 @@ export interface GenerationConfig {
   customPrompt?: string;     // Allow admin to inject raw prompt
 }
 
+// ─── Custom LLM Parameters ──────────────────────────────────────────
+
+/** Override calibrated LLM defaults for admin-controlled generation */
+export interface CustomLLMParams {
+  temperature: number;
+  presence_penalty: number;
+  frequency_penalty: number;
+  top_p: number;
+}
+
+// ─── Theme Generation Types ───────────────────────────────────────
+// The 3D matrix for theme → subtopic generation.
+// 6 Types × 5 Domains × 4 Styles = 120 unique subtopic combinations.
+// This ensures no two generations of the same theme produce identical subtopics.
+
+/** What kind of topic? (Dimension 1 of the 3D matrix) */
+export type TopicType =
+  | 'Core'       // The obvious, expected subtopic — sets the baseline
+  | 'Niche'      // Specialized deep dive for experts
+  | 'Human'      // People, personalities, rivalries, drama
+  | 'Surprise'   // Unexpected angle, hidden side, "I never thought of that"
+  | 'Scale'      // Mind-bending scope, numbers, extremes
+  | 'Mystery';   // Unsolved, controversial, debated, "we still don't know"
+
+export const ALL_TOPIC_TYPES: TopicType[] = [
+  'Core', 'Niche', 'Human', 'Surprise', 'Scale', 'Mystery',
+];
+
+/** What kind of knowledge? (Dimension 2 of the 3D matrix) */
+export type KnowledgeDomain =
+  | 'Facts'        // Concrete facts, definitions, names, dates
+  | 'Stories'      // Narratives, drama, context, "the real story behind..."
+  | 'Concepts'     // Abstract ideas, theories, patterns, "why things happen"
+  | 'Data'         // Numbers, statistics, records, comparisons
+  | 'Connections'; // Links between ideas, "how X changed Y"
+
+export const ALL_KNOWLEDGE_DOMAINS: KnowledgeDomain[] = [
+  'Facts', 'Stories', 'Concepts', 'Data', 'Connections',
+];
+
+/** How will it play on the board? (Dimension 3 of the 3D matrix) */
+export type QuizStyle =
+  | 'Classic'   // Straightforward Q&A, standard trivia
+  | 'Trick'     // Common misconceptions busted, "bet you thought..."
+  | 'Visual'    // Imagery-rich, descriptive, sensory details
+  | 'Timeline'; // Chronological sequence, "before and after"
+
+export const ALL_QUIZ_STYLES: QuizStyle[] = [
+  'Classic', 'Trick', 'Visual', 'Timeline',
+];
+
+/** A single subtopic generated from a theme */
+export interface ThemeSubtopic {
+  name: string;              // The subtopic name, e.g. "Quantum Biology"
+  type: TopicType;           // Which of the 6 Types
+  domain: KnowledgeDomain;   // Which of the 5 Domains
+  style: QuizStyle;          // Which of the 4 Styles
+}
+
+/** Result from theme → subtopics generation */
+export interface ThemeGenerationResult {
+  theme: string;                 // The original theme input, e.g. "Science"
+  subtopics: ThemeSubtopic[];    // Always 5 subtopics
+}
+
+// ─── Compact Generator Config ───────────────────────────────────────
+
+/** Configuration for the user-facing compact generator */
+export interface CompactGeneratorConfig {
+  topics: string[];
+  personas: PlayerPersona[];   // multi-select, randomly assigned per topic
+  provider: string;
+  apiKey: string;
+  model: string;
+  selectedLenses?: LensType[];        // if omitted, uses ALL_LENSES
+  selectedForms?: FormType[];          // if omitted, uses ALL_FORMS
+  selectedBackdoors?: BackdoorType[];  // if omitted, uses ALL_BACKDOORS
+  /** Themed mode: the theme name that generated these topics */
+  theme?: string;
+  /** Themed mode: the 3D matrix metadata for each subtopic (used for saving tags) */
+  subtopics?: ThemeSubtopic[];
+}
+
+// ─── Admin Generator Config ─────────────────────────────────────────
+
+/** Configuration for the admin advanced forge — full surgical control */
+export interface AdminGeneratorConfig extends GenerationConfig {
+  selectedLenses: LensType[];
+  selectedForms: FormType[];
+  selectedBackdoors: BackdoorType[];
+  personas: PlayerPersona[];          // multi-select, randomly assigned
+  customLLMParams?: CustomLLMParams;  // if omitted, uses CALIBRATED_PARAMS
+  runSolver?: boolean;                // auto-run solver after generation
+  runFactCheck?: boolean;             // auto-run fact-check after generation
+}
+
 /** Per-question fix instruction for regeneration */
 export interface RegenerationInstruction {
   question_index: number;

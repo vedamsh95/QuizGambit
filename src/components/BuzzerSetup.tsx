@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen, Search, X, CheckCircle2, Trophy, Zap,
-  Play, ChevronRight, Plus, Sliders, Clock, Hash, Crown,
+  Play, ChevronRight, Plus, Sliders, Clock, Hash, Crown, Grid3X3,
 } from "lucide-react";
 import ClayButton from "./ui/ClayButton";
 import { supabase } from "../lib/supabase";
@@ -71,6 +72,8 @@ export default function BuzzerSetup({
   initialSettings,
   onStartGame,
 }: BuzzerSetupProps) {
+  const navigate = useNavigate();
+
   // ── Settings state ──────────────────────────────────────────────────────
 
   const [rounds, setRounds] = useState(initialSettings?.rounds || 1);
@@ -735,6 +738,14 @@ export default function BuzzerSetup({
             <Plus className="w-5 h-5" />
             {selectionMode === "HOST_PICK" ? "Pick Categories" : draftPoolIds.size > 0 ? "Customize Pool" : "Build Draft Pool"}
             <ChevronRight className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => navigate(`/lobby/${lobbyCode}/categories`)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-soft-purple/10 text-soft-purple font-outfit font-bold text-sm hover:bg-soft-purple/20 transition-colors"
+          >
+            <Grid3X3 className="w-4 h-4" />
+            Open Full Category Picker
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
           {!canConfigure && (
             <p className="text-xs font-bold text-warm-gray/70">

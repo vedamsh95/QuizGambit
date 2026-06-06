@@ -1,10 +1,10 @@
-import { SYSTEM_PROMPT_STANDARD, SYSTEM_PROMPT_ARENA } from './prompts';
-import { generateQuestions, generateGridQuestions } from './ai/generator';
+import { SYSTEM_PROMPT_STANDARD } from './prompts';
+import { generateQuestions, generateGridQuestions, generateCustomQuestions, runQualityChecks } from './ai/generator';
 import { formatAuditReport } from './ai/auditor';
-import type { GenerationConfig, GenerationResult, QuizGambitQuestion, PlayerPersona, GameMode } from './ai/types';
+import type { GenerationConfig, GenerationResult, QuizGambitQuestion, PlayerPersona, GameMode, AdminGeneratorConfig, CompactGeneratorConfig, LensType, FormType, BackdoorType } from './ai/types';
 
 // Aggressive Client-Side JSON Repair
-function aggressiveJsonRepair(raw: string): any {
+export function aggressiveJsonRepair(raw: string): any {
     // 1. Strip Markdown Wrappers
     let clean = raw.replace(/```json/g, '').replace(/```/g, '').trim();
 
@@ -53,7 +53,7 @@ export async function generateQuizQuestions(topics: string | string[], config: A
     // 1. Select Base Template
     let rawTemplate = config.customPrompt
         ? config.customPrompt
-        : (config.mode === 'ARENA' ? SYSTEM_PROMPT_ARENA : SYSTEM_PROMPT_STANDARD);
+        : SYSTEM_PROMPT_STANDARD;
 
     // 2. Hydrate Variables
     const topicStr = topicList.map(t => `"${t}"`).join(', ');
@@ -200,7 +200,7 @@ export interface AIConfig {
     apiKey: string;
     model: string;
     questionCount: number;
-    mode?: 'STANDARD' | 'ARENA';
+    mode?: 'STANDARD';
     difficulty?: string;
     customPrompt?: string; // Allow Admin to inject raw prompt
 }
@@ -308,3 +308,129 @@ export async function generateGridQuizQuestions(
 
     return result;
 }
+
+// ─── Compact Generator (User-Facing) ───────────────────────────────
+
+/**
+ * Compact generator — the user-facing "quick generate" entry point.
+ * 
+ * Generates questions for a 5×5 grid (one topic per category column)
+ * or flexible mode. Personas are randomly assigned across topics for variety.
+ * Optionally accepts lens/form/backdoor subsets for advanced users.
+ */
+export async function generateCompactQuizQuestions(
+    config: CompactGeneratorConfig,
+): Promise<GenerationResult[]> {
+    const results: GenerationResult[] = [];
+
+    console.log(`[Compact] Starting generation for ${config.topics.length} topic(s)`);
+    console.log(`[Compact] Personas: ${config.personas.join(', ')}`);
+
+    // Check if user provided lens/form/backdoor subsets via advanced options
+    const hasCustomSubsets = config.selectedLenses?.length || config.selectedForms?.length || config.selectedBackdoors?.length;
+
+    // Grid mode: one call per topic, each gets 5 questions at locked tiers
+    for (let i = 0; i < config.topics.length; i++) {
+        const topic = config.topics[i];
+        const persona = config.personas[i % config.personas.length] || 'Casual Explorer';
+
+        console.log(`[Compact] Topic ${i + 1}/${config.topics.length}: "${topic}" → persona: ${persona}`);
+
+        let result: GenerationResult;
+        if (hasCustomSubsets) {
+            const adminConfig: AdminGeneratorConfig = {
+                topics: [topic],
+                questionCount: 5,
+                persona,
+                personas: config.personas,
+                mode: 'GRID' as GameMode,
+                provider: config.provider,
+                apiKey: config.apiKey,
+                model: config.model,
+                selectedLenses: config.selectedLenses || [],
+                selectedForms: config.selectedForms || [],
+                selectedBackdoors: config.selectedBackdoors || [],
+            };
+            result = await generateCustomQuestions(adminConfig);
+        } else {
+            result = await generateGridQuestions({
+                topics: [topic],
+                questionCount: 5,
+                persona,
+                mode: 'GRID' as GameMode,
+                provider: config.provider,
+                apiKey: config.apiKey,
+                model: config.model,
+            });
+        }
+        results.push(result);
+        console.log(formatAuditReport(result.audit));
+    }
+
+    console.log(`[Compact] Complete: ${results.length} topic(s) generated`);
+    return results;
+}
+
+// ─── Admin Generator (Full Control) ─────────────────────────────────
+
+/**
+ * Admin generator — full surgical control over every generation parameter.
+ * 
+ * Accepts subsets of lenses, forms, backdoors, custom LLM params,
+ * and optionally runs solver + fact-checker automatically.
+ */
+export async function generateAdminQuizQuestions(
+    config: AdminGeneratorConfig,
+): Promise<GenerationResult> {
+    console.log(`[Admin] Starting custom generation for: ${config.topics.join(', ')}`);
+    console.log(`[Admin] Lenses: ${config.selectedLenses.length}, Forms: ${config.selectedForms.length}, Backdoors: ${config.selectedBackdoors.length}`);
+
+    if (config.runSolver) console.log('[Admin] Auto-solver enabled');
+    if (config.runFactCheck) console.log('[Admin] Auto-fact-check enabled');
+    if (config.customLLMParams) {
+        console.log(`[Admin] Custom LLM params: T=${config.customLLMParams.temperature}, P=${config.customLLMParams.presence_penalty}, F=${config.customLLMParams.frequency_penalty}`);
+    }
+
+    const result = await generateCustomQuestions(config);
+
+    console.log(`[Admin] Complete: ${result.questions.length} questions`);
+    console.log(`[Admin] API Calls: ${result.total_api_calls}, Regenerations: ${result.regenerations}`);
+    console.log(formatAuditReport(result.audit));
+
+    if (result.solver_results) {
+        const solved = result.solver_results.filter(r => r.solved_correctly).length;
+        console.log(`[Admin] Solver: ${solved}/${result.solver_results.length} solvable`);
+    }
+    if (result.fact_check) {
+        console.log(`[Admin] Fact-check: ${result.fact_check.all_verified ? 'All verified' : 'Issues found'}`);
+    }
+
+    return result;
+}
+
+/**
+ * Re-verify a single question with solver + fact-checker.
+ * Used by admin for manual curation — click "Re-Verify" on any question.
+ */
+export async function reverifyQuestion(
+    question: QuizGambitQuestion,
+    provider: string,
+    apiKey: string,
+    model: string,
+): Promise<{ solver?: { solved_correctly: boolean; confidence: number }; factCheck?: { verified: boolean } }> {
+    const solverConfig = { provider, apiKey, model };
+    const { solveQuestion } = await import('./ai/solver');
+    const { verifyQuestion } = await import('./ai/fact-checker');
+
+    const [solverResult, factCheckResult] = await Promise.all([
+        solveQuestion(question, solverConfig),
+        verifyQuestion(question, solverConfig),
+    ]);
+
+    return {
+        solver: { solved_correctly: solverResult.solved_correctly, confidence: solverResult.confidence },
+        factCheck: { verified: factCheckResult.all_verified },
+    };
+}
+
+export type { AdminGeneratorConfig, CompactGeneratorConfig };

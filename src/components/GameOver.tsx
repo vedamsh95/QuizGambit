@@ -44,7 +44,7 @@ function computeAwards(players: PlayerResult[]): Award[] {
   const champion = players[0];
   awards.push({
     icon: <Trophy className="w-4 h-4" />,
-    title: "Arena Champion",
+    title: "Champion",
     playerName: champion.name,
     playerId: champion.id,
     description: `${champion.score.toLocaleString()} pts`,
@@ -400,7 +400,7 @@ export default function GameOver({
             </span>
           </div>
           <div className="text-[9px] sm:text-[10px] font-black text-yellow-400/60 uppercase tracking-[0.4em] mb-1">
-            Arena Champion
+            Champion
           </div>
           <h2 className="text-xl sm:text-2xl font-orbitron font-black text-white mb-1">
             {winner.name}

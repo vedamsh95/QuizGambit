@@ -18,16 +18,19 @@ import type {
   ParsedGeneration,
   RegenerationInstruction,
   PlayerPersona,
+  CustomLLMParams,
+  AdminGeneratorConfig,
+  SolverResult,
+  FactCheckResult,
 } from './types';
-import { buildSystemPrompt } from './prompts/system';
+import { buildSystemPrompt, buildGridSystemPrompt, buildCustomSystemPrompt } from './prompts/system';
 import { casualExplorerInjection } from './prompts/personas/casual-explorer';
 import { competitiveDuelistInjection } from './prompts/personas/competitive-duelist';
 import { partyGroupInjection } from './prompts/personas/party-group';
 import { speedRunnerInjection } from './prompts/personas/speed-runner';
 import { deepLearnerInjection } from './prompts/personas/deep-learner';
-import { parseAnalysisBlocks, validateQuestion, parseJsonOutput } from './parser';
+import { parseAnalysisBlocks, validateQuestion, parseJsonOutput, validateAnswersNotInQuestions } from './parser';
 import { auditDiversity, formatAuditReport, suggestAssignments } from './auditor';
-import { buildGridSystemPrompt } from './prompts/system';
 
 // ─── Persona Injection Map ──────────────────────────────────────────
 
@@ -124,8 +127,11 @@ export async function callLLM(
   config: GenerationConfig,
   systemPrompt: string,
   userMessage: string,
+  customParams?: CustomLLMParams,
 ): Promise<string> {
   const { provider, apiKey, model } = config;
+
+  const params = { ...CALIBRATED_PARAMS, ...customParams };
 
   if (!apiKey) {
     throw new Error(`No API key configured for ${provider}`);
@@ -148,11 +154,11 @@ export async function callLLM(
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        temperature: CALIBRATED_PARAMS.temperature,
-        top_p: CALIBRATED_PARAMS.top_p,
-        presence_penalty: CALIBRATED_PARAMS.presence_penalty,
-        frequency_penalty: CALIBRATED_PARAMS.frequency_penalty,
-        max_tokens: CALIBRATED_PARAMS.max_tokens,
+        temperature: params.temperature,
+        top_p: params.top_p,
+        presence_penalty: params.presence_penalty,
+        frequency_penalty: params.frequency_penalty,
+        max_tokens: params.max_tokens,
       }),
     });
 
@@ -176,9 +182,9 @@ export async function callLLM(
           parts: [{ text: `${systemPrompt}\n\n${userMessage}` }],
         }],
         generationConfig: {
-          temperature: CALIBRATED_PARAMS.temperature,
-          topP: CALIBRATED_PARAMS.top_p,
-          maxOutputTokens: CALIBRATED_PARAMS.max_tokens,
+          temperature: params.temperature,
+          topP: params.top_p,
+          maxOutputTokens: params.max_tokens,
         },
       }),
     });
@@ -266,6 +272,8 @@ Please regenerate ONLY this one question. Follow all the hard constraints:
 - No banned starters (Which, What, Who, Where, When, Name the)
 - Micro-pyramidal flow: opening hook → bridge → giveaway near the end
 - Include a backdoor secondary logical pathway
+- 🔴 CRITICAL: The answer_text must NEVER appear anywhere in the question_text!
+  If the answer is "Nintendo", the word "Nintendo" is strictly banned from the question.
 - Use the SAME lens (${instruction.previous_lens}) but choose a better form if needed
 
 Output only the <q${instruction.question_index + 1}>...</q${instruction.question_index + 1}> block.
@@ -302,7 +310,28 @@ export async function generateQuestions(
   // Stage 3: Regenerate failures (up to maxRetries)
   let retryCount = 0;
   while (retryCount < maxRetries) {
+    // Check for answer-in-question violations from the JSON questions
+    const answerViolations = validateAnswersNotInQuestions(parsed.questions);
     const failures = identifyFailures(parsed.analysis);
+
+    // Merge answer violations into failures, creating RegenerationInstructions
+    for (const idx of answerViolations) {
+      const existing = failures.find(f => f.question_index === idx);
+      if (existing) {
+        existing.failures.push(
+          `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+        );
+      } else if (idx < parsed.analysis.length) {
+        failures.push({
+          question_index: idx,
+          failures: [
+            `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+          ],
+          previous_lens: parsed.analysis[idx].lens,
+          previous_form: parsed.analysis[idx].form,
+        });
+      }
+    }
 
     if (failures.length === 0) {
       console.log('[Generator] All questions passed validation!');
@@ -421,7 +450,29 @@ export async function generateGridQuestions(
   // Regenerate failures
   let retryCount = 0;
   while (retryCount < maxRetries) {
+    // Check for answer-in-question violations from the JSON questions
+    const answerViolations = validateAnswersNotInQuestions(parsed.questions);
     const failures = identifyFailures(parsed.analysis);
+
+    // Merge answer violations into failures
+    for (const idx of answerViolations) {
+      const existing = failures.find(f => f.question_index === idx);
+      if (existing) {
+        existing.failures.push(
+          `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+        );
+      } else if (idx < parsed.analysis.length) {
+        failures.push({
+          question_index: idx,
+          failures: [
+            `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+          ],
+          previous_lens: parsed.analysis[idx].lens,
+          previous_form: parsed.analysis[idx].form,
+        });
+      }
+    }
+
     if (failures.length === 0) break;
 
     console.log(`[Grid Generator] ${failures.length} failed, regenerating...`);
@@ -454,4 +505,215 @@ export async function generateGridQuestions(
     regenerations,
     total_api_calls: totalApiCalls,
   };
+}
+
+// ─── Admin Custom Mode ──────────────────────────────────────────────
+
+/**
+ * Assemble context for admin-controlled generation using selected
+ * lens/form/backdoor subsets and optional custom LLM parameters.
+ */
+export function assembleCustomContext(config: AdminGeneratorConfig): {
+  systemPrompt: string;
+  userMessage: string;
+} {
+  const topic = config.topics.join(', ');
+
+  const systemPrompt = buildCustomSystemPrompt(
+    config.persona,
+    config.mode,
+    topic,
+    config.questionCount,
+    config.selectedLenses,
+    config.selectedForms,
+    config.selectedBackdoors,
+    config.customLLMParams,
+  );
+
+  let userMessage: string;
+
+  if (config.customPrompt) {
+    userMessage = config.customPrompt
+      .replace(/{topic}/g, topic)
+      .replace(/{questionCount}/g, String(config.questionCount));
+  } else {
+    const personaInjection = PERSONA_INJECTIONS[config.persona] || casualExplorerInjection;
+    const assignments = suggestAssignments(config.questionCount);
+    const assignmentGuide = assignments
+      .map((a, i) => `Q${i + 1}: Lens=${a.lens}, Form=${a.form}`)
+      .join('\n');
+
+    userMessage = `${personaInjection}
+
+TOPIC: ${topic}
+NUMBER OF QUESTIONS: ${config.questionCount}
+GAME MODE: ${config.mode}
+
+🔴 ONLY use lenses from: ${config.selectedLenses.join(', ') || 'all available'}
+🔴 ONLY use forms from: ${config.selectedForms.join(', ') || 'all available'}
+🔴 ONLY use backdoors from: ${config.selectedBackdoors.join(', ') || 'all available'}
+
+SUGGESTED LENS/FORM ASSIGNMENTS (you may adjust for better creative fit):
+${assignmentGuide}
+
+Begin with the <analysis> block, then the <diversity_audit>, and finally the <JSON_OUTPUT>.
+Remember: ${config.questionCount} questions, all lenses unique, all forms rotated.`;
+  }
+
+  return { systemPrompt, userMessage };
+}
+
+/**
+ * Generate questions using admin-controlled lens/form/backdoor subsets.
+ * Optionally runs solver and fact-checker automatically after generation.
+ * 
+ * This is the most powerful generation function — admins pick exactly
+ * which lenses, forms, and backdoors to use, and can override LLM params.
+ */
+export async function generateCustomQuestions(
+  config: AdminGeneratorConfig,
+  maxRetries: number = 2,
+): Promise<GenerationResult> {
+  let totalApiCalls = 0;
+  let regenerations = 0;
+
+  // Stage 0: Assemble context with custom lens/form/backdoor subsets
+  // Pick a random persona from the multi-select array, or fall back to the singular persona
+  const effectivePersona = config.personas?.length
+    ? config.personas[Math.floor(Math.random() * config.personas.length)]
+    : config.persona;
+  const effectiveConfig = { ...config, persona: effectivePersona };
+
+  const { systemPrompt, userMessage } = assembleCustomContext(effectiveConfig);
+
+  // Stage 1: Initial LLM call with optional custom params
+  const rawOutput = await callLLM(effectiveConfig, systemPrompt, userMessage, config.customLLMParams);
+  totalApiCalls++;
+
+  // Stage 2: Parse and validate
+  let parsed = parseAndValidate(rawOutput, config.questionCount);
+
+  console.log(`[Custom Generator] Initial: ${parsed.analysis.length} analyses, ${parsed.questions.length} questions`);
+  console.log(formatAuditReport(parsed.diversity_audit));
+
+  // Stage 3: Regenerate failures (up to maxRetries)
+  let retryCount = 0;
+  while (retryCount < maxRetries) {
+    const answerViolations = validateAnswersNotInQuestions(parsed.questions);
+    const failures = identifyFailures(parsed.analysis);
+
+    for (const idx of answerViolations) {
+      const existing = failures.find(f => f.question_index === idx);
+      if (existing) {
+        existing.failures.push(
+          `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+        );
+      } else if (idx < parsed.analysis.length) {
+        failures.push({
+          question_index: idx,
+          failures: [
+            `Answer text "${parsed.questions[idx].answer_text}" appears in the question text — this is strictly forbidden`,
+          ],
+          previous_lens: parsed.analysis[idx].lens,
+          previous_form: parsed.analysis[idx].form,
+        });
+      }
+    }
+
+    if (failures.length === 0) {
+      console.log('[Custom Generator] All questions passed validation!');
+      break;
+    }
+
+    console.log(`[Custom Generator] ${failures.length} failed, regenerating...`);
+    regenerations += failures.length;
+
+    for (const failure of failures) {
+      try {
+        const regenPrompt = buildRegenerationPrompt(failure, effectiveConfig.topics[0] || '');
+        const regenOutput = await callLLM(effectiveConfig, systemPrompt, regenPrompt, config.customLLMParams);
+        totalApiCalls++;
+
+        const regenAnalyses = parseAnalysisBlocks(regenOutput);
+        const regenQuestions = parseJsonOutput(regenOutput);
+
+        if (regenAnalyses.length > 0) parsed.analysis[failure.question_index] = regenAnalyses[0];
+        if (regenQuestions.length > 0) parsed.questions[failure.question_index] = regenQuestions[0];
+      } catch (err) {
+        console.warn(`[Custom Generator] Failed to regenerate Q${failure.question_index + 1}`, err);
+      }
+    }
+    retryCount++;
+  }
+
+  const finalAudit = auditDiversity(
+    parsed.analysis.slice(0, config.questionCount),
+    config.questionCount,
+  );
+
+  const result: GenerationResult = {
+    questions: parsed.questions.slice(0, config.questionCount),
+    analysis: parsed.analysis.slice(0, config.questionCount),
+    audit: finalAudit,
+    regenerations,
+    total_api_calls: totalApiCalls,
+  };
+
+  // Stage 4: Auto solver + fact-check (runQualityChecks checks flags internally)
+  const qualityResult = await runQualityChecks(result, effectiveConfig);
+  return qualityResult;
+}
+
+/**
+ * Run solver and/or fact-checker on generated questions.
+ * Returns a new GenerationResult with solver_results and/or fact_check populated.
+ * 
+ * This runs synchronously — the caller awaits the results. For non-blocking
+ * use, call this function separately after generation.
+ */
+export async function runQualityChecks(
+  result: GenerationResult,
+  config: GenerationConfig | AdminGeneratorConfig,
+): Promise<GenerationResult> {
+  const updated = { ...result };
+  const solverConfig = { provider: config.provider, apiKey: config.apiKey, model: config.model };
+
+  const adminConfig = config as AdminGeneratorConfig;
+
+  // Run solver if requested
+  if (adminConfig.runSolver && result.questions.length > 0) {
+    try {
+      console.log(`[Quality] Running solver on ${result.questions.length} questions...`);
+      // Dynamic import to avoid circular deps at module level
+      const { solveQuestionBatch } = await import('./solver');
+      updated.solver_results = await solveQuestionBatch(result.questions, solverConfig);
+      const solved = updated.solver_results.filter(r => r.solved_correctly).length;
+      console.log(`[Quality] Solver complete: ${solved}/${result.questions.length} solvable`);
+    } catch (err) {
+      console.warn('[Quality] Solver failed:', err);
+    }
+  }
+
+  // Run fact-checker if requested
+  if (adminConfig.runFactCheck && result.questions.length > 0) {
+    try {
+      console.log(`[Quality] Running fact-check on ${result.questions.length} questions...`);
+      const { verifyQuestionBatch } = await import('./fact-checker');
+      const factChecks = await verifyQuestionBatch(result.questions, solverConfig);
+      const allPassed = factChecks.every(fc => fc.all_verified);
+      const passedCount = factChecks.filter(fc => fc.all_verified).length;
+      
+      // Merge individual fact checks into a single FactCheckResult
+      updated.fact_check = {
+        all_verified: allPassed,
+        claims: factChecks.flatMap(fc => fc.claims),
+      };
+      
+      console.log(`[Quality] Fact-check complete: ${passedCount}/${result.questions.length} verified`);
+    } catch (err) {
+      console.warn('[Quality] Fact-check failed:', err);
+    }
+  }
+
+  return updated;
 }

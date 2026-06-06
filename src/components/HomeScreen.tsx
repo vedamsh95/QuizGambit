@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
@@ -13,15 +13,20 @@ import {
   Users,
   User,
   LogIn,
+  LogOut,
   Sparkles,
-  BookOpen,
-  Swords,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import FrayLogo from "./ui/FrayLogo";
+import Auth from "./Auth";
 
 // ── HomeScreen ─────────────────────────────────────────────────────────
-export default function HomeScreen() {
+interface HomeScreenProps {
+  isAdmin?: boolean;
+}
+
+export default function HomeScreen({ isAdmin = false }: HomeScreenProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -43,6 +48,25 @@ export default function HomeScreen() {
   const [isJoining, setIsJoining] = useState(false);
   const [joinStatus, setJoinStatus] = useState("");
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
+  // ── Auth listener ─────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session) setShowAuth(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
 
   // ── Handlers ────────────────────────────────────────────────────────
   const handleAvatarSelect = useCallback((key: string) => {
@@ -168,8 +192,30 @@ export default function HomeScreen() {
   // ── Render ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-clay-cream flex flex-col items-center justify-center p-4 sm:p-6 gap-5">
-      {/* Settings panel */}
-      <div className="absolute top-4 right-4 z-40">
+      {/* Settings + Auth */}
+      <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
+        {user ? (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-plum/50 max-w-[120px] truncate hidden sm:inline">
+              {user.email}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="clay-btn p-2 flex items-center justify-center text-plum/40 hover:text-peach transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowAuth(true)}
+            className="clay-btn flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-soft-purple hover:text-soft-purple/80 transition-colors rounded-xl"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign In</span>
+          </button>
+        )}
         <SettingsPanel />
       </div>
 
@@ -358,6 +404,9 @@ export default function HomeScreen() {
 
 
 
+      {/* ── Auth Modal ─────────────────────────────────────────── */}
+      {showAuth && <Auth onSuccess={() => setShowAuth(false)} onClose={() => setShowAuth(false)} />}
+
       {/* ── Avatar Selection Modal ─────────────────────────────────── */}
       {showAvatarModal && (
         <div
@@ -390,35 +439,28 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Divider ──────────────────────────────────────────────────── */}
-      <div className="w-full max-w-md flex items-center gap-3">
-        <div className="flex-1 h-px bg-clay-border" />
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-plum/40">
-          {t('home.more')}
-        </span>
-        <div className="flex-1 h-px bg-clay-border" />
-      </div>
-
-      {/* ── Secondary Actions (2 pill buttons: Library, Arena) ───────── */}
-      <div className="flex items-center gap-3 w-full max-w-md justify-center">
-        <button
-          onClick={() => navigate("/library")}
-          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/70
-                     hover:text-plum transition-all"
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>{t('home.library')}</span>
-        </button>
-
-        <button
-          onClick={() => navigate("/arena")}
-          className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/70
-                     hover:text-plum transition-all"
-        >
-          <Swords className="w-3.5 h-3.5" />
-          <span>{t('home.arena')}</span>
-        </button>
-      </div>
+      {/* ── Admin section (only for admins) ──────────────────────────── */}
+      {isAdmin && (
+        <>
+          <div className="w-full max-w-md flex items-center gap-3">
+            <div className="flex-1 h-px bg-clay-border" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-plum/40">
+              {t('home.more')}
+            </span>
+            <div className="flex-1 h-px bg-clay-border" />
+          </div>
+          <div className="flex items-center gap-3 w-full max-w-md justify-center">
+            <button
+              onClick={() => navigate("/admin")}
+              className="clay-btn flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-plum/70
+                         hover:text-soft-purple transition-all"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

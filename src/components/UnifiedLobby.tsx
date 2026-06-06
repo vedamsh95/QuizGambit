@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
@@ -18,6 +18,7 @@ import {
 import { getAvatar } from "../assets/avatars";
 
 import SimultaneousSetup from "./SimultaneousSetup";
+import CategoryPicker from "./CategoryPicker";
 import PillSelector from "./ui/PillSelector";
 
 // ── Backward compat: legacy mode strings from old lobbies ───────────────────
@@ -66,6 +67,7 @@ export default function UnifiedLobby() {
   const { code: rawCode } = useParams<{ code: string }>();
   const code = rawCode?.toUpperCase();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromParam = searchParams.get("from"); // 'game' | 'results' — means user just left a game
   const fromParamRef = useRef(fromParam);
@@ -993,6 +995,8 @@ export default function UnifiedLobby() {
     return styleName ? `${gameName} · ${styleName}` : gameName;
   })();
 
+  const isCategoryPicker = location.pathname.endsWith("/categories");
+
   // ── Play style helpers for setup phase ──────────────────────────────────
 
   // Note: BUZZER is always normalized to QUIZ_5X5, so lobbyMode is never "BUZZER".
@@ -1001,6 +1005,31 @@ export default function UnifiedLobby() {
   const isStandard = lobbyPlayStyle === "MULTIPLAYER" || (lobbyMode === "STANDARD" && !lobbyPlayStyle);
   const isLocal = lobbyPlayStyle === "LOCAL" || (lobbyMode === "LOCAL" && !lobbyPlayStyle);
   const is5x5 = lobbyMode === "QUIZ_5X5" || lobbyMode === "BUZZER" || lobbyMode === "STANDARD" || lobbyMode === "LOCAL";
+
+  // ── CategoryPicker render ────────────────────────────────────────────
+  if (isCategoryPicker && !loading && !error && code) {
+    const selectionMode = effectiveSettings.selectionMode || "HOST_PICK";
+    const isDraft = selectionMode === "PLAYER_DRAFT";
+    const startFn = isBuzzer ? handleStartGame : handleStartSimultaneousGame;
+    return (
+      <CategoryPicker
+        lobbyCode={code}
+        players={players}
+        hostPlayerId={lobby?.host_id}
+        playerId={playerId}
+        playerName={playerName}
+        broadcast={broadcast as any}
+        onBroadcast={onBroadcast as any}
+        updateLobbySetting={updateLobbySetting}
+        allCategories={allCategories}
+        catsLoading={catsLoading}
+        initialSettings={effectiveSettings}
+        onStartGame={startFn}
+        onBack={() => navigate(`/lobby/${code}`)}
+        mode={isDraft ? "player-draft" : "host-pick"}
+      />
+    );
+  }
 
   // ── Render ──────────────────────────────────────────────────────────────
 

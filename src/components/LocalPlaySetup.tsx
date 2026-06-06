@@ -189,8 +189,7 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                                             </button>
                                             <div className="grid gap-2 pl-4 border-l border-white/5 ml-2">
                                                 {subCats.map(cat => {
-                                                    const isArena = cat.tags?.includes('Arena') || cat.name.includes('(Arena)')
-                                                    const displayName = cat.name.replace(' (Arena)', '').trim()
+                                                    const displayName = cat.name
 
                                                     return (
                                                         <div
@@ -206,11 +205,6 @@ export default function LocalPlaySetup({ onStart }: LocalPlaySetupProps) {
                                                                         {displayName}
                                                                     </div>
                                                                     <div className="flex flex-wrap gap-2 mt-1">
-                                                                        {isArena && (
-                                                                            <span className="text-[8px] font-black px-1.5 py-0.5 bg-red-500/10 text-red-500 border border-red-500/20 rounded uppercase tracking-wider">
-                                                                                Arena
-                                                                            </span>
-                                                                        )}
                                                                         {cat.is_global && (
                                                                             <span className="text-[8px] font-black px-1.5 py-0.5 bg-blue-500/10 text-blue-500 border border-blue-500/20 rounded uppercase tracking-wider">
                                                                                 Global

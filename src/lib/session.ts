@@ -15,7 +15,7 @@
 export interface ActiveLobby {
   code: string;
   role: "host" | "player";
-  mode: "STANDARD" | "ARENA";
+  mode: "STANDARD";
 }
 
 interface SessionData {
@@ -30,8 +30,6 @@ const SESSION_KEY = "qb_session";
 
 const V1_KEYS = [
   "host_lobby_code",
-  "arena_host_code",
-  "arena_host_id",
   "qb_pid",
   "qb_player_name",
 ] as const;
@@ -146,11 +144,6 @@ export const session = {
     const standardCode = localStorage.getItem("host_lobby_code");
     if (standardCode) {
       activeLobby = { code: standardCode, role: "host", mode: "STANDARD" };
-    } else {
-      const arenaCode = localStorage.getItem("arena_host_code");
-      if (arenaCode) {
-        activeLobby = { code: arenaCode, role: "host", mode: "ARENA" };
-      }
     }
 
     this.set({ playerId, playerName, activeLobby });

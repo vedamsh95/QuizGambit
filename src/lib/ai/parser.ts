@@ -221,6 +221,64 @@ export function validateAllQuestions(
 
   return { results, passCount, failCount };
 }
+// ─── Answer-Not-In-Question Guardrail ───────────────────────────────
+
+/**
+ * Validate that answer_text does NOT appear as a substring in question_text.
+ * 
+ * CRITICAL GUARDRAIL: If the answer is "Nintendo", the word "Nintendo" must
+ * never appear anywhere in the question text — not even as a partial match.
+ * The answer must be deducible from clues, synonyms, and context only.
+ * 
+ * Uses word-boundary matching to avoid false positives (e.g. "rain" in "rainy"),
+ * while still catching possessive forms (e.g. "Nintendo" in "Nintendo's").
+ */
+export function validateAnswerNotInQuestion(
+  question_text: string,
+  answer_text: string,
+): ValidationResult {
+  const failures: string[] = [];
+
+  if (!answer_text || !question_text) {
+    return { valid: true, failures: [] };
+  }
+
+  // Escape regex special characters in the answer
+  const escaped = answer_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use word boundary matching: \b ensures we match whole words, not substrings
+  // This catches "Nintendo" in "Nintendo's" but not "rain" in "rainy"
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+
+  if (regex.test(question_text)) {
+    failures.push(
+      `Answer text "${answer_text}" appears in the question text — this is strictly forbidden`,
+    );
+  }
+
+  return { valid: failures.length === 0, failures };
+}
+
+/**
+ * Validate all questions for answer-in-question violations.
+ * Returns indices of violating questions.
+ */
+export function validateAnswersNotInQuestions(
+  questions: Array<{ question_text: string; answer_text: string }>,
+): number[] {
+  const violations: number[] = [];
+
+  for (let i = 0; i < questions.length; i++) {
+    const result = validateAnswerNotInQuestion(
+      questions[i].question_text,
+      questions[i].answer_text,
+    );
+    if (!result.valid) {
+      violations.push(i);
+    }
+  }
+
+  return violations;
+}
 
 // ─── JSON Parsing ───────────────────────────────────────────────────
 

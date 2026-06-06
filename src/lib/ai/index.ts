@@ -29,6 +29,9 @@ export type {
   PersonaConfig,
   LensPromptFragment,
   FormBlueprint,
+  CustomLLMParams,
+  CompactGeneratorConfig,
+  AdminGeneratorConfig,
 } from './types';
 
 export {
@@ -46,7 +49,7 @@ export {
 } from './types';
 
 // ─── Prompt Building ────────────────────────────────────────────────
-export { buildSystemPrompt, buildGridSystemPrompt } from './prompts/system';
+export { buildSystemPrompt, buildGridSystemPrompt, buildCustomSystemPrompt } from './prompts/system';
 
 // ─── Persona Injections ─────────────────────────────────────────────
 export { casualExplorerInjection } from './prompts/personas/casual-explorer';
@@ -87,12 +90,15 @@ export { categoryElimination } from './prompts/backdoors/category-elimination';
 export {
   generateQuestions,
   generateGridQuestions,
+  generateCustomQuestions,
   assembleContext,
   assembleGridContext,
+  assembleCustomContext,
   callLLM,
   parseAndValidate,
   identifyFailures,
   buildRegenerationPrompt,
+  runQualityChecks,
   CALIBRATED_PARAMS,
 } from './generator';
 
@@ -127,3 +133,16 @@ export {
   summarizeFactChecks,
 } from './fact-checker';
 export type { FactCheckerCallConfig } from './fact-checker';
+
+// ─── Entry Points (public API from ai.ts) ───────────────────────────
+// These are the main functions UI components should call.
+// They re-export from ../ai.ts but the barrel keeps everything in one place.
+export {
+  generateCompactQuizQuestions,
+  generateAdminQuizQuestions,
+  generateGridQuizQuestions,
+  generateQuizQuestionsV2,
+  reverifyQuestion,
+  v2ToLegacyFormat,
+} from '../ai';
+export type { AIConfig } from '../ai';

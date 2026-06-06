@@ -51,26 +51,10 @@ export const store = {
     localStorage.removeItem("host_lobby_code");
   },
 
-  // ── Arena Host Persistence ──────────────────────────────────────────────
+  // ── Arena Host Persistence (deprecated, kept for cleanup) ─────────────
 
-  getArenaHostCode(): string | null {
-    return localStorage.getItem("arena_host_code");
-  },
-  setArenaHostCode(code: string): void {
-    localStorage.setItem("arena_host_code", code);
-  },
   clearArenaHostCode(): void {
     localStorage.removeItem("arena_host_code");
-  },
-
-  getArenaHostId(): string | null {
-    return localStorage.getItem("arena_host_id");
-  },
-  setArenaHostId(id: string): void {
-    localStorage.setItem("arena_host_id", id);
-  },
-  clearArenaHostId(): void {
-    localStorage.removeItem("arena_host_id");
   },
 
   // ── AI API Keys (sessionStorage — cleared on tab close for security) ─────
@@ -123,6 +107,26 @@ export const store = {
     sessionStorage.removeItem("qb_local_game");
   },
 
+  // ── Recent Topics (for AI generator quick-pick in Topic mode) ──────
+
+  getRecentTopics(): string[] {
+    try {
+      const stored = localStorage.getItem("qb_recent_topics");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addRecentTopic(topic: string): void {
+    const trimmed = topic.trim();
+    if (!trimmed) return;
+    const current = this.getRecentTopics();
+    const filtered = current.filter((t) => t.toLowerCase() !== trimmed.toLowerCase());
+    const updated = [trimmed, ...filtered].slice(0, 8);
+    localStorage.setItem("qb_recent_topics", JSON.stringify(updated));
+  },
+
   // ── Session Cleanup ─────────────────────────────────────────────────────
 
   /** Clear all QuizGambit data from storage */
@@ -131,10 +135,10 @@ export const store = {
       "qb_pid",
       "qb_player_name",
       "host_lobby_code",
-      "arena_host_code",
-      "arena_host_id",
       "qb_ai_provider",
       "qb_ai_keys",
+      "qb_recent_themes",
+      "qb_recent_topics",
     ];
     localStorageKeys.forEach((k) => localStorage.removeItem(k));
 
@@ -144,5 +148,48 @@ export const store = {
       "qb_local_game",
     ];
     sessionStorageKeys.forEach((k) => sessionStorage.removeItem(k));
+  },
+
+  // ── Recent Themes (for AI generator quick-pick) ───────────────────────
+
+  /** Get recently used themes (max 8, most recent first, unique) */
+  getRecentThemes(): string[] {
+    try {
+      const stored = localStorage.getItem("qb_recent_themes");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** Add a theme to recent list (deduped, max 8, newest first) */
+  addRecentTheme(theme: string): void {
+    const trimmed = theme.trim();
+    if (!trimmed) return;
+    const current = this.getRecentThemes();
+    const filtered = current.filter((t) => t.toLowerCase() !== trimmed.toLowerCase());
+    const updated = [trimmed, ...filtered].slice(0, 8);
+    localStorage.setItem("qb_recent_themes", JSON.stringify(updated));
+  },
+
+  // ── Recent Categories (for category picker quick-access) ────────────
+
+  /** Get recently used category IDs (max 8, most recent first, unique) */
+  getRecentCategoryIds(): string[] {
+    try {
+      const stored = localStorage.getItem("qb_recent_categories");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** Add a category ID to recent list (deduped, max 8, newest first) */
+  addRecentCategory(categoryId: string): void {
+    if (!categoryId) return;
+    const current = this.getRecentCategoryIds();
+    const filtered = current.filter((id) => id !== categoryId);
+    const updated = [categoryId, ...filtered].slice(0, 8);
+    localStorage.setItem("qb_recent_categories", JSON.stringify(updated));
   },
 };

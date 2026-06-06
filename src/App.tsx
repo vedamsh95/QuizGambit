@@ -12,11 +12,8 @@ import GameResults from "./components/GameResults";
 
 // ── V1 Components (kept for compatibility) ─────────────────────────────
 import GameBoardV2 from "./components/GameBoardV2";
-import ArenaBoard from "./components/ArenaBoard";
 import SimultaneousBoard from "./components/SimultaneousBoard";
-import ArenaLobby from "./components/ArenaLobby";
-import Library from "./components/Library";
-import AIGeneratorView from "./components/AIGeneratorView";
+import CompactGenerator from "./components/CompactGenerator";
 import AdminDashboard from "./components/AdminDashboard";
 import LocalPlaySetupV2 from "./components/LocalPlaySetupV2";
 import ClayPrototype from "./components/ClayPrototype";
@@ -48,7 +45,7 @@ function CodeRedirect() {
   return null;
 }
 
-// ── PlayRoute: fetches lobby data and renders GameBoard or ArenaBoard ───
+// ── PlayRoute: fetches lobby data and renders the correct game board ───
 function PlayRoute() {
   const { code: rawCode } = useParams<{ code: string }>();
   const code = rawCode?.toUpperCase();
@@ -140,17 +137,6 @@ function PlayRoute() {
     );
   }
 
-  // Arena mode → ArenaBoard
-  if (lobby.mode === "ARENA") {
-    return (
-      <ArenaBoard
-        code={code}
-        playerId={playerId}
-        playerName={playerName}
-      />
-    );
-  }
-
   // Standard mode → GameBoard
   const handleExit = () => {
     navigate(`/results/${code}`);
@@ -209,33 +195,20 @@ export default function App() {
         <div className="min-h-screen bg-clay-cream">
           <Routes>
             {/* ── V2 Core Routes ─────────────────────────────────── */}
-            <Route path="/" element={<HomeScreen />} />
+            <Route path="/" element={<HomeScreen isAdmin={adminState === "yes"} />} />
             <Route path="/lobby/:code" element={<UnifiedLobby />} />
+            <Route path="/lobby/:code/categories" element={<UnifiedLobby />} />
             <Route path="/play/:code" element={<PlayRoute />} />
             <Route path="/results/:code" element={<GameResults />} />
 
-            {/* ── Arena ─────────────────────────────────────────── */}
-            <Route path="/arena" element={<ArenaLobby />} />
-
             {/* ── Prototypes ────────────────────────────────────────── */}
             <Route path="/prototype/clay" element={<ClayPrototype />} />
-
-            {/* ── Library ────────────────────────────────────────── */}
-            <Route
-              path="/library"
-              element={
-                <Library
-                  onBack={() => navigate("/")}
-                  onOpenGenerator={() => navigate("/ai")}
-                />
-              }
-            />
 
             {/* ── AI Generator ───────────────────────────────────── */}
             <Route
               path="/ai"
               element={
-                <AIGeneratorView onBack={() => navigate("/library")} />
+                <CompactGenerator onBack={() => navigate("/")} />
               }
             />
 

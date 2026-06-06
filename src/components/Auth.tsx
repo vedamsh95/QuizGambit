@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { LogIn, UserPlus, Mail, Lock, Loader2, Github } from 'lucide-react'
+import { LogIn, UserPlus, Mail, Lock, Loader2, X } from 'lucide-react'
 
 interface AuthProps {
     onSuccess: () => void
@@ -34,86 +34,86 @@ export default function Auth({ onSuccess, onClose }: AuthProps) {
     }
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-deep-void/80 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="glass p-8 rounded-[2rem] max-w-md w-full relative shadow-2xl border-white/10">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-plum/60 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+            <div className="clay-elevated p-8 rounded-[2.5rem] max-w-md w-full relative animate-in zoom-in-95 duration-200">
                 <button
                     onClick={onClose}
-                    className="absolute top-6 right-6 text-white/20 hover:text-white transition-colors"
+                    className="absolute top-5 right-5 p-2 rounded-xl text-plum/30 hover:text-plum hover:bg-cream transition-colors"
                 >
-                    ✕
+                    <X className="w-5 h-5" />
                 </button>
 
                 <div className="text-center mb-8">
-                    <h2 className="text-3xl font-orbitron font-bold text-neon-emerald mb-2">
-                        {isLogin ? 'WELCOME BACK' : 'JOIN THE ARENA'}
+                    <div className="w-14 h-14 rounded-2xl bg-soft-purple-light flex items-center justify-center mx-auto mb-4">
+                        {isLogin ? (
+                            <LogIn className="w-6 h-6 text-soft-purple" />
+                        ) : (
+                            <UserPlus className="w-6 h-6 text-soft-purple" />
+                        )}
+                    </div>
+                    <h2 className="text-2xl font-outfit font-black text-plum mb-1">
+                        {isLogin ? 'Welcome Back' : 'Create Account'}
                     </h2>
-                    <p className="text-white/40 text-sm tracking-widest uppercase">
-                        {isLogin ? 'Sign in to access your library' : 'Create an account to save in cloud'}
+                    <p className="text-sm text-plum/40 font-medium">
+                        {isLogin ? 'Sign in to access admin tools' : 'Create an account to get started'}
                     </p>
                 </div>
 
                 {error && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-xl text-xs mb-6 animate-shake">
+                    <div className="bg-peach-light border border-peach/30 text-peach p-4 rounded-2xl text-xs font-bold mb-5 animate-shake">
                         {error}
                     </div>
                 )}
 
                 <form onSubmit={handleAuth} className="space-y-4">
                     <div className="relative">
-                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-plum/30" />
                         <input
                             type="email"
-                            placeholder="EMAIL ADDRESS"
+                            placeholder="Email address"
                             required
-                            className="w-full bg-black/40 border border-white/5 p-4 pl-12 rounded-xl text-white focus:border-neon-emerald/50 outline-none transition-colors"
+                            className="clay-input pl-11 pr-4 py-3.5 text-sm font-outfit font-bold w-full"
                             value={email}
                             onChange={e => setEmail(e.target.value)}
+                            autoComplete="email"
                         />
                     </div>
                     <div className="relative">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-plum/30" />
                         <input
                             type="password"
-                            placeholder="PASSWORD"
+                            placeholder="Password"
                             required
-                            className="w-full bg-black/40 border border-white/5 p-4 pl-12 rounded-xl text-white focus:border-neon-emerald/50 outline-none transition-colors"
+                            className="clay-input pl-11 pr-4 py-3.5 text-sm font-outfit font-bold w-full"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
+                            autoComplete={isLogin ? 'current-password' : 'new-password'}
                         />
                     </div>
 
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-neon-emerald hover:bg-emerald-400 text-[#050505] font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] emerald-glow mt-2"
+                        className="w-full clay-btn bg-soft-purple text-white font-outfit font-bold py-3.5 text-sm rounded-2xl flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50 shadow-md shadow-soft-purple/20 mt-2"
                     >
                         {loading ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
                         ) : isLogin ? (
-                            <LogIn className="w-5 h-5" />
+                            <LogIn className="w-4 h-4" />
                         ) : (
-                            <UserPlus className="w-5 h-5" />
+                            <UserPlus className="w-4 h-4" />
                         )}
-                        <span className="tracking-widest uppercase">{isLogin ? 'Login' : 'Sign Up'}</span>
+                        <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
                     </button>
                 </form>
 
-                <div className="mt-8 text-center space-y-4">
+                <div className="mt-6 text-center">
                     <button
-                        onClick={() => setIsLogin(!isLogin)}
-                        className="text-white/40 hover:text-neon-emerald text-xs tracking-widest uppercase transition-colors"
+                        onClick={() => { setIsLogin(!isLogin); setError(null); }}
+                        className="text-sm text-plum/50 hover:text-soft-purple font-medium transition-colors"
                     >
                         {isLogin ? "Don't have an account? Create one" : "Already have an account? Sign in"}
-                    </button>
-
-                    <div className="relative">
-                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5"></div></div>
-                        <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-[#121212] px-4 text-white/20 tracking-widest">Or continue with</span></div>
-                    </div>
-
-                    <button className="w-full bg-white/5 hover:bg-white/10 text-white p-3 rounded-xl border border-white/5 flex items-center justify-center gap-2 transition-colors">
-                        <Github className="w-4 h-4" />
-                        <span className="text-xs font-bold tracking-widest uppercase">GitHub</span>
                     </button>
                 </div>
             </div>

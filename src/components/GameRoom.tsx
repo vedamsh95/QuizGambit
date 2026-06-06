@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
-import ArenaBoard from "./ArenaBoard";
 import SimultaneousBoard from "./SimultaneousBoard";
 import GameBoard from "./GameBoard";
 import PlayerView from "./PlayerView";
@@ -33,7 +32,7 @@ export default function GameRoom() {
   const [phase, setPhase] = useState<"loading" | "join" | "lobby" | "play" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [lobby, setLobby] = useState<any>(null);
-  const [mode, setMode] = useState<"STANDARD" | "ARENA" | "SIMULTANEOUS" | null>(null);
+  const [mode, setMode] = useState<"STANDARD" | "SIMULTANEOUS" | null>(null);
   const [playerName, setPlayerName] = useState(store.getPlayerName());
   const [tempName, setTempName] = useState(playerName);
   const [playerId, setPlayerId] = useState<string>(() => store.ensurePlayerId());
@@ -75,7 +74,7 @@ export default function GameRoom() {
 
       setLobby(lobbyData);
       const detectedMode =
-        lobbyData.mode === "ARENA" ? "ARENA" : "STANDARD";
+        lobbyData.mode === "SIMULTANEOUS" ? "SIMULTANEOUS" : "STANDARD";
       setMode(detectedMode);
 
       // Check if this player is already registered in the lobby
@@ -213,7 +212,6 @@ export default function GameRoom() {
       .delete()
       .eq("id", playerId)
       .eq("lobby_code", code!);
-    store.clearArenaHostCode();
     navigate(`/lobby/${code}`);
   };
 
@@ -280,7 +278,7 @@ export default function GameRoom() {
               Room: <span className="text-neon-emerald font-mono font-bold">{code}</span>
             </p>
             <p className="text-white/40 text-xs mt-1">
-              {mode === "ARENA" ? "Arena PVP Mode" : "Standard Mode"}
+              {mode === "SIMULTANEOUS" ? "Simultaneous Mode" : "Standard Mode"}
             </p>
           </div>
 
@@ -379,9 +377,6 @@ export default function GameRoom() {
   if (phase === "play" && mode) {
     if (mode === "SIMULTANEOUS") {
       return <SimultaneousBoard code={code!} playerId={playerId} playerName={playerName} />;
-    }
-    if (mode === "ARENA") {
-      return <ArenaBoard code={code!} playerId={playerId} playerName={playerName} />;
     }
     // Standard mode — uses GameBoard for host-managed games
     // For standard players, show PlayerView

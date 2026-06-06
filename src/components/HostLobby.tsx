@@ -8,17 +8,15 @@ import {
   RotateCcw, Loader2,
 } from "lucide-react";
 import Lobby from "./Lobby";
-import ArenaLobby from "./ArenaLobby";
 import { store } from "../lib/storage";
 import { GameHeaderButton, GameConnectionBadge } from "./ui";
 import LanguageSwitcher from "./ui/LanguageSwitcher";
 
 /**
- * HostLobby — Unified host entry point for Standard & Arena modes.
+ * HostLobby — Host entry point for Standard mode.
  *
  * Route: /host/:code
- * Auto-detects lobby mode. Shows a toggle to switch modes.
- * Delegates settings/start logic to mode-specific child components.
+ * Shows lobby settings and delegates to Lobby.tsx.
  */
 export default function HostLobby() {
   const { code: rawCode } = useParams<{ code: string }>();
@@ -107,20 +105,12 @@ export default function HostLobby() {
     return presenceCount > 0 ? presenceCount : players.length;
   }, [presences, players.length]);
 
-  // ── Mode Toggle ───────────────────────────────────────────────────────────
-  const handleSwitchMode = async (newMode: "STANDARD" | "ARENA") => {
-    if (!lobby || !code) return;
-    if (lobby.mode === newMode) return;
-
-    await supabase.from("lobbies").update({ mode: newMode }).eq("code", code);
-    setLobby((prev: any) => ({ ...prev, mode: newMode }));
-  };
+  // ── Mode management ──────────────────────────────────────────────────────
 
   // ── Start Game — delegates to child component ─────────────────────────────
   const handleStartGame = (settings: any) => {
-    // This is called by Lobby.tsx (Standard mode).
+    // Called by Lobby.tsx (Standard mode).
     // The Lobby component handles the start flow internally via HostDashboard pattern.
-    // For Arena mode, ArenaLobby handles its own start flow.
   };
 
   // ── End Game ──────────────────────────────────────────────────────────────
@@ -168,58 +158,7 @@ export default function HostLobby() {
     );
   }
 
-  // ── Render: Arena Lobby ───────────────────────────────────────────────────
-  if (lobby?.mode === "ARENA") {
-    return (
-      <div className="min-h-screen bg-deep-void relative">
-        {/* Shared Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm z-40 relative">
-          <GameHeaderButton
-            variant="ghost"
-            icon={<ArrowLeft className="w-3 h-3" />}
-            onClick={() => navigate("/")}
-          >
-            Home
-          </GameHeaderButton>
-
-          <div className="flex items-center gap-4">
-            <LanguageSwitcher compact variant="dark" />
-            {/* Connection Status */}
-            <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
-
-            {/* Mode Toggle */}
-            <div className="flex p-1 bg-white/5 rounded-xl">
-              <button
-                onClick={() => handleSwitchMode("STANDARD")}
-                className="px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all text-white/60 hover:text-white"
-              >
-                Standard
-              </button>
-              <button
-                onClick={() => handleSwitchMode("ARENA")}
-                className="px-4 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all bg-red-500/10 text-red-500 border border-red-500/20"
-              >
-                Arena
-              </button>
-            </div>
-
-            <GameHeaderButton
-              variant="danger"
-              icon={<LogOut className="w-3 h-3" />}
-              onClick={handleEndGame}
-            >
-              End Game
-            </GameHeaderButton>
-          </div>
-        </header>
-
-        {/* Delegates to existing ArenaLobby — it handles its own state from localStorage */}
-        <ArenaLobby />
-      </div>
-    );
-  }
-
-  // ── Render: Standard Lobby ────────────────────────────────────────────────
+  // ── Render: Lobby ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-deep-void relative">
       {/* Shared Header */}
@@ -236,21 +175,6 @@ export default function HostLobby() {
           <LanguageSwitcher compact variant="dark" />
           {/* Connection Status */}
           <GameConnectionBadge isConnected={isConnected} onlineCount={onlineCount} />
-
-          {/* Mode Toggle */}
-          <div className="flex p-1 bg-white/5 rounded-xl">
-            <button
-              className="px-4 py-2 text-[10px] font-black tracking-widest uppercase rounded-lg transition-all bg-neon-emerald/20 text-neon-emerald border border-neon-emerald/30"
-            >
-              Standard
-            </button>
-            <button
-              onClick={() => handleSwitchMode("ARENA")}
-              className="px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all text-white/60 hover:text-white"
-            >
-              Arena
-            </button>
-          </div>
 
           <GameHeaderButton
             variant="danger"

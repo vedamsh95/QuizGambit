@@ -572,12 +572,12 @@ function PrototypeInner() {
                 </div>
               </ClayCard>
 
-              {/* Host Arena */}
+              {/* 5x5 Grid */}
               <ClayCard elevation="flat" padding="md" className="space-y-3 hover:-translate-y-1 transition-transform cursor-pointer">
                 <div className="w-12 h-12 rounded-2xl bg-peach-light flex items-center justify-center text-2xl">⚔️</div>
                 <div>
-                  <h3 className="font-outfit font-extrabold text-base md:text-lg text-plum">Host Arena</h3>
-                  <p className="text-warm-gray text-xs md:text-sm">PvP battle. Everyone on their own device.</p>
+                  <h3 className="font-outfit font-extrabold text-base md:text-lg text-plum">5×5 Grid</h3>
+                  <p className="text-warm-gray text-xs md:text-sm">Same-screen local play. Everyone buzzes on one device.</p>
                 </div>
               </ClayCard>
 

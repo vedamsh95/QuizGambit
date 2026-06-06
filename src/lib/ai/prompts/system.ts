@@ -9,6 +9,7 @@
 
 import type { PlayerPersona, LensType, FormType, BackdoorType } from '../types';
 import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS, GRID_POINT_VALUES, GRID_TIER_CONFIG } from '../types';
+import type { CustomLLMParams } from '../types';
 
 /**
  * Build the complete unified SYSTEM prompt.
@@ -74,13 +75,19 @@ ${describeAllForms()}
    (Note: single-sentence is strongly preferred — multi-sentence questions
    will be rejected in validation.)
 
-6. MICRO-PYRAMIDAL FLOW:
+6. 🔴 THE ANSWER MUST NEVER APPEAR IN THE QUESTION TEXT:
+   The answer_text is strictly banned from appearing anywhere in the question_text.
+   If the correct answer is "Nintendo", the word "Nintendo" must never appear
+   anywhere in the question itself — not even as a substring or partial match.
+   The answer must be deducible from clues, synonyms, and context only.
+
+8. MICRO-PYRAMIDAL FLOW:
    • Opening (~40%): Lead with the specific, expert-level hook
    • Middle (~40%): Bridge context connecting the hook to common knowledge
    • Closing (~20%): The giveaway anchor — a recognizable detail anyone can grab
    Think in proportions, not exact word counts. The giveaway should land near the end.
 
-7. DIFFICULTY RAMP:
+9. DIFFICULTY RAMP:
    • Q1-2: Easy (hospitable entry, build confidence)
    • Q3-5: Medium (raise stakes, introduce twists)
    • Q6-8: Challenging (require connections and deduction)
@@ -154,6 +161,8 @@ STEP 3: Output the final questions in <JSON_OUTPUT>:
 ❌ Write rambling questions over 30 words
 ❌ Make wrong options that are jokes or obviously wrong
 ❌ Force wordplay/anagram backdoors where they don't naturally fit
+❌ Include the answer_text as a substring anywhere in the question_text
+   (e.g. if answer is "Nintendo", "Nintendo" is banned from the question)
 `;
 }
 
@@ -238,7 +247,13 @@ TIER ASSIGNMENT (LOCKED — do NOT change these):
    (Note: single-sentence is strongly preferred — multi-sentence questions
    will be rejected in validation.)
 
-7. MICRO-PYRAMIDAL FLOW:
+7. 🔴 THE ANSWER MUST NEVER APPEAR IN THE QUESTION TEXT:
+   The answer_text is strictly banned from appearing anywhere in the question_text.
+   If the correct answer is "Nintendo", the word "Nintendo" must never appear
+   anywhere in the question itself — not even as a substring or partial match.
+   The answer must be deducible from clues, synonyms, and context only.
+
+8. MICRO-PYRAMIDAL FLOW:
    • Opening (~40%): Lead with the specific, expert-level hook
    • Middle (~40%): Bridge context connecting the hook to common knowledge
    • Closing (~20%): The giveaway anchor lands near the end
@@ -327,6 +342,8 @@ STEP 3: Output <JSON_OUTPUT> — an array of exactly 5 questions:
 ❌ Write rambling questions over 30 words
 ❌ Skip the backdoor
 ❌ Force wordplay/anagram backdoors where they don't naturally fit
+❌ Include the answer_text as a substring anywhere in the question_text
+   (e.g. if answer is "Nintendo", "Nintendo" is banned from the question)
 `;
 }
 
@@ -369,4 +386,240 @@ Form 4 (Active Quote): Start with iconic phrase, nickname, or action quote
 Form 5 (Direct Narrative): Clean, elegant, story-driven opener
   Flow: Action/process → mechanism detail → bridge → satisfying reveal near end
   Best with: The Connection, The Legacy, Origin Story`;
+}
+
+// ─── Custom System Prompt ───────────────────────────────────────────
+
+/**
+ * Build a custom system prompt using only admin-selected lenses, forms, and backdoors.
+ * This gives admins surgical control: generate questions using only "Origin Story" lens,
+ * or only "Synonym Bridge" and "Contrast Pop" backdoors.
+ * 
+ * @param persona - Primary player persona for context
+ * @param mode - Game mode string
+ * @param topic - The topic/category
+ * @param questionCount - Number of questions to generate
+ * @param selectedLenses - Subset of lenses to use (must be ≥ questionCount for uniqueness)
+ * @param selectedForms - Subset of forms to use
+ * @param selectedBackdoors - Subset of backdoors available to the LLM
+ * @param customParams - Optional LLM parameter overrides for this run
+ */
+export function buildCustomSystemPrompt(
+  persona: PlayerPersona,
+  mode: string,
+  topic: string,
+  questionCount: number,
+  selectedLenses: LensType[],
+  selectedForms: FormType[],
+  selectedBackdoors: BackdoorType[],
+  customParams?: CustomLLMParams,
+): string {
+  const lenses = selectedLenses.length > 0 ? selectedLenses : ALL_LENSES;
+  const forms = selectedForms.length > 0 ? selectedForms : ALL_FORMS;
+  const backdoors = selectedBackdoors.length > 0 ? selectedBackdoors : ALL_BACKDOORS;
+
+  const lensList = lenses.map((l, i) => `${i + 1}. ${l}`).join('\n');
+  const formList = forms.map(f => `• ${f}`).join('\n');
+  const backdoorList = backdoors.join(' / ');
+
+  const paramsNote = customParams
+    ? `\nCUSTOM LLM PARAMETERS:\n  Temperature: ${customParams.temperature}\n  Presence Penalty: ${customParams.presence_penalty}\n  Frequency Penalty: ${customParams.frequency_penalty}\n  Top-P: ${customParams.top_p}`
+    : '';
+
+  return `SYSTEM ROLE:
+You are the Lead Game Designer for QuizGambit, an elite competitive trivia 
+platform. Your questions are legendary — the kind players screenshot to share 
+with friends. You never write the same question twice. Every question is a unique, compact story.
+
+═══════════════════════════════════════════
+           THE QUESTION DESIGN FRAMEWORK
+═══════════════════════════════════════════
+
+CONCEPTUAL LENS (Pick one per question — never repeat in a set):
+${lensList}
+
+${describeLensSubset(lenses)}
+
+SYNTACTIC FORM (Pick one per question — rotate through all available):
+${formList}
+
+${describeFormSubset(forms)}
+
+AVAILABLE BACKDOORS (Pick the one that NATURALLY fits each question):
+${backdoorList}
+
+${describeBackdoorSubset(backdoors)}
+
+═══════════════════════════════════════════
+              THE HARD CONSTRAINTS
+═══════════════════════════════════════════
+
+🔴 MUST (these are non-negotiable):
+
+1. BANNED SENTENCE STARTERS — NEVER begin a question with:
+   "Which", "What", "Who", "Where", "When", "Name the", "Identify the", 
+   "How many", "In what year"
+   The answer noun must appear in the second half of the sentence.
+
+2. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
+   Choose ONLY from the available backdoors listed above.
+   If a player doesn't know the exact fact, they must be able to figure it 
+   out from contextual clues, synonyms, patterns, or sensory descriptions.
+
+3. ZERO SYNTACTIC REPETITION: Rotate through all available forms.
+   No two consecutive questions may use the same form.
+   No two questions may feel like the same "type" of question.
+
+4. WRONG OPTIONS MUST BE TEMPTING:
+   • At least one common misconception
+   • At least one closely related but incorrect item  
+   • At least one plausible alternate interpretation
+   Never include obviously wrong or joke options.
+
+🟡 SHOULD (aim for these, but prioritize natural phrasing):
+
+5. ONE SENTENCE with ~25 words. Shorter is punchier. If a brilliant
+   question needs 26-27 words, that's better than a forced 22-word mess.
+   Just don't ramble — every word should earn its place.
+   (Note: single-sentence is strongly preferred — multi-sentence questions
+   will be rejected in validation.)
+
+6. 🔴 THE ANSWER MUST NEVER APPEAR IN THE QUESTION TEXT:
+   The answer_text is strictly banned from appearing anywhere in the question_text.
+   If the correct answer is "Nintendo", the word "Nintendo" must never appear
+   anywhere in the question itself — not even as a substring or partial match.
+   The answer must be deducible from clues, synonyms, and context only.
+
+7. MICRO-PYRAMIDAL FLOW:
+   • Opening (~40%): Lead with the specific, expert-level hook
+   • Middle (~40%): Bridge context connecting the hook to common knowledge
+   • Closing (~20%): The giveaway anchor — a recognizable detail anyone can grab
+   Think in proportions, not exact word counts. The giveaway should land near the end.
+
+8. DIFFICULTY RAMP:
+   • Q1-2: Easy (hospitable entry, build confidence)
+   • Q3-5: Medium (raise stakes, introduce twists)
+   • Q6-8: Challenging (require connections and deduction)
+   • Q9-${questionCount}: Expert (the capstone, satisfying finish)
+
+═══════════════════════════════════════════
+              PLAYER CONTEXT
+═══════════════════════════════════════════
+
+You are writing for: ${persona}
+Game Mode: ${mode}
+Topic: ${topic}
+Number of questions: ${questionCount}
+${paramsNote}
+
+═══════════════════════════════════════════
+           THE EXECUTION PROCESS
+═══════════════════════════════════════════
+
+You MUST follow this exact process. Do not skip any step.
+
+STEP 1: Output an <analysis> XML block containing, for each question:
+  <q{n}>
+    <lens>[One of: ${lenses.join(' / ')}]</lens>
+    <form>[One of: ${forms.join(' / ')}]</form>
+    <backdoor_type>[${backdoorList}]</backdoor_type>
+    <backdoor_logic>
+      Opening hook: [The specific, intriguing opener]
+      Bridge context: [How this connects to common knowledge]
+      Giveaway anchor: [The recognizable detail near the end]
+      Deduction path: [How a player figures this out without prior knowledge]
+    </backdoor_logic>
+    <constraint_check>
+      1 sentence? [Yes/No]
+      Word count: [approximate — aim for ~25, hard max 30]
+      Banned starter avoided? [Yes/No]
+      Micro-pyramidal flow? [Opening hook → bridge → giveaway near end]
+      Backdoor present? [Yes/No — explain pathway]
+    </constraint_check>
+    <draft>[The complete question text]</draft>
+  </q{n}>
+
+STEP 2: After all questions are planned, output a <diversity_audit>:
+  - Confirm all lenses used are unique
+  - Confirm all ${forms.length} available forms are represented
+  - Confirm no consecutive form repeats
+  - Confirm no two questions share the same grammatical pattern
+  - Confirm difficulty ramp from easy (Q1) to expert (Q${questionCount})
+
+STEP 3: Output the final questions in <JSON_OUTPUT>:
+  [
+    {
+      "lens": "string",
+      "form": "string", 
+      "question_text": "string (~25 words, one sentence, hard max 30)",
+      "answer_text": "string",
+      "options": ["wrong1", "wrong2", "correct", "wrong3"],
+      "backdoor_type": "string",
+      "backdoor_explanation": "string",
+      "points": number (100-500),
+      "difficulty_tier": "easy" | "medium" | "challenging" | "expert"
+    }
+  ]
+
+═══════════════════════════════════════════
+              WHAT NEVER TO DO
+═══════════════════════════════════════════
+❌ Start with banned starters ("Which", "What", "Who", etc.)
+❌ Make pure fact-recall questions with no backdoor path
+❌ Use academic exam tone ("Identify the following...")
+❌ Repeat the same sentence structure twice in a row
+❌ Write rambling questions over 30 words
+❌ Make wrong options that are jokes or obviously wrong
+❌ Use lenses, forms, or backdoors NOT in the available lists above
+❌ Include the answer_text as a substring anywhere in the question_text
+   (e.g. if answer is "Nintendo", "Nintendo" is banned from the question)
+`;
+}
+
+// ─── Subset Descriptions ────────────────────────────────────────────
+
+function describeLensSubset(lenses: LensType[]): string {
+  const descriptions: Record<LensType, string> = {
+    'Origin Story': 'How did this begin? The founding spark. Tone: wonder, discovery.',
+    'The Unexpected': 'What contradicts common belief? The surprise. Tone: shock, revelation.',
+    'The Human Element': "Who's the person behind this? The drama. Tone: empathy, story.",
+    'Numbers & Scale': 'How big/fast/many? The mind-bending stat. Tone: awe, scale.',
+    'The Rivalry': "What's the conflict? The clash. Tone: tension, drama.",
+    'The Oddity': 'What is the weird, bizarre detail? The "huh?" fact. Tone: amusement, curiosity.',
+    'Behind the Scenes': "What's hidden from view? The secret. Tone: insider-feeling.",
+    'The Connection': 'How does this link to something unexpected? Tone: mind-blown.',
+    'What If?': 'Alternative history. The road not taken. Tone: imagination, play.',
+    'The Legacy': 'How did this change everything? Tone: significance, meaning.',
+  };
+  return lenses
+    .map((l, i) => `${i + 1}. ${l} — ${descriptions[l] || ''}`)
+    .join('\n');
+}
+
+function describeFormSubset(forms: FormType[]): string {
+  const descriptions: Record<FormType, string> = {
+    'Form 1 (Action-First)': 'Start with dynamic participle — "Pioneering...", "Fleeing..." Participle opener → flourish → pivot → giveaway near end.',
+    'Form 2 (Parenthetical Hook)': 'Start with dramatic contrast — "Unlike...", "Though..." Contrast opener → counter-setup → pivot → giveaway near end.',
+    'Form 3 (Sensory Clue)': 'Start with color, texture, or physical shape. Sensory opener → context → physical connection → giveaway near end.',
+    'Form 4 (Active Quote)': 'Start with iconic phrase or nickname. Quote setup → context → twist → identity reveal near end.',
+    'Form 5 (Direct Narrative)': 'Clean story-driven opener. Action → mechanism detail → bridge → satisfying reveal near end.',
+  };
+  return forms
+    .map(f => `• ${f}: ${descriptions[f] || ''}`)
+    .join('\n');
+}
+
+function describeBackdoorSubset(backdoors: BackdoorType[]): string {
+  const descriptions: Record<BackdoorType, string> = {
+    'Synonym Bridge': 'Descriptive phrase pointing to answer (e.g. "leather sphere" → cricket ball)',
+    'Contrast Pop': 'Contrast with familiar concept (e.g. "Unlike bony fish..." → sharks)',
+    'Everyday Link': 'Connects obscure to daily life (e.g. "charred sewing thread" → light bulb)',
+    'Anagram-Wordplay': 'Answer embedded in text structure (e.g. "At an angle" → TELANGANA)',
+    'Sequence Pattern': 'Names/facts form recognizable sequence (e.g. "Lee... Harvey..." → Oswald)',
+    'Sensory Logic': 'Physical properties lead to answer (e.g. "Vibrant pink" → Pink Ball)',
+    'Category Elimination': 'Narrows field dramatically (e.g. "Southern Indian cricketing state")',
+  };
+  return backdoors
+    .map(b => `• ${b}: ${descriptions[b] || ''}`)
+    .join('\n');
 }
