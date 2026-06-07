@@ -25,8 +25,10 @@ import {
   ArrowUpDown,
   LayoutList,
   GripVertical,
+  Hammer,
 } from "lucide-react";
 import AIStudio from "./AIStudio";
+import ForgePanel from "./ForgePanel";
 import { store } from "../lib/storage";
 import { reverifyQuestion } from "../lib/ai";
 
@@ -36,7 +38,7 @@ interface AdminDashboardProps {
   onBack: () => void;
 }
 
-type AdminTab = "DASHBOARD" | "CONTENT" | "AI_STUDIO" | "JSON_IMPORT";
+type AdminTab = "DASHBOARD" | "CONTENT" | "AI_STUDIO" | "FORGE" | "JSON_IMPORT";
 
 interface EditForm {
   name: string;
@@ -44,7 +46,15 @@ interface EditForm {
   description: string;
   is_global: boolean;
   tags: string;
+  lens_mode: "diverse" | "focused";
+  target_lens: string;
 }
+
+const ALL_LENSES_EDIT = [
+  "Origin Story","The Unexpected","The Human Element","Numbers & Scale",
+  "The Rivalry","The Oddity","Behind the Scenes","The Connection",
+  "What If?","The Legacy","The Butterfly Effect","The Evolution","The Cultural Impact",
+];
 
 // ─── Sidebar Tab Config ─────────────────────────────────────────────
 
@@ -52,6 +62,7 @@ const TABS: { id: AdminTab; label: string; icon: React.ReactNode; color: string 
   { id: "DASHBOARD", label: "Dashboard", icon: <ShieldCheck className="w-4 h-4" />, color: "text-soft-purple" },
   { id: "CONTENT", label: "Content Library", icon: <BookOpen className="w-4 h-4" />, color: "text-mint" },
   { id: "AI_STUDIO", label: "AI Studio", icon: <Zap className="w-4 h-4" />, color: "text-sky" },
+  { id: "FORGE", label: "Content Forge", icon: <Hammer className="w-4 h-4" />, color: "text-butter" },
   { id: "JSON_IMPORT", label: "JSON Import", icon: <FileJson className="w-4 h-4" />, color: "text-butter" },
 ];
 
@@ -75,6 +86,8 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
     description: "",
     is_global: true,
     tags: "",
+    lens_mode: "diverse",
+    target_lens: "",
   });
 
   // ── Question-level state ─────────────────────────────────────────
@@ -179,7 +192,7 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
   // ── CRUD Handlers ─────────────────────────────────────────────────
   const openCreateModal = () => {
     setEditingItem(null);
-    setEditForm({ name: "", main_category: "", description: "", is_global: true, tags: "" });
+    setEditForm({ name: "", main_category: "", description: "", is_global: true, tags: "", lens_mode: "diverse", target_lens: "" });
     setShowEditModal(true);
   };
 
@@ -191,6 +204,8 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
       description: item.description,
       is_global: item.is_global,
       tags: item.tags ? item.tags.join(", ") : "",
+      lens_mode: item.lens_mode || "diverse",
+      target_lens: item.target_lens || "",
     });
     setShowEditModal(true);
   };
@@ -442,6 +457,8 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
       description: editForm.description,
       is_global: editForm.is_global,
       tags: editForm.tags.split(",").map((t) => t.trim()).filter(Boolean),
+      lens_mode: editForm.lens_mode,
+      target_lens: editForm.lens_mode === "focused" ? editForm.target_lens || null : null,
     };
     setLoading(true);
     try {
@@ -983,6 +1000,9 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
             </div>
           )}
 
+          {/* ─── FORGE TAB ───────────────────────────────────── */}
+          {activeTab === "FORGE" && <ForgePanel onDataChange={fetchCategories} />}
+
           {/* ─── JSON IMPORT TAB ────────────────────────────────── */}
           {activeTab === "JSON_IMPORT" && (
             <div className="clay p-6 space-y-6">
@@ -1086,6 +1106,27 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                 />
+              </div>
+              {/* Lens Mode + Target Lens */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-plum/40 uppercase tracking-wider">Lens Mode</label>
+                  <select className="w-full clay-input p-3 text-sm" value={editForm.lens_mode}
+                    onChange={(e) => setEditForm({ ...editForm, lens_mode: e.target.value as "diverse" | "focused" })}>
+                    <option value="diverse">Diverse (5q max)</option>
+                    <option value="focused">Focused (30q max)</option>
+                  </select>
+                </div>
+                {editForm.lens_mode === "focused" && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-plum/40 uppercase tracking-wider">Target Lens</label>
+                    <select className="w-full clay-input p-3 text-sm" value={editForm.target_lens}
+                      onChange={(e) => setEditForm({ ...editForm, target_lens: e.target.value })}>
+                      <option value="">Auto (recommended)</option>
+                      {ALL_LENSES_EDIT.map((l: string) => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
