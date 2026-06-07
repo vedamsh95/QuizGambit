@@ -451,7 +451,7 @@ TIER LOCK (DO NOT CHANGE):
   Q4 = 400pts (challenging, moderate backdoor)
   Q5 = 500pts (expert, subtle backdoor)
 
-ALL 5 LENSES UNIQUE. ALL 5 FORMS USED. EVERY QUESTION TAGGED.
+ALL 5 LENSES UNIQUE. ALL 5 FORMS USED (you choose which form→which question). EVERY QUESTION TAGGED.
 Output exactly one JSON object as instructed.`;
 
   return { systemPrompt, userMessage };
@@ -615,11 +615,11 @@ GAME MODE: ${config.mode}
 🔴 ONLY use forms from: ${config.selectedForms.join(', ') || 'all available'}
 🔴 ONLY use backdoors from: ${config.selectedBackdoors.join(', ') || 'all available'}
 
-SUGGESTED LENS/FORM ASSIGNMENTS (you may adjust for better creative fit):
+SUGGESTED LENS/FORM ASSIGNMENTS (forms are suggestions — pick whichever best fits each lens/topic):
 ${assignmentGuide}
 
 Output exactly one JSON object as instructed.
-Remember: ${config.questionCount} questions, all lenses unique, all forms rotated.`;
+Remember: ${config.questionCount} questions, all lenses unique. Use all 10 forms at least once across the set, no consecutive form repeats. Backdoors are free choice.`;
   }
 
   return { systemPrompt, userMessage };

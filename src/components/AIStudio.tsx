@@ -28,6 +28,8 @@ import type { TopicData } from "./ai-generator/SaveToLibrary";
 import { PERSONA_META } from "./ai-generator/PersonaPicker";
 import type { ThemeSubtopic } from "../lib/ai/types";
 import { generateThemeSubtopics, rerollSubtopic } from "../lib/ai/themes";
+import { determinePhase, PHASE_ICONS } from "../lib/phaseDiscovery";
+import type { PhaseConfig } from "../lib/phaseDiscovery";
 
 // ─── Lens/Form/Backdoor metadata for pickers ────────────────────────
 
@@ -211,6 +213,8 @@ export default function AIStudio({ onBack }: AIStudioProps) {
   const [generatingSubtopics, setGeneratingSubtopics] = useState(false);
   const [rerollingIndex, setRerollingIndex] = useState<number | undefined>(undefined);
   const [appendingSubtopics, setAppendingSubtopics] = useState(false);
+  const [savingSubtopics, setSavingSubtopics] = useState(false);
+  const [autoPhase, setAutoPhase] = useState<PhaseConfig | null>(null);
   const recentThemes = store.getRecentThemes();
   const recentTopics = store.getRecentTopics();
 
@@ -418,17 +422,46 @@ export default function AIStudio({ onBack }: AIStudioProps) {
 
     // Fetch previously generated subtopic names for this theme as exclusions
     let excludeNames: string[] | undefined;
+    let existingTopicInfos: { name: string; tags: string[] }[] = [];
     try {
       const { data } = await supabase
         .from("categories_library")
-        .select("name")
+        .select("name, tags")
         .eq("main_category", theme.trim());
       if (data && data.length > 0) {
         excludeNames = data.map((row: any) => row.name);
+        existingTopicInfos = data.map((row: any) => ({
+          name: row.name,
+          tags: row.tags || [],
+        }));
         addLog(`📚 Found ${excludeNames.length} previously generated subtopics for "${theme}" — will avoid repeats`, "info");
       }
     } catch (e) {
       // Non-critical — proceed without exclusions if query fails
+    }
+
+    // Detect if user manually changed the matrix checkboxes (not all-selected = manual mode)
+    const allTypesSelected = selectedThemeTypes.length === ALL_TOPIC_TYPES.length;
+    const allDomainsSelected = selectedThemeDomains.length === ALL_KNOWLEDGE_DOMAINS.length;
+    const allStylesSelected = selectedThemeStyles.length === ALL_QUIZ_STYLES.length;
+    const usingManualMatrix = !allTypesSelected || !allDomainsSelected || !allStylesSelected;
+
+    let effectiveTypes: TopicType[];
+    let effectiveDomains: KnowledgeDomain[];
+    let effectiveStyles: QuizStyle[];
+
+    if (usingManualMatrix) {
+      effectiveTypes = selectedThemeTypes as TopicType[];
+      effectiveDomains = selectedThemeDomains as KnowledgeDomain[];
+      effectiveStyles = selectedThemeStyles as QuizStyle[];
+      setAutoPhase(null);
+    } else {
+      const phase = determinePhase(existingTopicInfos);
+      setAutoPhase(phase);
+      effectiveTypes = phase.types;
+      effectiveDomains = phase.domains;
+      effectiveStyles = phase.styles;
+      addLog(`${PHASE_ICONS[phase.phase]} Phase ${phase.phase}/4 — ${phase.label}: ${phase.rationale}`, "info");
     }
 
     addLog(`🧠 Generating 5 subtopics for theme: "${theme}"...`, "info");
@@ -438,7 +471,7 @@ export default function AIStudio({ onBack }: AIStudioProps) {
         provider,
         apiKey,
         model,
-      }, excludeNames!, selectedThemeTypes as TopicType[], selectedThemeDomains as KnowledgeDomain[], selectedThemeStyles as QuizStyle[]);
+      }, excludeNames!, effectiveTypes, effectiveDomains, effectiveStyles);
 
       setSubtopics(result.subtopics);
       store.addRecentTheme(theme.trim());
@@ -477,12 +510,37 @@ export default function AIStudio({ onBack }: AIStudioProps) {
 
     addLog(`🧠 Appending 5 more subtopics for theme: "${theme}" (excluding ${excludeNames.length} existing names)...`, "info");
 
+    // Use same matrix as the generate phase (auto or manual)
+    const allTypesSelected = selectedThemeTypes.length === ALL_TOPIC_TYPES.length;
+    const allDomainsSelected = selectedThemeDomains.length === ALL_KNOWLEDGE_DOMAINS.length;
+    const allStylesSelected = selectedThemeStyles.length === ALL_QUIZ_STYLES.length;
+    const usingManualMatrix = !allTypesSelected || !allDomainsSelected || !allStylesSelected;
+
+    let effectiveTypes: TopicType[];
+    let effectiveDomains: KnowledgeDomain[];
+    let effectiveStyles: QuizStyle[];
+
+    if (usingManualMatrix) {
+      effectiveTypes = selectedThemeTypes as TopicType[];
+      effectiveDomains = selectedThemeDomains as KnowledgeDomain[];
+      effectiveStyles = selectedThemeStyles as QuizStyle[];
+    } else if (autoPhase) {
+      effectiveTypes = autoPhase.types;
+      effectiveDomains = autoPhase.domains;
+      effectiveStyles = autoPhase.styles;
+    } else {
+      // Fallback to all (shouldn't normally happen)
+      effectiveTypes = ALL_TOPIC_TYPES as TopicType[];
+      effectiveDomains = ALL_KNOWLEDGE_DOMAINS as KnowledgeDomain[];
+      effectiveStyles = ALL_QUIZ_STYLES as QuizStyle[];
+    }
+
     try {
       const result = await generateThemeSubtopics(theme.trim(), {
         provider,
         apiKey,
         model,
-      }, excludeNames, selectedThemeTypes as TopicType[], selectedThemeDomains as KnowledgeDomain[], selectedThemeStyles as QuizStyle[]);
+      }, excludeNames, effectiveTypes, effectiveDomains, effectiveStyles);
 
       // Append, don't replace
       setSubtopics((prev) => [...prev, ...result.subtopics]);
@@ -495,6 +553,78 @@ export default function AIStudio({ onBack }: AIStudioProps) {
     } finally {
       setAppendingSubtopics(false);
     }
+  };
+
+  // ── Theme: Save Subtopics to Library ──────────────────────────────
+  const handleSaveSubtopics = async () => {
+    if (!theme.trim() || subtopics.length === 0) return;
+
+    setSavingSubtopics(true);
+    addLog(`💾 Saving ${subtopics.length} subtopics for theme "${theme}" to library...`, "info");
+
+    let saved = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const sub of subtopics) {
+      try {
+        // Check if this subtopic already exists
+        const { data: existing } = await supabase
+          .from("categories_library")
+          .select("id")
+          .eq("name", sub.name)
+          .maybeSingle();
+
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        const tags = [
+          "Grid",
+          sub.name,
+          `Theme:${theme.trim()}`,
+          sub.type,
+          sub.domain,
+          sub.style,
+          "Mode:Diverse",
+          "AI:Suggested",
+        ];
+
+        const { error } = await supabase.from("categories_library").insert([
+          {
+            name: sub.name,
+            main_category: theme.trim(),
+            description: `AI-suggested ${sub.type} · ${sub.domain} · ${sub.style} — ${theme.trim()}`,
+            data: [],
+            tags,
+            is_global: true,
+            lens_mode: "diverse",
+            target_lens: null,
+          },
+        ]);
+
+        if (error) {
+          errors.push(`${sub.name}: ${error.message}`);
+        } else {
+          saved++;
+        }
+      } catch (err: any) {
+        errors.push(`${sub.name}: ${err.message}`);
+      }
+    }
+
+    if (saved > 0) {
+      addLog(`✅ Saved ${saved} subtopic(s) to library${skipped > 0 ? ` (${skipped} already existed, skipped)` : ""}`, "success");
+    }
+    if (errors.length > 0) {
+      errors.forEach((e) => addLog(`❌ Save error: ${e}`, "error"));
+    }
+    if (saved === 0 && errors.length === 0) {
+      addLog(`📝 All ${skipped} subtopics already exist in the library — nothing new to save`, "info");
+    }
+
+    setSavingSubtopics(false);
   };
 
   // ── Theme: Re-roll single subtopic ────────────────────────────────
@@ -786,8 +916,35 @@ export default function AIStudio({ onBack }: AIStudioProps) {
           </button>
         </div>
 
-        {/* ── Themed Mode: How It Works (compact info) ──────────── */}
-        {generationMode === "themed" && subtopics.length === 0 && (
+        {/* ── Themed Mode: Auto-Phase Banner (before first generate) ── */}
+        {generationMode === "themed" && autoPhase && subtopics.length === 0 && (
+          <div className="clay p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{PHASE_ICONS[autoPhase.phase]}</span>
+              <span className="font-outfit font-black text-sm text-plum">
+                Phase {autoPhase.phase}/4 — {autoPhase.label}
+              </span>
+              <span className="text-[9px] text-plum/30 font-medium ml-auto">Auto-detected</span>
+            </div>
+            <p className="text-[10px] text-plum/40 font-medium">
+              {autoPhase.rationale}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[9px] font-bold text-soft-purple bg-soft-purple-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.types.length}/6 Types
+              </span>
+              <span className="text-[9px] font-bold text-sky bg-sky-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.domains.length}/5 Domains
+              </span>
+              <span className="text-[9px] font-bold text-mint bg-mint-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.styles.length}/4 Styles
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Themed Mode: How It Works (shown when no auto-phase yet) ── */}
+        {generationMode === "themed" && !autoPhase && subtopics.length === 0 && (
           <div className="clay p-4 space-y-2 text-center">
             <p className="text-[10px] font-bold text-plum/40 uppercase tracking-wider">
               🧠 AI uses a 3D matrix to create diverse subtopics
@@ -853,6 +1010,8 @@ export default function AIStudio({ onBack }: AIStudioProps) {
               rerollingIndex={rerollingIndex}
               recentThemes={recentThemes}
               onSelectRecentTheme={handleSelectRecentTheme}
+              onSaveToLibrary={handleSaveSubtopics}
+              savingToLibrary={savingSubtopics}
             />
           )}
         </div>

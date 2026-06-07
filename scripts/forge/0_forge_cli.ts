@@ -15,6 +15,10 @@
  *   delete-topic "Topic Name"             Delete with safety confirmation
  *   generate "Topic Name"                 Direct: analyze + write brief for one topic
  *   review "Topic Name"                   Audit questions for answer leaks, banned starters, diversity, score
+ *   suggest-topics "Theme"                AI-suggest 5 subtopics for a theme (like Themed Mode in GUI)
+ *             [--provider openai|gemini] [--model "..."] [--count 5]
+ *             [--types "Core,Niche"] [--domains "Facts"] [--styles "Classic"]
+ *   suggest-topics --matrix               Show the 3D theme matrix (Types/Domains/Styles)
  *
  * Run: npx tsx scripts/forge/0_forge_cli.ts <command> [options]
  */
@@ -25,8 +29,10 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { LensType } from '../../src/lib/ai/types.js';
-import { ALL_LENSES } from '../../src/lib/ai/types.js';
+import type { LensType, TopicType, KnowledgeDomain, QuizStyle } from '../../src/lib/ai/types.js';
+import { ALL_LENSES, ALL_TOPIC_TYPES, ALL_KNOWLEDGE_DOMAINS, ALL_QUIZ_STYLES } from '../../src/lib/ai/types.js';
+import { generateThemeSubtopics } from '../../src/lib/ai/themes.js';
+import { determinePhase, PHASE_ICONS } from '../../src/lib/phaseDiscovery.js';
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 
@@ -140,6 +146,11 @@ async function main() {
       await cmdReview(ARGS[1]);
       break;
 
+    case 'suggest-topics':
+    case 'suggest':
+      await cmdSuggestTopics(ARGS[1]);
+      break;
+
     default:
       console.log(`❌ Unknown command: ${command}\n`);
       showHelp();
@@ -176,9 +187,16 @@ ${'─'.repeat(50)}
 🔍 REVIEW:
   review "Topic Name"             Audit questions for answer leaks, banned starters, score
 
+🧩 THEME MATRIX (suggest-topics):
+  --types "Core,Niche,Human"     6 available: Core Niche Human Surprise Scale Mystery
+  --domains "Facts,Stories"      5 available: Facts Stories Concepts Data Connections
+  --styles "Classic,Trick"       4 available: Classic Trick Visual Timeline
+  --matrix                        Show the full 3D matrix with descriptions
+
 💡 Tips:
   • Use 'pick' to browse and select — fastest workflow
   • 'generate' after 'create-topic' to start writing questions
+  • 'suggest-topics "Science"' to get AI-suggested subtopics from a theme
   • All commands auto-detect focused (30q max) vs diverse (5q max)
 `);
 }
@@ -815,6 +833,315 @@ async function cmdDeleteTopic(name?: string) {
   }
 
   console.log(`✅ Deleted "${name}".`);
+}
+
+// ─── COMMAND: suggest-topics ────────────────────────────────────────
+
+async function cmdSuggestTopics(theme?: string) {
+  // --matrix flag: show the 3D matrix without generating
+  if (ARGS.includes('--matrix')) {
+    showThemeMatrix();
+    return;
+  }
+
+  if (!theme) {
+    console.log('❌ Usage: forge suggest-topics "Science"');
+    console.log('   AI generates 5 diverse subtopic suggestions from a theme.');
+    console.log('   Use --matrix to see all available Types/Domains/Styles.');
+    return;
+  }
+
+  // Read AI config from env vars
+  const provider = getOpt(ARGS, '--provider') || process.env.AI_PROVIDER || process.env.VITE_AI_PROVIDER || 'gemini';
+  const apiKey = process.env.AI_API_KEY || process.env.VITE_AI_API_KEY || '';
+  const model = getOpt(ARGS, '--model') || process.env.AI_MODEL || process.env.VITE_AI_MODEL || 'gemini-1.5-pro';
+
+  // Fetch existing topics for this theme FIRST (needed for both exclusion and phase detection)
+  const existingRows = await fetchTopicsByTheme(theme);
+  const excludeNames = existingRows.map(r => r.name).filter(n => !n.includes('(Placeholder)'));
+
+  // Parse Theme Matrix filters (comma-separated, validated against known values)
+  const typesRaw = getOpt(ARGS, '--types');
+  const domainsRaw = getOpt(ARGS, '--domains');
+  const stylesRaw = getOpt(ARGS, '--styles');
+
+  const hasExplicitMatrix = !!(typesRaw || domainsRaw || stylesRaw);
+
+  let allowedTypes: TopicType[] | undefined;
+  let allowedDomains: KnowledgeDomain[] | undefined;
+  let allowedStyles: QuizStyle[] | undefined;
+  let phase: PhaseConfig | null = null;
+
+  if (hasExplicitMatrix) {
+    // User explicitly chose matrix — use their selection
+    allowedTypes = typesRaw
+      ? parseMatrixArg<TopicType>(typesRaw, ALL_TOPIC_TYPES, 'Types')
+      : undefined;
+    allowedDomains = domainsRaw
+      ? parseMatrixArg<KnowledgeDomain>(domainsRaw, ALL_KNOWLEDGE_DOMAINS, 'Domains')
+      : undefined;
+    allowedStyles = stylesRaw
+      ? parseMatrixArg<QuizStyle>(stylesRaw, ALL_QUIZ_STYLES, 'Styles')
+      : undefined;
+  } else {
+    // Auto-select matrix based on progressive discovery phase
+    phase = determinePhase(existingRows);
+    allowedTypes = phase.types;
+    allowedDomains = phase.domains;
+    allowedStyles = phase.styles;
+  }
+
+  // Show phase info + existing topics
+  if (phase && !hasExplicitMatrix) {
+    const phaseIcon = PHASE_ICONS[phase.phase] || '🎯';
+    console.log(`\n${phaseIcon} Phase ${phase.phase}/4 — ${phase.label}`);
+    console.log(`   ${phase.rationale}`);
+  }
+
+  // Show existing topics (if any)
+  if (existingRows.length > 0) {
+    console.log(`📚 Found ${existingRows.length} existing topics for "${theme}":`);
+    existingRows.slice(0, 20).forEach(r => {
+      const qCount = (r.data || []).length;
+      const typeTag = r.tags?.find(t => ALL_TOPIC_TYPES.includes(t as TopicType)) || '?';
+      console.log(`   • ${r.name} (${typeTag}, ${qCount} questions)`);
+    });
+    if (existingRows.length > 20) console.log(`   ... and ${existingRows.length - 20} more`);
+  } else {
+    console.log(`📭 "${theme}" has no topics yet — this is a fresh theme.`);
+  }
+
+  // Show active matrix
+  const matrixInfo = [
+    `Types: ${allowedTypes ? allowedTypes.join(',') : 'ALL 6'}`,
+    `Domains: ${allowedDomains ? allowedDomains.join(',') : 'ALL 5'}`,
+    `Styles: ${allowedStyles ? allowedStyles.join(',') : 'ALL 4'}`,
+  ].join(' | ');
+
+  const modeLabel = hasExplicitMatrix ? ' (manual matrix)' : ' (auto-phase)';
+  console.log(`\n🎯 Recommended Matrix${modeLabel}:`);
+  console.log(`   ${matrixInfo}`);
+
+  // ─── API key check: graceful fallback if missing ──────────────────
+  if (!apiKey) {
+    console.log(`\n📝 No AI API key set — skipping AI generation.`);
+    console.log(`   Set AI_API_KEY or VITE_AI_API_KEY to generate AI-subtopic suggestions.`);
+    console.log(`   Example: export AI_API_KEY="sk-..."`);
+    console.log(`\n💡 In the meantime, you can create topics manually:`);
+    console.log(`   forge create-topic "Basic ${theme} Facts" --theme "${theme}"`);
+    console.log(`   forge create-topic "Famous ${theme} Moments" --theme "${theme}"`);
+    console.log(`   forge create-topic "${theme} Legends" --theme "${theme}"`);
+    return;
+  }
+
+  // ─── AI Generation ────────────────────────────────────────────────
+  const count = Math.max(1, Math.min(10, parseInt(getOpt(ARGS, '--count') || '5') || 5));
+  console.log(`\n🧠 Generating ${count} subtopics for theme: "${theme}"...`);
+  console.log(`   Provider: ${provider} | Model: ${model}\n`);
+
+  let result;
+  try {
+    result = await generateThemeSubtopics(
+      theme,
+      { provider, apiKey, model },
+      excludeNames,
+      allowedTypes,
+      allowedDomains,
+      allowedStyles,
+    );
+  } catch (err: any) {
+    console.error(`❌ AI call failed: ${err.message}`);
+    return;
+  }
+
+  const subtopics = result.subtopics.slice(0, count);
+  console.log(`✅ Generated ${subtopics.length} subtopics:\n`);
+  console.log(
+    '#'.padStart(4) +
+    'SubTopic'.padEnd(30) +
+    'Type'.padStart(12) +
+    'Domain'.padStart(14) +
+    'Style'.padStart(12)
+  );
+  console.log('─'.repeat(74));
+
+  subtopics.forEach((s, i) => {
+    console.log(
+      String(i + 1).padStart(4) +
+      s.name.slice(0, 29).padEnd(30) +
+      s.type.padStart(12) +
+      s.domain.padStart(14) +
+      s.style.padStart(12)
+    );
+  });
+  console.log('');
+
+  // Ask to create topics
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question('👉 Create these as topics in the database? (y/N, or a number like "1,3,5" to pick specific ones): ');
+  rl.close();
+
+  if (answer.toLowerCase() === 'y') {
+    // Create all
+    let created = 0;
+    for (const s of subtopics) {
+      const ok = await createSubtopicFromSuggestion(s, theme);
+      if (ok) created++;
+    }
+    console.log(`✅ Created ${created}/${subtopics.length} topics in "${theme}".`);
+    if (created > 0) {
+      const nextCount = existingRows.length + created;
+      console.log(`💡 Theme now has ${nextCount} topics. Run forge suggest-topics again for the next phase.`);
+    }
+  } else if (/^[\d,\s]+$/.test(answer)) {
+    // Pick specific numbers
+    const indices = answer.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < subtopics.length);
+    let created = 0;
+    for (const idx of indices) {
+      const ok = await createSubtopicFromSuggestion(subtopics[idx], theme);
+      if (ok) created++;
+    }
+    console.log(`✅ Created ${created}/${indices.length} selected topics in "${theme}".`);
+  } else {
+    console.log('👋 Skipped. You can create them manually with:');
+    subtopics.forEach(s => {
+      console.log(`   forge create-topic "${s.name}" --theme "${theme}"`);
+    });
+  }
+}
+
+/**
+ * Create a single topic from an AI-suggested subtopic.
+ * Tags encode type/domain/style for later retrieval in the GUI.
+ */
+async function createSubtopicFromSuggestion(
+  s: { name: string; type: string; domain: string; style: string },
+  theme: string,
+): Promise<boolean> {
+  const existing = await fetchTopicByName(s.name);
+  if (existing) {
+    console.log(`   ⚠️  "${s.name}" already exists — skipped.`);
+    return false;
+  }
+
+  const payload = {
+    name: s.name,
+    main_category: theme,
+    description: `AI-suggested ${s.type} · ${s.domain} · ${s.style} — ${theme}`,
+    data: [],
+    tags: ['Grid', s.name, `Theme:${theme}`, s.type, s.domain, s.style, 'Mode:Diverse', 'AI:Suggested'],
+    is_global: true,
+    lens_mode: 'diverse',
+    target_lens: null,
+  };
+
+  const { error } = await writeClient
+    .from('categories_library')
+    .insert(payload as any);
+
+  if (error) {
+    if (error.message.includes('row-level security')) {
+      console.log(`   ⚠️  "${s.name}" — RLS blocked. Use VITE_SUPABASE_SERVICE_ROLE_KEY or create manually.`);
+    } else {
+      console.log(`   ❌ "${s.name}" — ${error.message}`);
+    }
+    return false;
+  }
+
+  console.log(`   ✅ "${s.name}" created (${s.type} · ${s.domain} · ${s.style})`);
+  return true;
+}
+
+// ─── THEME MATRIX HELPERS ───────────────────────────────────────────
+
+/**
+ * Display the full 3D theme matrix with descriptions.
+ * Called by: forge suggest-topics --matrix
+ */
+function showThemeMatrix() {
+  console.log(`\n🧩 Theme Matrix — 3D Combinatorial Grid`);
+  console.log(`${'─'.repeat(70)}`);
+  console.log(`  6 Types × 5 Domains × 4 Styles = 120 unique subtopic combinations`);
+  console.log(`  Use --types, --domains, --styles to restrict which combos the AI can use.\n`);
+
+  // Types
+  console.log(`📐 TOPIC TYPES (--types "Core,Niche,...")`);
+  console.log(`${'─'.repeat(60)}`);
+  const typeDescs: [string, string, string][] = [
+    ['Core',     '🎯', 'The obvious, expected subtopic — sets the baseline'],
+    ['Niche',    '🔬', 'Specialized deep dive for experts'],
+    ['Human',    '👤', 'People, personalities, rivalries, drama'],
+    ['Surprise', '💡', 'Unexpected angle, hidden side, "I never thought of that"'],
+    ['Scale',    '🌌', 'Mind-bending scope, numbers, extremes'],
+    ['Mystery',  '❓', 'Unsolved, controversial, debated, "we still don\'t know"'],
+  ];
+  typeDescs.forEach(([name, icon, desc]) => {
+    console.log(`  ${icon} ${name.padEnd(12)} ${desc}`);
+  });
+
+  // Domains
+  console.log(`\n📚 KNOWLEDGE DOMAINS (--domains "Facts,Stories,...")`);
+  console.log(`${'─'.repeat(60)}`);
+  const domainDescs: [string, string, string][] = [
+    ['Facts',       '📋', 'Concrete facts, definitions, names, dates'],
+    ['Stories',     '📖', 'Narratives, drama, context, "the real story behind..."'],
+    ['Concepts',    '💭', 'Abstract ideas, theories, patterns, "why things happen"'],
+    ['Data',        '📊', 'Numbers, statistics, records, comparisons'],
+    ['Connections', '🔗', 'Links between ideas, "how X changed Y"'],
+  ];
+  domainDescs.forEach(([name, icon, desc]) => {
+    console.log(`  ${icon} ${name.padEnd(12)} ${desc}`);
+  });
+
+  // Styles
+  console.log(`\n🎮 QUIZ STYLES (--styles "Classic,Trick,...")`);
+  console.log(`${'─'.repeat(60)}`);
+  const styleDescs: [string, string, string][] = [
+    ['Classic',  '📋', 'Straightforward Q&A, standard trivia'],
+    ['Trick',    '🎭', 'Common misconceptions busted, "bet you thought..."'],
+    ['Visual',   '👁️', 'Imagery-rich, descriptive, sensory details'],
+    ['Timeline', '⏳', 'Chronological sequence, "before and after"'],
+  ];
+  styleDescs.forEach(([name, icon, desc]) => {
+    console.log(`  ${icon} ${name.padEnd(12)} ${desc}`);
+  });
+
+  console.log(`\n💡 Usage: forge suggest-topics "Science" --types "Core,Niche,Scale" --styles "Classic,Visual"`);
+  console.log('');
+}
+
+/**
+ * Parse a comma-separated CLI arg string into a validated array.
+ * Prints warnings for invalid values (typos, unknown names).
+ * Returns undefined if the raw string is empty/undefined after trimming.
+ */
+function parseMatrixArg<T extends string>(
+  raw: string | null,
+  validValues: readonly T[],
+  label: string,
+): T[] | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  const parts = trimmed.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  const valid: T[] = [];
+  const invalid: string[] = [];
+
+  for (const p of parts) {
+    if ((validValues as readonly string[]).includes(p)) {
+      valid.push(p as T);
+    } else {
+      invalid.push(p);
+    }
+  }
+
+  if (invalid.length > 0) {
+    console.log(`⚠️  Unknown ${label}: ${invalid.join(', ')} — ignored.`);
+    console.log(`   Valid ${label}: ${(validValues as readonly string[]).join(', ')}`);
+  }
+
+  return valid.length > 0 ? valid : undefined;
 }
 
 // ─── COMMAND: review ────────────────────────────────────────────────

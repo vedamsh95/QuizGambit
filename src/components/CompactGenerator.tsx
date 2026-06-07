@@ -26,6 +26,8 @@ import type { TopicData } from "./ai-generator/SaveToLibrary";
 import { PERSONA_META } from "./ai-generator/PersonaPicker";
 import type { ThemeSubtopic, TopicType, KnowledgeDomain, QuizStyle } from "../lib/ai/types";
 import { generateThemeSubtopics, rerollSubtopic } from "../lib/ai/themes";
+import { determinePhase, PHASE_ICONS } from "../lib/phaseDiscovery";
+import type { PhaseConfig } from "../lib/phaseDiscovery";
 import Auth from "./Auth";
 
 // ─── Lens/Form/Backdoor metadata for pickers ────────────────────────
@@ -257,6 +259,8 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   const [generatingSubtopics, setGeneratingSubtopics] = useState(false);
   const [rerollingIndex, setRerollingIndex] = useState<number | undefined>(undefined);
   const [appendingSubtopics, setAppendingSubtopics] = useState(false);
+  const [savingSubtopics, setSavingSubtopics] = useState(false);
+  const [autoPhase, setAutoPhase] = useState<PhaseConfig | null>(null);
   const recentThemes = store.getRecentThemes();
   const recentTopics = store.getRecentTopics();
 
@@ -431,21 +435,31 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
     // Fetch previously generated subtopic names for this theme as exclusions
     let excludeNames: string[] | undefined;
+    let existingTopicInfos: { name: string; tags: string[] }[] = [];
     try {
       if (user) {
         const { data } = await supabase
           .from("categories_library")
-          .select("name")
+          .select("name, tags")
           .eq("main_category", theme.trim())
           .eq("created_by", user.id);
         if (data && data.length > 0) {
           excludeNames = data.map((row: any) => row.name);
+          existingTopicInfos = data.map((row: any) => ({
+            name: row.name,
+            tags: row.tags || [],
+          }));
           addLog(`📚 Found ${excludeNames.length} previously generated subtopics for "${theme}" — will avoid repeats`, "info");
         }
       }
     } catch (e) {
       // Non-critical — proceed without exclusions if query fails
     }
+
+    // Auto-phase: detect the right matrix based on existing topic count
+    const phase = determinePhase(existingTopicInfos);
+    setAutoPhase(phase);
+    addLog(`${PHASE_ICONS[phase.phase]} Phase ${phase.phase}/4 — ${phase.label}: ${phase.rationale}`, "info");
 
     addLog(`🧠 Generating 5 subtopics for theme: "${theme}"...`, "info");
 
@@ -454,7 +468,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         provider,
         apiKey,
         model,
-      }, excludeNames);
+      }, excludeNames, phase.types, phase.domains, phase.styles);
 
       setSubtopics(result.subtopics);
       store.addRecentTheme(theme.trim());
@@ -502,7 +516,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         provider,
         apiKey,
         model,
-      }, excludeNames);
+      }, excludeNames, autoPhase?.types, autoPhase?.domains, autoPhase?.styles);
 
       // Append, don't replace
       setSubtopics((prev) => [...prev, ...result.subtopics]);
@@ -515,6 +529,79 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
     } finally {
       setAppendingSubtopics(false);
     }
+  };
+
+  // ── Theme: Save Subtopics to Library ──────────────────────────────
+  const handleSaveSubtopics = async () => {
+    if (!theme.trim() || subtopics.length === 0) return;
+
+    setSavingSubtopics(true);
+    addLog(`💾 Saving ${subtopics.length} subtopics for theme "${theme}" to library...`, "info");
+
+    let saved = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const sub of subtopics) {
+      try {
+        // Check if this subtopic already exists
+        const { data: existing } = await supabase
+          .from("categories_library")
+          .select("id")
+          .eq("name", sub.name)
+          .maybeSingle();
+
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        const tags = [
+          "Grid",
+          sub.name,
+          `Theme:${theme.trim()}`,
+          sub.type,
+          sub.domain,
+          sub.style,
+          "Mode:Diverse",
+          "AI:Suggested",
+        ];
+
+        const { error } = await supabase.from("categories_library").insert([
+          {
+            name: sub.name,
+            main_category: theme.trim(),
+            description: `AI-suggested ${sub.type} · ${sub.domain} · ${sub.style} — ${theme.trim()}`,
+            data: [],
+            tags,
+            is_global: true,
+            lens_mode: "diverse",
+            target_lens: null,
+            created_by: user?.id,
+          },
+        ]);
+
+        if (error) {
+          errors.push(`${sub.name}: ${error.message}`);
+        } else {
+          saved++;
+        }
+      } catch (err: any) {
+        errors.push(`${sub.name}: ${err.message}`);
+      }
+    }
+
+    if (saved > 0) {
+      addLog(`✅ Saved ${saved} subtopic(s) to library${skipped > 0 ? ` (${skipped} already existed, skipped)` : ""}`, "success");
+    }
+    if (errors.length > 0) {
+      errors.forEach((e) => addLog(`❌ Save error: ${e}`, "error"));
+    }
+    if (saved === 0 && errors.length === 0) {
+      addLog(`📝 All ${skipped} subtopics already exist in the library — nothing new to save`, "info");
+    }
+
+    setSavingSubtopics(false);
   };
 
   // ── Theme: Re-roll single subtopic ────────────────────────────────
@@ -864,8 +951,34 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           </button>
         </div>
 
-        {/* ── Themed Mode: How It Works (compact info) ──────────── */}
-        {generationMode === "themed" && subtopics.length === 0 && (
+        {/* ── Themed Mode: Auto-Phase Banner ──────────── */}
+        {generationMode === "themed" && autoPhase && subtopics.length === 0 && (
+          <div className="clay p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{PHASE_ICONS[autoPhase.phase]}</span>
+              <span className="font-outfit font-black text-sm text-plum">
+                Phase {autoPhase.phase}/4 — {autoPhase.label}
+              </span>
+            </div>
+            <p className="text-[10px] text-plum/40 font-medium">
+              {autoPhase.rationale}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[9px] font-bold text-soft-purple bg-soft-purple-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.types.length}/6 Types
+              </span>
+              <span className="text-[9px] font-bold text-sky bg-sky-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.domains.length}/5 Domains
+              </span>
+              <span className="text-[9px] font-bold text-mint bg-mint-light/30 px-2 py-0.5 rounded-full">
+                {autoPhase.styles.length}/4 Styles
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Themed Mode: How It Works (shown before first generate) ── */}
+        {generationMode === "themed" && !autoPhase && subtopics.length === 0 && (
           <div className="clay p-4 space-y-2 text-center">
             <p className="text-[10px] font-bold text-plum/40 uppercase tracking-wider">
               🧠 AI uses a 3D matrix to create diverse subtopics
@@ -931,6 +1044,8 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
               rerollingIndex={rerollingIndex}
               recentThemes={recentThemes}
               onSelectRecentTheme={handleSelectRecentTheme}
+              onSaveToLibrary={handleSaveSubtopics}
+              savingToLibrary={savingSubtopics}
             />
           )}
         </div>

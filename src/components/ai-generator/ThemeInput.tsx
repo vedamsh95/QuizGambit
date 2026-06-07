@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Sparkles, Loader2, RefreshCw, X, Plus, Pencil, Shuffle } from "lucide-react";
+import { Sparkles, Loader2, RefreshCw, X, Plus, Pencil, Shuffle, Save } from "lucide-react";
 import type { ThemeSubtopic, TopicType, KnowledgeDomain, QuizStyle } from "../../lib/ai/types";
 import GenerateButton from "./GenerateButton";
 
@@ -67,6 +67,10 @@ export interface ThemeInputProps {
   onAppend?: () => void;
   /** Called when user clicks a recent theme chip — loads existing subtopics from DB */
   onSelectRecentTheme?: (theme: string) => void;
+  /** Called when user clicks "Save to Library" — saves all subtopics as DB rows with the theme */
+  onSaveToLibrary?: () => void;
+  /** Whether the save-to-library operation is in progress */
+  savingToLibrary?: boolean;
 }
 
 // ─── Component ───────────────────────────────────────────────────────
@@ -85,6 +89,8 @@ export default function ThemeInput({
   appending = false,
   onAppend,
   onSelectRecentTheme,
+  onSaveToLibrary,
+  savingToLibrary = false,
 }: ThemeInputProps) {
   const [isEditingTheme, setIsEditingTheme] = useState(false);
   const [editThemeValue, setEditThemeValue] = useState(theme);
@@ -342,8 +348,38 @@ export default function ThemeInput({
         })}
       </div>
 
-      {/* Append More + Add custom + Recent themes */}
+      {/* Save to Library + Append More + Add custom + Recent themes */}
       <div className="pt-2 space-y-3">
+        {/* Save to Library button */}
+        {onSaveToLibrary && (
+          <div className="clay p-3 bg-mint-light/10 border border-mint/15 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <p className="font-outfit font-bold text-xs text-mint">
+                  💾 Save {subtopics.length} subtopic{subtopics.length !== 1 ? 's' : ''} to Library
+                </p>
+                <p className="text-[9px] text-plum/30 font-medium mt-0.5">
+                  Saves theme "{theme}" and all subtopics as empty topics — generate questions later
+                </p>
+              </div>
+              <button
+                onClick={onSaveToLibrary}
+                disabled={savingToLibrary || !!rerollingIndex}
+                className="clay-btn px-4 py-2 rounded-xl font-outfit font-bold text-xs
+                  bg-mint text-white hover:bg-mint/90 transition-colors
+                  flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingToLibrary ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                {savingToLibrary ? 'Saving...' : 'Save to Library'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Append 5 More button */}
         <div className="flex gap-2">
           <GenerateButton

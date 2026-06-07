@@ -35,7 +35,7 @@ ${ALL_LENSES.map((l, i) => `${i + 1}. ${l}`).join('\n')}
 
 ${describeAllLenses()}
 
-SYNTACTIC FORM (Pick one per question — all 5 must be used in a 5+ question set):
+SYNTACTIC FORM (Pick one per question — all 10 must be used in a 10+ question set, at least 5 in smaller sets):
 ${ALL_FORMS.map((f, i) => `• ${f}`).join('\n')}
 
 ${describeAllForms()}
@@ -52,13 +52,14 @@ ${describeAllForms()}
    The answer noun must appear in the second half of the sentence.
 
 2. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
-   Pick the backdoor type that NATURALLY fits this question. There are 7 types
-   available but you do NOT need to use all 7 across the set — only what fits.
+   Pick the backdoor type that NATURALLY fits this question. There are 10 types
+   available but you do NOT need to use all 10 across the set — only what fits.
    If a player doesn't know the exact fact, they must be able to figure it 
    out from contextual clues, synonyms, patterns, or sensory descriptions.
 
-3. ZERO SYNTACTIC REPETITION: Use all 5 forms across the set.
-   No two consecutive questions may use the same form.
+3. ZERO SYNTACTIC REPETITION: Use all 10 forms at least once across the set.
+   No two consecutive questions may use the same form. Pick whichever form 
+   best fits each lens/topic — you are not forced into a rotation order.
    No two questions may feel like the same "type" of question.
 
 4. WRONG OPTIONS MUST BE TEMPTING:
@@ -121,8 +122,8 @@ The JSON object MUST match this exact schema:
   "questions": [
     {
       "planning": {
-        "lens": "[One of the 10 lenses]",
-        "form": "[One of the 5 forms]",
+        "lens": "[One of the 13 lenses]",
+        "form": "[One of the 10 forms]",
         "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
         "backdoor_logic": {
           "opening_hook": "[The specific, intriguing opener]",
@@ -234,7 +235,7 @@ TIER ASSIGNMENT (LOCKED — do NOT change these):
    - 300pt & 400pt: MODERATE backdoor — rewards attentive readers
    - 500pt: SUBTLE backdoor — clever but fair for experts
 
-3. ALL 5 FORMS MUST BE USED, one per question. No repeats.
+3. ALL 5 FORMS MUST BE UNIQUE (choose the 5 best-fitting forms from the 10 — you pick which form→which question). No repeats.
 
 4. ALL 5 LENSES MUST BE UNIQUE, one per question. No repeats.
 
@@ -302,8 +303,8 @@ The JSON object MUST match this exact schema:
     {
       "planning": {
         "points": "[100|200|300|400|500]",
-        "lens": "[Unique lens from the 10]",
-        "form": "[Unique form from the 5]",
+        "lens": "[Unique lens from the 13]",
+        "form": "[Unique form from the 10]",
         "tag": "[1-2 word thematic hint — intriguing, not revealing]",
         "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
         "backdoor_logic": {
@@ -364,7 +365,10 @@ function describeAllLenses(): string {
 7. Behind the Scenes — What's hidden from view? The secret. Tone: insider-feeling.
 8. The Connection — How does this link to something unexpected? Tone: mind-blown.
 9. What If? — Alternative history. The road not taken. Tone: imagination, play.
-10. The Legacy — How did this change everything? Tone: significance, meaning.`;
+10. The Legacy — How did this change everything? Tone: significance, meaning.
+11. The Butterfly Effect — A tiny event that caused a massive outcome. Tone: awe, realization.
+12. The Evolution — How something drastically changed or adapted over time. Tone: progression, reflection.
+13. The Cultural Impact — How a factual event shaped modern society, slang, or media. Tone: relevance, familiarity.`;
 }
 
 // ─── Form Descriptions ───────────────────────────────────────────────
@@ -389,7 +393,27 @@ Form 4 (Active Quote): Start with iconic phrase, nickname, or action quote
 
 Form 5 (Direct Narrative): Clean, elegant, story-driven opener
   Flow: Action/process → mechanism detail → bridge → satisfying reveal near end
-  Best with: The Connection, The Legacy, Origin Story`;
+  Best with: The Connection, The Legacy, Origin Story
+
+Form 6 (The Contradiction): Set up an assumption, then pivot — "Despite being known as..."
+  Flow: Assumption setup → counter-evidence → twist reveal → giveaway near end
+  Best with: The Unexpected, The Oddity, What If?
+
+Form 7 (The Question Lead): Start with a rhetorical question or thought experiment
+  Flow: Intriguing question → context → answer path → satisfying reveal near end
+  Best with: The Human Element, What If?, The Connection
+
+Form 8 (The Timeline): Frame the clue as a rapid chronological sequence
+  Flow: Time anchor → sequence of events → bridge → identity reveal near end
+  Best with: Origin Story, The Evolution, The Legacy
+
+Form 9 (The Misdirection): Sounds like X, but is actually Y — bait-and-switch opening
+  Flow: Misdirect opener → pivot → real context → giveaway near end
+  Best with: The Oddity, The Unexpected, The Rivalry
+
+Form 10 (Defining Trait): Lead with heavy adjectives and defining characteristics
+  Flow: Adjective stack → what it is → deeper meaning → satisfying reveal near end
+  Best with: The Oddity, Numbers & Scale, The Human Element`;
 }
 
 // ─── Custom System Prompt ───────────────────────────────────────────
@@ -444,7 +468,7 @@ ${lensList}
 
 ${describeLensSubset(lenses)}
 
-SYNTACTIC FORM (Pick one per question — rotate through all available):
+SYNTACTIC FORM (Pick one per question — use all forms at least once across the set, no consecutive repeats):
 ${formList}
 
 ${describeFormSubset(forms)}
@@ -470,8 +494,9 @@ ${describeBackdoorSubset(backdoors)}
    If a player doesn't know the exact fact, they must be able to figure it 
    out from contextual clues, synonyms, patterns, or sensory descriptions.
 
-3. ZERO SYNTACTIC REPETITION: Rotate through all available forms.
-   No two consecutive questions may use the same form.
+3. ZERO SYNTACTIC REPETITION: Use all forms at least once across the set.
+   No two consecutive questions may use the same form. Pick whichever form 
+   best fits each lens/topic — you are not forced into a rotation order.
    No two questions may feel like the same "type" of question.
 
 4. WRONG OPTIONS MUST BE TEMPTING:
