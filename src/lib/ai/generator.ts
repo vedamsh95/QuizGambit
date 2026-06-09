@@ -63,7 +63,7 @@ export const CALIBRATED_PARAMS = {
   presence_penalty: 0.35,
   frequency_penalty: 0.18,
   top_p: 0.90,
-  max_tokens: 20000,
+  max_tokens: 50000,
 };
 
 // ─── Stage 0: Context Assembly ──────────────────────────────────────

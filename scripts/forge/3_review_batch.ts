@@ -16,7 +16,6 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
 import { reviewQuestions, type ReviewReport } from '../../src/lib/forgeReview.js';
 
 // Re-export for dynamic imports from 0_forge_cli.ts
@@ -59,27 +58,20 @@ async function main() {
     questions = data.data || [];
     console.log(`📋 Reviewing "${topicFlag}" — ${questions.length} questions\n`);
   } else if (fileFlag) {
-    // Read from batch file
+    // Load via TypeScript dynamic import (matches 2_import_batch.ts approach).
+    // The old regex parser `q\([^)]+\)` truncated on the first `)` it saw, which
+    // meant form strings like 'Form 5 (Direct Narrative)' broke extraction for
+    // every multi-line batch. Dynamic import gives us the real AST.
     try {
-      const content = readFileSync(fileFlag, 'utf-8');
-      // Extract questions from batch file — look for q('...', '...', '...' patterns
-      const qMatches = content.match(/q\([^)]+\)/g) || [];
-      questions = qMatches.map(m => {
-        try {
-          // Simple extraction — get question_text and answer_text
-          const parts = m.match(/'([^']*)'/g)?.map(p => p.slice(1, -1)) || [];
-          return {
-            question_text: parts[2] || '',
-            answer_text: parts[3] || '',
-            lens: parts[0] || '',
-            form: parts[1] || '',
-            backdoor_type: parts[6] || '',
-            difficulty_tier: parts[8] || 'easy',
-          };
-        } catch { return {}; }
-      }).filter(q => q.question_text);
+      const path = await import('path');
+      const batchPath = fileFlag.startsWith('/') ? fileFlag : path.join(process.cwd(), fileFlag);
+      const mod = await import(batchPath);
+      const batchData = mod.batch || mod.default?.batch || [];
+      const categories = Array.isArray(batchData) ? batchData : [batchData];
+      questions = categories.flatMap((cat: any) => cat.data || []);
     } catch (err: any) {
-      console.log(`❌ Could not read file: ${fileFlag}`);
+      console.log(`❌ Could not load batch file: ${fileFlag}`);
+      console.log(`   ${err.message}`);
       process.exit(1);
     }
     console.log(`📋 Reviewing batch file — ${questions.length} questions\n`);

@@ -29,9 +29,10 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { LensType, TopicType, KnowledgeDomain, QuizStyle } from '../../src/lib/ai/types.js';
-import { ALL_LENSES, ALL_TOPIC_TYPES, ALL_KNOWLEDGE_DOMAINS, ALL_QUIZ_STYLES } from '../../src/lib/ai/types.js';
+import type { LensType, TopicType, KnowledgeDomain, QuizStyle, FormType, BackdoorType, PlayerPersona, GameMode } from '../../src/lib/ai/types.js';
+import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS, ALL_PERSONAS, ALL_TOPIC_TYPES, ALL_KNOWLEDGE_DOMAINS, ALL_QUIZ_STYLES } from '../../src/lib/ai/types.js';
 import { generateThemeSubtopics } from '../../src/lib/ai/themes.js';
+import { generateAdminQuizQuestions } from '../../src/lib/ai.js';
 import { determinePhase, PHASE_ICONS } from '../../src/lib/phaseDiscovery.js';
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
@@ -151,6 +152,11 @@ async function main() {
       await cmdSuggestTopics(ARGS[1]);
       break;
 
+    case 'generate-theme':
+    case 'gen-theme':
+      await cmdGenerateTheme(ARGS[1]);
+      break;
+
     default:
       console.log(`❌ Unknown command: ${command}\n`);
       showHelp();
@@ -173,7 +179,9 @@ ${'─'.repeat(50)}
   stats                Quick overview (no full brief)
 
 ⚡ GENERATE:
-  generate "Name"      Analyze + write CURRENT_BRIEF.md for a topic
+  generate "Name"               Analyze + write CURRENT_BRIEF.md for a topic
+  generate-theme "Theme"        AI-generate questions for ALL topics in a theme
+    [--provider openai|gemini] [--model "..."] [--max 30] [--batch 5]
 
 ➕ CREATE:
   create-theme "Music"             Register a new theme
@@ -197,6 +205,7 @@ ${'─'.repeat(50)}
   • Use 'pick' to browse and select — fastest workflow
   • 'generate' after 'create-topic' to start writing questions
   • 'suggest-topics "Science"' to get AI-suggested subtopics from a theme
+  • 'generate-theme "Indian Premier League"' to fill ALL topics in a theme
   • All commands auto-detect focused (30q max) vs diverse (5q max)
 `);
 }
@@ -1142,6 +1151,133 @@ function parseMatrixArg<T extends string>(
   }
 
   return valid.length > 0 ? valid : undefined;
+}
+
+// ─── COMMAND: generate-theme ────────────────────────────────────────
+
+/**
+ * Generate questions for ALL topics in a theme — batch-by-batch (default 5 at a time).
+ * Mirrors generate_theme.mjs but integrated into the forge CLI.
+ *
+ * Usage: forge generate-theme "Indian Premier League"
+ * Options: --provider openai|gemini|groq  --model "..."  --max 30  --batch 5
+ */
+async function cmdGenerateTheme(theme?: string) {
+  if (!theme) {
+    console.log('❌ Usage: forge generate-theme "Theme Name" [--provider openai] [--model "..."] [--max 30] [--batch 5]');
+    return;
+  }
+
+  // AI config
+  const provider = getOpt(ARGS, '--provider') || process.env.AI_PROVIDER || process.env.VITE_AI_PROVIDER || 'gemini';
+  const apiKey = process.env.AI_API_KEY || process.env.VITE_AI_API_KEY || '';
+  const model = getOpt(ARGS, '--model') || (provider === 'openai' ? 'gpt-4o' : provider === 'groq' ? 'llama3-70b-8192' : 'gemini-1.5-pro');
+  const MAX_Q = Math.max(1, parseInt(getOpt(ARGS, '--max') || '30') || 30);
+  const BATCH_SIZE = Math.max(1, Math.min(10, parseInt(getOpt(ARGS, '--batch') || '5') || 5));
+
+  if (!apiKey) {
+    console.log('❌ No AI API key set. Set AI_API_KEY or VITE_AI_API_KEY.');
+    return;
+  }
+
+  console.log(`⚙️  Provider: ${provider} | Model: ${model} | Target: ${MAX_Q}q/topic | Batch: ${BATCH_SIZE}q/call\n`);
+
+  // Fetch all topics for this theme
+  const rows = await fetchTopicsByTheme(theme);
+  const realTopics = rows.filter(r => !r.name.includes('(Placeholder)'));
+
+  if (realTopics.length === 0) {
+    console.log(`📭 No topics found for theme "${theme}".`);
+    console.log(`💡 Create them first: forge suggest-topics "${theme}"`);
+    return;
+  }
+
+  console.log(`📋 Found ${realTopics.length} topics for "${theme}":\n`);
+  realTopics.forEach((t, i) => {
+    const q = (t.data || []).length;
+    const icon = q >= MAX_Q ? '✅' : q > 0 ? '📝' : '🆕';
+    console.log(`  ${icon} ${i + 1}. ${t.name} (${q}/${MAX_Q})`);
+  });
+  console.log('');
+
+  // Use shared constants from types
+
+  let grandTotal = 0;
+  let totalApiCalls = 0;
+
+  for (let ti = 0; ti < realTopics.length; ti++) {
+    const topic = realTopics[ti];
+    let existing = topic.data || [];
+    const totalNeeded = MAX_Q - existing.length;
+    if (totalNeeded <= 0) {
+      console.log(`✅ [${ti + 1}/${realTopics.length}] ${topic.name}: already FULL (${existing.length}q) — skipped\n`);
+      continue;
+    }
+
+    const batches = Math.ceil(totalNeeded / BATCH_SIZE);
+    console.log(`🧠 [${ti + 1}/${realTopics.length}] ${topic.name} — ${totalNeeded}q needed, ${batches} batch(es)...`);
+
+    let topicAdded = 0;
+    for (let b = 1; b <= batches; b++) {
+      // Re-fetch from DB to get accurate existing count
+      const { data: refreshed } = await readClient
+        .from('categories_library')
+        .select('data')
+        .eq('id', topic.id)
+        .single();
+      if (refreshed) existing = (refreshed as any).data || [];
+
+      const needed = Math.min(BATCH_SIZE, MAX_Q - existing.length);
+      if (needed <= 0) break;
+
+      process.stdout.write(`   Batch ${b}/${batches}: generating ${needed}q... `);
+
+      try {
+        const result = await generateAdminQuizQuestions({
+          topics: [topic.name],
+          questionCount: needed,
+          persona: 'Casual Explorer',
+          personas: ALL_PERSONAS,
+          mode: 'STANDARD' as GameMode,
+          provider,
+          apiKey,
+          model,
+          selectedLenses: ALL_LENSES as LensType[],
+          selectedForms: ALL_FORMS,
+          selectedBackdoors: ALL_BACKDOORS,
+        });
+
+        if (!result.questions || result.questions.length === 0) {
+          console.log('❌ No questions returned');
+          break;
+        }
+
+        // Save to DB
+        const updatedData = [...existing, ...result.questions];
+        const { error } = await writeClient
+          .from('categories_library')
+          .update({ data: updatedData })
+          .eq('id', topic.id);
+
+        if (error) {
+          console.log(`❌ DB save: ${error.message}`);
+          break;
+        }
+
+        topicAdded += result.questions.length;
+        grandTotal += result.questions.length;
+        totalApiCalls += result.total_api_calls;
+        existing = updatedData;
+        console.log(`✅ +${result.questions.length} (total: ${existing.length}/${MAX_Q}, ${result.total_api_calls} API)`);
+      } catch (err: any) {
+        console.log(`❌ ${err.message}`);
+        break;
+      }
+    }
+    console.log(`   📊 Done: +${topicAdded}q → ${existing.length}/${MAX_Q}\n`);
+  }
+
+  console.log(`🎉 Complete! ${grandTotal} new questions across ${realTopics.length} topics in "${theme}" (${totalApiCalls} total API calls).`);
 }
 
 // ─── COMMAND: review ────────────────────────────────────────────────

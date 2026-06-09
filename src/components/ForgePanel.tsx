@@ -17,6 +17,8 @@ import { generateAdminQuizQuestions } from "../lib/ai";
 import { store } from "../lib/storage";
 import { reviewQuestions, type ReviewReport } from "../lib/forgeReview";
 import type { LensType, FormType, BackdoorType, PlayerPersona, GameMode } from "../lib/ai/types";
+import { ProviderConfig } from "./ai-generator";
+import type { AIProvider } from "./ai-generator";
 import {
   Sparkles, Hammer, Layers, AlertTriangle, Copy, Check, Plus, Trash2,
   Edit2, X, Search, RefreshCw, Target,
@@ -213,6 +215,22 @@ export default function ForgePanel({ onDataChange }: { onDataChange?: () => void
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showRenameModal, setShowRenameModal] = useState<TopicCard | null>(null);
   const [renameTo, setRenameTo] = useState("");
+
+  // AI provider config
+  const [forgeProvider, setForgeProvider] = useState<AIProvider>(
+    () => (store.getAiProvider() as AIProvider) || "gemini",
+  );
+  const [forgeApiKey, setForgeApiKey] = useState(() => {
+    const keys = store.getAiKeys();
+    return keys[store.getAiProvider()] || "";
+  });
+  const [forgeModel, setForgeModel] = useState(() => {
+    const p = store.getAiProvider();
+    if (p === "gemini") return "gemini-2.0-flash";
+    if (p === "openai") return "gpt-4o";
+    return "llama3-70b-8192";
+  });
+  const [forgeConfigCollapsed, setForgeConfigCollapsed] = useState(true);
 
   // Generation state
   const [generating, setGenerating] = useState(false);
@@ -514,16 +532,10 @@ export default function ForgePanel({ onDataChange }: { onDataChange?: () => void
     const remaining = topic.maxQuestions - topic.questionCount;
     if (remaining <= 0) { alert("Topic is already full!"); return; }
 
-    // Get API keys
-    const storedKeys = store.getAiKeys();
-    const provider = store.getAiProvider();
-    const apiKey = storedKeys[provider];
-    if (!apiKey) {
-      alert("No API key configured. Set up your AI provider in AI Studio first.");
+    if (!forgeApiKey) {
+      alert("No API key configured. Expand the AI Configuration section above to set your key.");
       return;
     }
-
-    const model = provider === "openai" ? "gpt-4o" : provider === "groq" ? "llama-3.1-70b-versatile" : "gemini-2.0-flash";
 
     // Determine lenses: if focused with target lens, use only that lens
     const selectedLenses: LensType[] = topic.targetLens ? [topic.targetLens as LensType] : ALL_LENSES as LensType[];
@@ -542,9 +554,9 @@ export default function ForgePanel({ onDataChange }: { onDataChange?: () => void
         persona: topPersona,
         personas: ALL_PERSONAS as PlayerPersona[],
         mode: "STANDARD" as GameMode,
-        provider,
-        apiKey,
-        model,
+        provider: forgeProvider,
+        apiKey: forgeApiKey,
+        model: forgeModel,
         selectedLenses,
         selectedForms: ALL_FORMS as FormType[],
         selectedBackdoors: ALL_BACKDOORS as BackdoorType[],
@@ -721,6 +733,18 @@ export default function ForgePanel({ onDataChange }: { onDataChange?: () => void
 
         {/* ── RIGHT: Analysis ─────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
+          {/* AI Provider Config (collapsible) */}
+          <ProviderConfig
+            provider={forgeProvider}
+            onProviderChange={setForgeProvider}
+            apiKey={forgeApiKey}
+            onApiKeyChange={setForgeApiKey}
+            model={forgeModel}
+            onModelChange={setForgeModel}
+            collapsed={forgeConfigCollapsed}
+            onToggleCollapse={() => setForgeConfigCollapsed(!forgeConfigCollapsed)}
+          />
+
           {!selectedTopic ? (
             <div className="clay p-12 text-center space-y-3">
               <Hammer className="w-10 h-10 text-plum/15 mx-auto" />
