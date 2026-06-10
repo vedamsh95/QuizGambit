@@ -23,9 +23,10 @@ export function validateQuestion(analysis: QuestionAnalysis): ValidationResult {
   const failures: string[] = [];
   const { constraint_check, draft, backdoor_logic, lens, form, backdoor_type } = analysis;
 
-  // 1. Word count check — soft warn at >25, hard fail at >30
-  if (constraint_check.word_count && parseInt(constraint_check.word_count as unknown as string, 10) > 30) {
-    failures.push(`Word count: ${constraint_check.word_count} words (hard max 30 exceeded)`);
+  // 1. Word count check — soft warn at >25, hard fail at >35
+  const actualWordCount = draft ? draft.trim().split(/\s+/).length : 0;
+  if (actualWordCount > 35) {
+    failures.push(`Actual word count: ${actualWordCount} words (hard max 35 exceeded)`);
   }
 
   // 2. Banned starter check
