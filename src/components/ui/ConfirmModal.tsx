@@ -75,14 +75,14 @@ export default function ConfirmModal({
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-plum/20 backdrop-blur-sm animate-clay-pop"
+        className="absolute inset-0 bg-plum/50 animate-clay-pop"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Modal card */}
       <div
-        className="relative w-full max-w-sm bg-warm-white rounded-[28px] shadow-xl border border-clay-border/50 animate-clay-pop overflow-hidden"
+        className="relative w-full max-w-sm clay bg-warm-white rounded-[28px] border border-clay-border/50 animate-clay-pop overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label={title}
