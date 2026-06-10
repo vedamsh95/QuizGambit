@@ -38,5 +38,7 @@ CURRENT PLAYER CONTEXT:
 │           previous questions              │
 │ POINTS: 200-500, emphasis on the          │
 │         difficulty of connecting concepts │
+│ MAX WORD COUNT: Strictly 28 words         │
+│ REQUIRED FEATURE: Must teach something    │
 └──────────────────────────────────────────┘
 `;

@@ -51,6 +51,13 @@ ${describeAllForms()}
    "How many", "In what year"
    The answer noun must appear in the second half of the sentence.
 
+2. 🔴 ABSOLUTE TRUTH RULE (NO FABRICATION):
+   Every factual claim in your question MUST be verifiable. You are NOT writing fiction.
+   - Do NOT invent anecdotes, quotes, or stories unless you are 100% sure they are real.
+   - Do NOT attribute specific numbers (costs, percentages, distances) unless they are real.
+   - If you're unsure about a fact, use a different fact you ARE sure about.
+   - "Creative" means creative FRAMING of real facts, not inventing fake ones.
+
 2. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
    Pick the backdoor type that NATURALLY fits this question. There are 10 types
    available but you do NOT need to use all 10 across the set — only what fits.
@@ -62,9 +69,10 @@ ${describeAllForms()}
    best fits each lens/topic — you are not forced into a rotation order.
    No two questions may feel like the same "type" of question.
 
-4. WRONG OPTIONS MUST BE TEMPTING:
+4. WRONG OPTIONS MUST BE TEMPTING & BALANCED:
+   • CATEGORY MATCHING: All 3 wrong options MUST belong to the exact same specific entity class as the correct answer. If the answer is a 19th-century French painter, all 3 distractors must be 19th-century French painters.
+   • UNIFORM LENGTH: All 4 options (the answer and 3 distractors) MUST be roughly the same word length and format. If one option is a single word, they must all be single words.
    • At least one common misconception
-   • At least one closely related but incorrect item  
    • At least one plausible alternate interpretation
    Never include obviously wrong or joke options.
 
@@ -76,10 +84,13 @@ ${describeAllForms()}
    (Note: single-sentence is strongly preferred — multi-sentence questions
    will be rejected in validation.)
 
-6. 🔴 THE ANSWER MUST NEVER APPEAR IN THE QUESTION TEXT:
-   The answer_text is strictly banned from appearing anywhere in the question_text.
-   If the correct answer is "Nintendo", the word "Nintendo" must never appear
-   anywhere in the question itself — not even as a substring or partial match.
+6. 🔴 NO ANSWER OR DISTRACTOR LEAKAGE IN QUESTION TEXT:
+   • The answer_text is strictly banned from appearing anywhere in the question_text.
+     If the correct answer is "Nintendo", the word "Nintendo" must never appear
+     anywhere in the question itself — not even as a substring or partial match.
+   • DISTRACTOR LEAKAGE: NEVER use any word in the question text that appears in 
+     any of the 3 wrong options. (e.g., if "Microsoft" is a distractor, the word "Microsoft" 
+     cannot be in the question).
    The answer must be deducible from clues, synonyms, and context only.
 
 8. MICRO-PYRAMIDAL FLOW:
@@ -88,11 +99,15 @@ ${describeAllForms()}
    • Closing (~20%): The giveaway anchor — a recognizable detail anyone can grab
    Think in proportions, not exact word counts. The giveaway should land near the end.
 
-9. DIFFICULTY RAMP:
-   • Q1-2: Easy (hospitable entry, build confidence)
-   • Q3-5: Medium (raise stakes, introduce twists)
-   • Q6-8: Challenging (require connections and deduction)
-   • Q9-${questionCount}: Expert (the capstone, satisfying finish)
+9. DIFFICULTY RAMP (GRID COLUMN COMPATIBILITY):
+   You are generating questions that will be used to populate columns in a 5x5 grid.
+   Even if generating a larger batch, assume they will be split into 5-question columns.
+   Therefore, strictly adhere to the 100->500 point difficulty tier constraints for every 5 questions:
+   • Q1 (100pt) & Q2 (200pt): Easy (hospitable entry, build confidence)
+   • Q3 (300pt): Medium (raise stakes, introduce twists)
+   • Q4 (400pt): Challenging (require connections and deduction)
+   • Q5 (500pt): Expert (the capstone). Difficulty must scale by requiring more lateral leaps of logic, NOT by testing obscure trivia. A 500-point question should test a famous subject using an incredibly clever, unexpected angle—not an obscure subject using a standard angle.
+   This pattern repeats for every 5 questions generated.
 
 ═══════════════════════════════════════════
               PLAYER CONTEXT
@@ -227,6 +242,13 @@ TIER ASSIGNMENT (LOCKED — do NOT change these):
 1. BANNED SENTENCE STARTERS — NEVER begin a question with:
    "Which", "What", "Who", "Where", "When", "Name the", "Identify the", 
    "How many", "In what year"
+
+2. 🔴 ABSOLUTE TRUTH RULE (NO FABRICATION):
+   Every factual claim in your question MUST be verifiable. You are NOT writing fiction.
+   - Do NOT invent anecdotes, quotes, or stories unless you are 100% sure they are real.
+   - Do NOT attribute specific numbers (costs, percentages, distances) unless they are real.
+   - If you're unsure about a fact, use a different fact you ARE sure about.
+   - "Creative" means creative FRAMING of real facts, not inventing fake ones.
 
 2. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
    Pick the backdoor type that NATURALLY fits this question. You have 7 types

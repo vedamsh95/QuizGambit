@@ -329,42 +329,92 @@ export async function generateCompactQuizQuestions(
     // Check if user provided lens/form/backdoor subsets via advanced options
     const hasCustomSubsets = config.selectedLenses?.length || config.selectedForms?.length || config.selectedBackdoors?.length;
 
-    // Grid mode: one call per topic, each gets 5 questions at locked tiers
+    const targetQ = config.questionCount || 5;
+    const BATCH_SIZE = 5;
+
+    // Grid mode: one call per topic, generating up to targetQ questions
     for (let i = 0; i < config.topics.length; i++) {
         const topic = config.topics[i];
         const persona = config.personas[i % config.personas.length] || 'Casual Explorer';
 
         console.log(`[Compact] Topic ${i + 1}/${config.topics.length}: "${topic}" → persona: ${persona}`);
 
-        let result: GenerationResult;
-        if (hasCustomSubsets) {
-            const adminConfig: AdminGeneratorConfig = {
+        const topicResults: GenerationResult = {
+            questions: [],
+            analysis: [],
+            audit: {
+                lenses_used: [], forms_used: [],
+                all_lenses_unique: true, all_forms_represented: true,
+                no_consecutive_form_repeats: true, no_duplicate_grammatical_patterns: true,
+                difficulty_ramp_valid: true, issues: []
+            },
+            total_api_calls: 0,
+            regenerations: 0
+        };
+
+        const batches = Math.ceil(targetQ / BATCH_SIZE);
+        for (let b = 1; b <= batches; b++) {
+            const needed = Math.min(BATCH_SIZE, targetQ - topicResults.questions.length);
+            if (needed <= 0) break;
+
+            if (config.onProgress) {
+                config.onProgress(`Batch ${b}/${batches}: generating ${needed} questions...`);
+            }
+
+            // Deduplication tracking across batches
+            const currentAnswers = topicResults.questions.map(q => q.answer_text).filter(Boolean);
+            const currentLenses = topicResults.questions.map(q => q.lens).filter(Boolean);
+            
+            const existingAnswers = [...(config.existingAnswers || []), ...currentAnswers];
+            const existingLenses = [...(config.existingLenses || []), ...currentLenses];
+
+            let batchResult: GenerationResult;
+            
+            // If the lens mode is focused, we clear selectedLenses so the system targets standard fallback (or we can implement targeted lens logic here)
+            // But if the user didn't select custom subsets, we just pass the default config
+            const baseConfig = {
                 topics: [topic],
-                questionCount: 5,
+                questionCount: needed,
                 persona,
                 personas: config.personas,
-                mode: 'GRID' as GameMode,
+                mode: 'STANDARD' as GameMode, // Using STANDARD to support deduplication and variable sizes properly, or GRID if enforced
                 provider: config.provider,
                 apiKey: config.apiKey,
                 model: config.model,
-                selectedLenses: config.selectedLenses || [],
-                selectedForms: config.selectedForms || [],
-                selectedBackdoors: config.selectedBackdoors || [],
+                existingAnswers,
+                existingLenses,
             };
-            result = await generateCustomQuestions(adminConfig);
-        } else {
-            result = await generateGridQuestions({
-                topics: [topic],
-                questionCount: 5,
-                persona,
-                mode: 'GRID' as GameMode,
-                provider: config.provider,
-                apiKey: config.apiKey,
-                model: config.model,
-            });
+
+            if (hasCustomSubsets) {
+                batchResult = await generateCustomQuestions({
+                    ...baseConfig,
+                    selectedLenses: config.selectedLenses || [],
+                    selectedForms: config.selectedForms || [],
+                    selectedBackdoors: config.selectedBackdoors || [],
+                } as AdminGeneratorConfig);
+            } else {
+                // If diverse mode, pass empty selectedLenses, if focused use ALL_LENSES
+                const activeLenses = config.lensMode === 'diverse' ? [] : ALL_LENSES as LensType[];
+                
+                batchResult = await generateCustomQuestions({
+                    ...baseConfig,
+                    selectedLenses: activeLenses,
+                    selectedForms: ALL_FORMS,
+                    selectedBackdoors: ALL_BACKDOORS,
+                } as AdminGeneratorConfig);
+            }
+
+            topicResults.questions.push(...batchResult.questions);
+            topicResults.analysis.push(...batchResult.analysis);
+            topicResults.total_api_calls += batchResult.total_api_calls;
+            topicResults.regenerations += batchResult.regenerations;
+            
+            // Merge audit issues
+            topicResults.audit.issues.push(...batchResult.audit.issues);
         }
-        results.push(result);
-        console.log(formatAuditReport(result.audit));
+
+        results.push(topicResults);
+        console.log(`[Compact] Finished topic ${i + 1}`);
     }
 
     console.log(`[Compact] Complete: ${results.length} topic(s) generated`);

@@ -35,5 +35,7 @@ CURRENT PLAYER CONTEXT:
 │ BACKDOOR: Strong — make sure ANY player   │
 │           can figure out the answer       │
 │ POINTS: Lean toward 100-300 range         │
+│ MAX WORD COUNT: Strictly 20 words         │
+│ REQUIRED FEATURE: Must include a "fun fact" hook │
 └──────────────────────────────────────────┘
 `;

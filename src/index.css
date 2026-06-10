@@ -78,12 +78,12 @@
     --clay-surface:         #3B364C;
     --clay-border-divider:  #4A455E;
 
-    --clay-shadow-rgb:          139, 92, 246;
-    --clay-highlight-rgb:       255, 255, 255;
-    --clay-inner-shadow-rgb:    255, 107, 138;
-    --clay-border-rgb:          255, 255, 255;
+    --clay-shadow-rgb:          10, 8, 15; /* Darker drop shadow for solid feel */
+    --clay-highlight-rgb:       82, 75, 105; /* Lighter plum instead of pure white */
+    --clay-inner-shadow-rgb:    20, 18, 25; /* Darker plum instead of pink */
+    --clay-border-rgb:          82, 75, 105; /* Matching the highlight for solid edges */
 
-    --clay-input-border:    rgba(255, 255, 255, 0.18);
+    --clay-input-border:    rgba(82, 75, 105, 0.8);
     --clay-focus-ring:      #9B83FF;
 
     --accent-purple:        #9B83FF;

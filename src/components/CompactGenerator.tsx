@@ -10,8 +10,6 @@ import {
   ProviderConfig,
   TopicInput,
   ThemeInput,
-  ModeSelector,
-  PersonaPicker,
   PickerGrid,
   DescriptionPanel,
   QuestionPreview,
@@ -22,8 +20,7 @@ import {
 } from "./ai-generator";
 import type { AIProvider } from "./ai-generator";
 import type { LogEntry } from "./ai-generator/GenerationLogs";
-import type { TopicData } from "./ai-generator/SaveToLibrary";
-import { PERSONA_META } from "./ai-generator/PersonaPicker";
+import PersonaPicker, { PERSONA_META } from "./ai-generator/PersonaPicker";
 import type { ThemeSubtopic, TopicType, KnowledgeDomain, QuizStyle } from "../lib/ai/types";
 import { generateThemeSubtopics, rerollSubtopic } from "../lib/ai/themes";
 import { determinePhase, PHASE_ICONS } from "../lib/phaseDiscovery";
@@ -266,6 +263,8 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
   // ── Shared params ────────────────────────────────────────────────
   const [personas, setPersonas] = useState<PlayerPersona[]>(["Casual Explorer"]);
+  const [lensMode, setLensMode] = useState<"diverse" | "focused">("diverse");
+  const [questionCount, setQuestionCount] = useState<number>(5);
 
   // ── Advanced options ──────────────────────────────────────────────
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -291,6 +290,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   const [results, setResults] = useState<GenerationResult[]>([]);
   const [topicNames, setTopicNames] = useState<string[]>([]);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
+  const [revealedTopics, setRevealedTopics] = useState<Record<number, boolean>>({});
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // ── Helpers ───────────────────────────────────────────────────────
@@ -654,7 +654,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
       setResults([]);
       clearLogs();
     } else {
-      addLog(`📎 Appending 5 more questions to existing ${results[0].questions.length} for "${topicList[0]}"`, "info");
+      addLog(`📎 Appending ${questionCount} more questions to existing ${results[0].questions.length} for "${topicList[0]}"`, "info");
     }
 
     setStatus("generating");
@@ -690,12 +690,25 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
       addLog(`Calling AI (${provider} / ${model})...`, "info");
 
+      let existingAnswers: string[] | undefined;
+      let existingLenses: string[] | undefined;
+      
+      if (appending && results.length === 1) {
+        existingAnswers = results[0].questions.map(q => q.answer_text).filter(Boolean);
+        existingLenses = results[0].questions.map(q => q.lens).filter(Boolean);
+      }
+
       const genResults = await generateCompactQuizQuestions({
         topics: topicList,
         personas,
         provider,
         apiKey,
         model,
+        questionCount,
+        lensMode,
+        existingAnswers,
+        existingLenses,
+        onProgress: (msg) => addLog(msg, "info"),
         selectedLenses: allSelected ? undefined : (selectedLenses as LensType[]),
         selectedForms: allSelected ? undefined : (selectedForms as FormType[]),
         selectedBackdoors: allSelected ? undefined : (selectedBackdoors as BackdoorType[]),
@@ -977,28 +990,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           </div>
         )}
 
-        {/* ── Themed Mode: How It Works (shown before first generate) ── */}
-        {generationMode === "themed" && !autoPhase && subtopics.length === 0 && (
-          <div className="clay p-4 space-y-2 text-center">
-            <p className="text-[10px] font-bold text-plum/40 uppercase tracking-wider">
-              🧠 AI uses a 3D matrix to create diverse subtopics
-            </p>
-            <div className="flex items-center justify-center gap-3 flex-wrap">
-              <span className="text-[9px] font-bold text-soft-purple bg-soft-purple-light/30 px-2 py-0.5 rounded-full">6 Types</span>
-              <span className="text-[9px] text-plum/20">×</span>
-              <span className="text-[9px] font-bold text-sky bg-sky-light/30 px-2 py-0.5 rounded-full">5 Domains</span>
-              <span className="text-[9px] text-plum/20">×</span>
-              <span className="text-[9px] font-bold text-mint bg-mint-light/30 px-2 py-0.5 rounded-full">4 Styles</span>
-              <span className="text-[9px] text-plum/20">=</span>
-              <span className="text-[9px] font-black text-plum/60">120 combos</span>
-            </div>
-            <p className="text-[9px] text-plum/25 font-medium leading-relaxed max-w-md mx-auto">
-              Core · Niche · Human · Surprise · Scale · Mystery &nbsp;|&nbsp;
-              Facts · Stories · Concepts · Data · Connections &nbsp;|&nbsp;
-              Classic · Trick · Visual · Timeline
-            </p>
-          </div>
-        )}
+
 
         {/* ── Load from Library ────────────────────────────── */}
         <div className="clay p-4 flex items-center gap-4">
@@ -1020,47 +1012,83 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           </button>
         </div>
 
-        {/* ── Topic/Theme Input ────────────────────────────────── */}
-        <div className="clay p-5 sm:p-6">
-          {generationMode === "topic" ? (
-            <TopicInput
-              topics={topics}
-              onChange={setTopics}
-              placeholder="Science"
-              recentTopics={recentTopics}
-              onSelectRecentTopic={handleSelectRecentTopic}
-            />
-          ) : (
-            <ThemeInput
-              theme={theme}
-              onThemeChange={setTheme}
-              subtopics={subtopics}
-              onSubtopicsChange={setSubtopics}
-              isGenerating={generatingSubtopics}
-              onGenerate={handleThemeGenerate}
-              onAppend={handleThemeAppend}
-              appending={appendingSubtopics}
-              onReroll={handleRerollSubtopic}
-              rerollingIndex={rerollingIndex}
-              recentThemes={recentThemes}
-              onSelectRecentTheme={handleSelectRecentTheme}
-              onSaveToLibrary={handleSaveSubtopics}
-              savingToLibrary={savingSubtopics}
-            />
-          )}
-        </div>
 
-        {/* Mode + Persona row */}
+
+
+
+        {/* Volume & Strategy row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="clay p-5 sm:p-6">
-            <ModeSelector />
+          <div className="clay p-5 sm:p-6 flex flex-col justify-center">
+            <div className="flex justify-between items-end mb-4">
+              <div>
+                <h3 className="font-outfit font-black text-lg text-plum">
+                  Questions per Topic
+                </h3>
+                <p className="text-[10px] text-plum/40 font-medium">
+                  {questionCount > 5 ? "Generates in batches of 5" : "Standard 5x5 grid column"}
+                </p>
+              </div>
+              <span className="font-outfit font-black text-2xl text-soft-purple">
+                {questionCount}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="5"
+              max="30"
+              step="5"
+              value={questionCount}
+              onChange={(e) => setQuestionCount(parseInt(e.target.value))}
+              className="w-full accent-soft-purple"
+            />
+            <div className="flex justify-between text-[10px] font-bold text-plum/30 mt-2 px-1">
+              <span>5</span>
+              <span>10</span>
+              <span>15</span>
+              <span>20</span>
+              <span>25</span>
+              <span>30</span>
+            </div>
           </div>
-          <div className="clay p-5 sm:p-6">
-            <PersonaPicker selected={personas} onChange={setPersonas} />
+
+          <div className="clay p-5 sm:p-6 flex flex-col justify-center">
+            <h3 className="font-outfit font-black text-lg text-plum mb-1">
+              Generation Strategy
+            </h3>
+            <p className="text-[10px] text-plum/40 font-medium mb-4">
+              Control how the AI assigns perspectives and formats
+            </p>
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setLensMode("diverse")}
+                className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-xs transition-colors ${
+                  lensMode === "diverse"
+                    ? "bg-sky text-white"
+                    : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum"
+                }`}
+              >
+                🔀 Diverse
+              </button>
+              <button
+                onClick={() => setLensMode("focused")}
+                className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-xs transition-colors ${
+                  lensMode === "focused"
+                    ? "bg-soft-purple text-white"
+                    : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum"
+                }`}
+              >
+                🎯 Focused
+              </button>
+            </div>
+            <p className="text-[10px] text-plum/50 leading-relaxed font-medium bg-plum/5 p-2.5 rounded-lg">
+              {lensMode === "diverse" 
+                ? "🔀 The AI will constantly switch lenses and forms. Every question in a batch will feel completely different (e.g., Q1: Devil's Advocate, Q2: Explain Like I'm 5, Q3: Historical)."
+                : "🎯 The AI will lock onto ONE random lens for the entire batch. All 5 questions will share the exact same perspective (e.g., an entire round of \"Origin Stories\" for your topic)."}
+            </p>
           </div>
         </div>
 
-        {/* Advanced Options (collapsible) */}
+        {/* Generator Settings (collapsible) */}
         <div className="clay p-5 sm:p-6 space-y-1">
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
@@ -1071,7 +1099,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
                 showAdvanced ? "rotate-0" : "-rotate-90"
               }`}
             />
-            Advanced Options
+            ⚙️ Generator Settings
             {!showAdvanced && (
               <span className="text-[10px] text-plum/30 font-normal ml-auto">
                 {selectedLenses.length === ALL_LENSES.length &&
@@ -1085,6 +1113,11 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
           {showAdvanced && (
             <div className="space-y-6 pt-4 animate-slide-up-fade">
+              {/* Persona Picker moved to settings */}
+              <div className="border-b border-clay-border pb-6">
+                <PersonaPicker selected={personas} onChange={setPersonas} />
+              </div>
+
               {/* View Toggle */}
               <div className="flex items-center justify-between border-b border-clay-border pb-3">
                 <span className="text-[10px] text-plum/50 font-bold uppercase tracking-wider">
@@ -1400,6 +1433,36 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           />
         )}
 
+        {/* ── Topic/Theme Input ────────────────────────────────── */}
+        <div className="clay p-5 sm:p-6">
+          {generationMode === "topic" ? (
+            <TopicInput
+              topics={topics}
+              onChange={setTopics}
+              placeholder="Science"
+              recentTopics={recentTopics}
+              onSelectRecentTopic={handleSelectRecentTopic}
+            />
+          ) : (
+            <ThemeInput
+              theme={theme}
+              onThemeChange={setTheme}
+              subtopics={subtopics}
+              onSubtopicsChange={setSubtopics}
+              isGenerating={generatingSubtopics}
+              onGenerate={handleThemeGenerate}
+              onAppend={handleThemeAppend}
+              appending={appendingSubtopics}
+              onReroll={handleRerollSubtopic}
+              rerollingIndex={rerollingIndex}
+              recentThemes={recentThemes}
+              onSelectRecentTheme={handleSelectRecentTheme}
+              onSaveToLibrary={handleSaveSubtopics}
+              savingToLibrary={savingSubtopics}
+            />
+          )}
+        </div>
+
         {/* Generate / Append button */}
         {generationMode === "topic" ? (
           <GenerateButton
@@ -1454,12 +1517,29 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
                 </h3>
 
                 {/* Questions Blocked for Suspense */}
-                <div className="clay p-5 text-center bg-soft-purple-light/20 border-soft-purple/30">
-                  <p className="font-outfit font-black text-soft-purple text-lg mb-1">🤫 Questions Hidden</p>
-                  <p className="text-sm font-medium text-plum/60">
-                    The {result.questions.length} questions have been auto-saved to your Library. We hide them here so you can play with your friends without seeing the answers!
-                  </p>
+                <div className="clay p-5 text-center bg-soft-purple-light/20 border-soft-purple/30 flex flex-col items-center gap-3">
+                  <div>
+                    <p className="font-outfit font-black text-soft-purple text-lg mb-1">🤫 Questions Hidden</p>
+                    <p className="text-sm font-medium text-plum/60">
+                      The {result.questions.length} questions have been auto-saved to your Library. We hide them here so you can play with your friends without seeing the answers!
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setRevealedTopics((prev) => ({ ...prev, [topicIdx]: !prev[topicIdx] }))}
+                    className="clay-btn bg-soft-purple text-white px-5 py-2.5 rounded-xl text-xs font-bold font-outfit hover:bg-soft-purple/90 transition-colors"
+                  >
+                    {revealedTopics[topicIdx] ? "🙈 Hide Questions" : "👁️ Reveal Questions"}
+                  </button>
                 </div>
+
+                {/* Question Preview List (revealed on demand) */}
+                {revealedTopics[topicIdx] && (
+                  <div className="space-y-4 animate-slide-up-fade">
+                    {result.questions.map((q: any, qIdx: number) => (
+                      <QuestionPreview key={qIdx} question={q} index={qIdx} />
+                    ))}
+                  </div>
+                )}
 
                 {/* Audit */}
                 <AuditPanel

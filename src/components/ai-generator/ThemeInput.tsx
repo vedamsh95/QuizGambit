@@ -171,47 +171,50 @@ export default function ThemeInput({
           What theme should we build a game around?
         </label>
 
-        <div className="flex gap-2">
-          <input
-            value={theme}
-            onChange={(e) => onThemeChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && theme.trim() && !isGenerating) {
-                onGenerate();
-              }
-            }}
-            placeholder='e.g. "Science", "Movies", "History"...'
-            disabled={isGenerating || disabled}
-            className="flex-1 clay-input px-4 py-3 text-sm font-outfit font-bold text-plum
-              placeholder:text-warm-gray/30 rounded-xl bg-warm-white border border-warm-gray/20
-              focus:border-soft-purple/50 focus:outline-none disabled:opacity-50"
-          />
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex gap-2 flex-1">
+            <input
+              value={theme}
+              onChange={(e) => onThemeChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && theme.trim() && !isGenerating) {
+                  onGenerate();
+                }
+              }}
+              placeholder='e.g. "Science", "Movies", "History"...'
+              disabled={isGenerating || disabled}
+              className="flex-1 clay-input px-4 py-3 text-sm font-outfit font-bold text-plum
+                placeholder:text-warm-gray/30 rounded-xl bg-warm-white border border-warm-gray/20
+                focus:border-soft-purple/50 focus:outline-none disabled:opacity-50 min-w-0"
+            />
 
-          {/* Random picker */}
-          <button
-            onClick={() => {
-              const unused = RANDOM_THEMES.filter(
-                (t) => t.toLowerCase() !== theme.toLowerCase()
-              );
-              const pick = unused.length > 0
-                ? unused[Math.floor(Math.random() * unused.length)]
-                : RANDOM_THEMES[Math.floor(Math.random() * RANDOM_THEMES.length)];
-              onThemeChange(pick);
-            }}
-            disabled={isGenerating || disabled}
-            className="clay-btn p-3 flex items-center justify-center text-plum/30
-              hover:text-soft-purple hover:bg-soft-purple-light/20 transition-colors
-              rounded-xl disabled:opacity-50"
-            title="Surprise me — pick a random theme"
-          >
-            <Shuffle className="w-4 h-4" />
-          </button>
+            {/* Random picker */}
+            <button
+              onClick={() => {
+                const unused = RANDOM_THEMES.filter(
+                  (t) => t.toLowerCase() !== theme.toLowerCase()
+                );
+                const pick = unused.length > 0
+                  ? unused[Math.floor(Math.random() * unused.length)]
+                  : RANDOM_THEMES[Math.floor(Math.random() * RANDOM_THEMES.length)];
+                onThemeChange(pick);
+              }}
+              disabled={isGenerating || disabled}
+              className="clay-btn p-3 flex items-center justify-center text-plum/30
+                hover:text-soft-purple hover:bg-soft-purple-light/20 transition-colors
+                rounded-xl disabled:opacity-50 flex-shrink-0"
+              title="Surprise me — pick a random theme"
+            >
+              <Shuffle className="w-4 h-4" />
+            </button>
+          </div>
 
           <GenerateButton
             onClick={onGenerate}
             loading={isGenerating}
             disabled={!theme.trim() || disabled}
             icon={<Sparkles className="w-4 h-4" />}
+            className="sm:w-auto w-full"
           >
             {isGenerating ? "Thinking..." : "Generate Subtopics"}
           </GenerateButton>

@@ -36,5 +36,7 @@ CURRENT PLAYER CONTEXT:
 │           welcome but not required        │
 │ POINTS: 100-400, shorter questions that   │
 │         resolve fast                      │
+│ MAX WORD COUNT: Strictly 18 words         │
+│ REQUIRED FEATURE: Short, punchy, no fluff │
 └──────────────────────────────────────────┘
 `;

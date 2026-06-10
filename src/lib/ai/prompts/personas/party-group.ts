@@ -38,5 +38,7 @@ CURRENT PLAYER CONTEXT:
 │           clever reasoning                │
 │ POINTS: Lean 100-300, emphasize fun       │
 │         over competition                  │
+│ MAX WORD COUNT: Strictly 22 words         │
+│ REQUIRED FEATURE: Must spark debate/surprise │
 └──────────────────────────────────────────┘
 `;

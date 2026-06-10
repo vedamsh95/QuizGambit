@@ -104,13 +104,14 @@ ${question.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\
 
 Think step by step:
 1. What clues are present in the question text?
-2. Can the answer be deduced from contextual clues, synonyms, patterns, or logic?
+2. Can the answer be deduced purely from these contextual clues, synonyms, patterns, or logic, WITHOUT prior factual knowledge?
 3. What do you already know about this topic?
 4. Based on your reasoning, which option is correct?
 
 Output your answer in this exact format:
 <answer>LETTER</answer>
 <confidence>0.0 to 1.0</confidence>
+<deducible_without_knowledge>true or false</deducible_without_knowledge>
 <reasoning>Your step-by-step reasoning here</reasoning>`;
 
   try {
@@ -123,10 +124,12 @@ Output your answer in this exact format:
     // Parse the response
     const answerMatch = /<answer>([A-D])<\/answer>/i.exec(content);
     const confidenceMatch = /<confidence>([\d.]+)<\/confidence>/i.exec(content);
+    const deducibleMatch = /<deducible_without_knowledge>(true|false)<\/deducible_without_knowledge>/i.exec(content);
     const reasoningMatch = /<reasoning>([\s\S]*?)<\/reasoning>/i.exec(content);
 
     const selectedLetter = answerMatch ? answerMatch[1].toUpperCase() : undefined;
     const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
+    const deducible = deducibleMatch ? deducibleMatch[1].toLowerCase() === 'true' : true; // default true if missing
     const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
 
     // Map letter to option text
@@ -143,6 +146,7 @@ Output your answer in this exact format:
       confidence,
       reasoning,
       selected_option: selectedOption,
+      deducible_without_knowledge: deducible,
     };
   } catch (err) {
     console.warn('[Solver] Failed to solve question:', err);

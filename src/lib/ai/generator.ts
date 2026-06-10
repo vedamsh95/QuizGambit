@@ -94,12 +94,8 @@ export function assembleContext(config: GenerationConfig): {
       .replace(/{topic}/g, topic)
       .replace(/{questionCount}/g, String(config.questionCount));
   } else {
-    // Standard path: persona injection + lens/form pre-assignments
+    // Standard path: persona injection
     const personaInjection = PERSONA_INJECTIONS[config.persona] || casualExplorerInjection;
-    const assignments = suggestAssignments(config.questionCount);
-    const assignmentGuide = assignments
-      .map((a, i) => `Q${i + 1}: Lens=${a.lens}, Form=${a.form}`)
-      .join('\n');
 
     userMessage = `${personaInjection}
 
@@ -107,11 +103,10 @@ TOPIC: ${topic}
 NUMBER OF QUESTIONS: ${config.questionCount}
 GAME MODE: ${config.mode}
 
-SUGGESTED LENS/FORM ASSIGNMENTS (you may adjust for better creative fit):
-${assignmentGuide}
+STRATEGY: Pick the absolute best Lens and Form for each question based on the topic. Do not just blindly rotate them. Choose the ones that naturally fit the trivia you want to share.
 
 Output exactly one JSON object as instructed.
-Remember: ${config.questionCount} questions, all lenses unique, all forms rotated.`;
+Remember: ${config.questionCount} questions, all lenses unique. Use all 10 forms at least once across the set, no consecutive form repeats. Backdoors are free choice.`;
   }
 
   return { systemPrompt, userMessage };
@@ -600,23 +595,21 @@ export function assembleCustomContext(config: AdminGeneratorConfig): {
       .replace(/{questionCount}/g, String(config.questionCount));
   } else {
     const personaInjection = PERSONA_INJECTIONS[config.persona] || casualExplorerInjection;
-    const assignments = suggestAssignments(config.questionCount);
-    const assignmentGuide = assignments
-      .map((a, i) => `Q${i + 1}: Lens=${a.lens}, Form=${a.form}`)
-      .join('\n');
+    const dedupeInjection = config.existingAnswers && config.existingAnswers.length > 0
+      ? `\n🔴 DEDUPLICATION (DO NOT USE THESE ANSWERS):\nPreviously used answers: ${config.existingAnswers.join(', ')}\nPreviously used lenses (try to avoid): ${config.existingLenses?.join(', ')}\n`
+      : '';
 
-    userMessage = `${personaInjection}
+    userMessage = `${personaInjection}${dedupeInjection}
 
 TOPIC: ${topic}
 NUMBER OF QUESTIONS: ${config.questionCount}
 GAME MODE: ${config.mode}
 
-🔴 ONLY use lenses from: ${config.selectedLenses.join(', ') || 'all available'}
-🔴 ONLY use forms from: ${config.selectedForms.join(', ') || 'all available'}
-🔴 ONLY use backdoors from: ${config.selectedBackdoors.join(', ') || 'all available'}
+🔴 ONLY use lenses from: ${config.selectedLenses.length > 0 ? config.selectedLenses.join(', ') : 'all available'}
+🔴 ONLY use forms from: ${config.selectedForms.length > 0 ? config.selectedForms.join(', ') : 'all available'}
+🔴 ONLY use backdoors from: ${config.selectedBackdoors.length > 0 ? config.selectedBackdoors.join(', ') : 'all available'}
 
-SUGGESTED LENS/FORM ASSIGNMENTS (forms are suggestions — pick whichever best fits each lens/topic):
-${assignmentGuide}
+STRATEGY: Pick the absolute best Lens and Form for each question based on the topic. Do not just blindly rotate them. Choose the ones that naturally fit the trivia you want to share.
 
 Output exactly one JSON object as instructed.
 Remember: ${config.questionCount} questions, all lenses unique. Use all 10 forms at least once across the set, no consecutive form repeats. Backdoors are free choice.`;

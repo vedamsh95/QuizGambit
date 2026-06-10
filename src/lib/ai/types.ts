@@ -230,6 +230,7 @@ export interface SolverResult {
   confidence: number;        // 0–1
   reasoning: string;
   selected_option?: string;
+  deducible_without_knowledge?: boolean;
 }
 
 // ─── Fact Checker Types ─────────────────────────────────────────────
@@ -258,6 +259,8 @@ export interface GenerationConfig {
   model: string;
   difficulty?: string;       // Legacy compatibility
   customPrompt?: string;     // Allow admin to inject raw prompt
+  existingAnswers?: string[]; // Deduplication context
+  existingLenses?: string[];  // Deduplication context
 }
 
 // ─── Custom LLM Parameters ──────────────────────────────────────────
@@ -337,6 +340,14 @@ export interface CompactGeneratorConfig {
   selectedLenses?: LensType[];        // if omitted, uses ALL_LENSES
   selectedForms?: FormType[];          // if omitted, uses ALL_FORMS
   selectedBackdoors?: BackdoorType[];  // if omitted, uses ALL_BACKDOORS
+  
+  // New features for parity with Forge
+  questionCount: number;
+  lensMode: 'focused' | 'diverse';
+  existingAnswers?: string[];
+  existingLenses?: string[];
+  onProgress?: (message: string) => void;
+
   /** Themed mode: the theme name that generated these topics */
   theme?: string;
   /** Themed mode: the 3D matrix metadata for each subtopic (used for saving tags) */

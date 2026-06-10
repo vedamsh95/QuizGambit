@@ -227,7 +227,7 @@ export default function SimultaneousBoard({
         const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
         const dbPhase = newData.arena_state.phase;
         const localPhase = gameStateRef.current.phase;
-        if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+        if ((phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1)) {
           setGameState(newData.arena_state);
           if (newData.arena_state.phase === "PICKING") {
             setSelectedAnswer(null);
@@ -293,16 +293,17 @@ export default function SimultaneousBoard({
   // ── Delayed connection-lost banner (smoother UX than instant flash) ──
   const [showDisconnected, setShowDisconnected] = useState(false);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasEverConnectedRef = useRef(false);
 
   useEffect(() => {
-    if (!isConnected) {
-      // Only show banner after 5s of continuous disconnection
-      disconnectTimerRef.current = setTimeout(() => setShowDisconnected(true), 5000);
-    } else {
-      // Clear timer and hide banner immediately on reconnect
+    if (isConnected) {
+      wasEverConnectedRef.current = true;
       if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
       setShowDisconnected(false);
+    } else if (wasEverConnectedRef.current) {
+      // Only show banner after 8s of continuous disconnection, and only if we had connected once
+      disconnectTimerRef.current = setTimeout(() => setShowDisconnected(true), 8000);
     }
     return () => {
       if (disconnectTimerRef.current) {
@@ -571,13 +572,27 @@ export default function SimultaneousBoard({
     }
   }, [isConnected]);
 
+  // Track last broadcast time to skip polling immediately after a broadcast
+  const lastBroadcastTimeRef = useRef<number>(0);
+
   useEffect(() => {
-    const intervalMs = isConnectedRef.current ? 10000 : 3000; // 10s when connected, 3s when disconnected
+    const unsubs: (() => void)[] = [];
+    unsubs.push(onBroadcast("phase:change", () => { lastBroadcastTimeRef.current = Date.now(); }));
+    unsubs.push(onBroadcast("question:open", () => { lastBroadcastTimeRef.current = Date.now(); }));
+    unsubs.push(onBroadcast("answer:submit", () => { lastBroadcastTimeRef.current = Date.now(); }));
+    return () => unsubs.forEach(u => u());
+  }, [onBroadcast]);
+
+  useEffect(() => {
+    const intervalMs = isConnected ? 10000 : 3000; // 10s when connected, 3s when disconnected
     const maxSafetyPollDuration = 30000; // Stop safety polling after 30s of stable connection
 
     const poll = setInterval(async () => {
+      // Prioritize broadcasts: skip poll if we received a broadcast in the last 2 seconds
+      if (Date.now() - lastBroadcastTimeRef.current < 2000) return;
+
       // During connection: skip safety poll if channel has been stable for >30s
-      if (isConnectedRef.current && connectedSinceRef.current) {
+      if (isConnected && connectedSinceRef.current) {
         const stableDuration = Date.now() - connectedSinceRef.current;
         if (stableDuration > maxSafetyPollDuration) return;
       }
@@ -598,7 +613,15 @@ export default function SimultaneousBoard({
           const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
           const dbPhase = lobbyData.arena_state.phase;
           const localPhase = gameStateRef.current.phase;
-          if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          
+          // Merge revealed questions instead of replacing, so polls don't un-reveal tiles
+          if (lobbyData.arena_state.revealed_questions_by_round?.["1"]) {
+             const serverRevealed = lobbyData.arena_state.revealed_questions_by_round["1"];
+             const localRevealed = gameStateRef.current.revealed_questions_by_round?.["1"] || [];
+             lobbyData.arena_state.revealed_questions_by_round["1"] = Array.from(new Set([...serverRevealed, ...localRevealed]));
+          }
+
+          if ((phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1)) {
             setGameState(lobbyData.arena_state);
           }
         }
@@ -626,10 +649,10 @@ export default function SimultaneousBoard({
       } catch {
         // Silently ignore polling errors
       }
-    }, 3000);
+    }, intervalMs);
 
     return () => clearInterval(poll);
-  }, [code]);
+  }, [code, isConnected]);
 
   // Hydrate answer timings on RESULTS (realtime-driven, fast path)
   useEffect(() => {
@@ -637,14 +660,27 @@ export default function SimultaneousBoard({
 
     supabase
       .from("simultaneous_answers")
-      .select("*")
-      .eq("lobby_code", code)
-      .eq("question_id", activeQ.id)
-      .order("rank", { ascending: true })
-      .then(({ data }) => {
-        if (data) setAnswerTimings(data);
-      });
+    const fetchTimings = async () => {
+      if (gameState.phase !== "RESULTS" || !activeQ?.id) return;
+
+      const { data: answers } = await supabase
+        .from("simultaneous_answers")
+        .select("*")
+        .eq("lobby_code", code)
+        .eq("question_id", activeQ.id)
+        .order("rank", { ascending: true });
+        
+      if (answers) setAnswerTimings(answers);
+    };
+    fetchTimings();
   }, [gameState.phase, activeQ?.id, code]);
+
+  // Force-reveal active question when transitioning to RESULTS (catches force-close path)
+  useEffect(() => {
+    if (gameState.phase === "RESULTS" && activeQ?.id) {
+      setGameState((prev: any) => appendRevealedRound1(prev, activeQ.id));
+    }
+  }, [gameState.phase, activeQ?.id]);
 
   // ── Game-over detection ──────────────────────────────────────────────
 
@@ -956,9 +992,22 @@ export default function SimultaneousBoard({
         playerId={effectivePlayerId}
         onPlayAgain={async () => {
           if (isHost) {
-            await supabase.rpc("reset_lobby_for_new_game", { p_lobby_code: code });
+            try {
+              await supabase.rpc("reset_lobby_for_new_game", { p_lobby_code: code });
+            } catch (err) {}
           }
-          window.location.reload();
+          
+          // Reset client state so old data doesn't flash if SPA navigation is used
+          setGameState({
+            phase: "PICKING",
+            pickerId: null,
+            activeQuestion: null,
+            revealed_questions_by_round: {},
+            timerEndTime: null,
+          });
+
+          store.clearArenaHostCode();
+          window.location.href = `/lobby/${code}?from=game`;
         }}
         onLeave={async () => {
           await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);

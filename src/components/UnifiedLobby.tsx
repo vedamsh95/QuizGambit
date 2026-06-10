@@ -715,21 +715,10 @@ export default function UnifiedLobby() {
       // ── Store categories FIRST (before RPC — so SimultaneousBoard can read them) ──
       await updateLobbySetting("simultaneous_categories", simultaneousCategories);
 
-      // ── Nuke stale arena_state from previous games BEFORE starting ──
-      // Without this, start_simultaneous_session may "resume" an old game
-      // with stale revealed_questions_by_round — making all 25 tiles appear already played.
-      const { error: nullArenaErr } = await supabase
-        .from("lobbies")
-        .update({ arena_state: null })
-        .eq("code", code);
-      if (nullArenaErr && import.meta.env.DEV) {
-        console.warn("[SIMUL] Failed to null stale arena_state:", nullArenaErr.message);
-      }
-
-      // ── Call the start_simultaneous_session RPC to init game state ────
+      // ── Call the atomic reset_and_start_simultaneous_session RPC to init game state ────
 
       const { data: sessionResult, error: sessionErr } = await supabase.rpc(
-        "start_simultaneous_session",
+        "reset_and_start_simultaneous_session",
         {
           p_lobby_code: code,
           p_settings: {
@@ -745,7 +734,7 @@ export default function UnifiedLobby() {
         }
       );
 
-      console.log("[Simul] start_simultaneous_session result:", sessionResult);
+      console.log("[Simul] reset_and_start_simultaneous_session result:", sessionResult);
 
       if (sessionErr) {
         // Detect 404 (RPC not deployed — migrations not run)

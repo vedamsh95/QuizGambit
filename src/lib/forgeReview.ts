@@ -9,7 +9,7 @@ export interface ReviewIssue {
   questionIndex: number;
   questionText: string;
   answerText: string;
-  type: 'answer_leak' | 'banned_starter' | 'factual_flag' | 'duplicate';
+  type: 'answer_leak' | 'banned_starter' | 'factual_flag' | 'duplicate' | 'word_count' | 'multiple_sentences';
   detail: string;
   severity: 'critical' | 'warning';
 }
@@ -77,6 +77,8 @@ export function reviewQuestions(
   }
 
   let answerLeaks = 0;
+  let wordCountViolations = 0;
+  let multipleSentenceViolations = 0;
 
   const formsUsed = new Set<string>();
   const backdoorsUsed = new Set<string>();
@@ -105,6 +107,36 @@ export function reviewQuestions(
       }
     }
 
+    // ── Check 2: Word Count Limit (Max 30) ──
+    if (qText) {
+      const words = qText.split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 30) {
+        issues.push({
+          questionIndex: i, questionText: qText, answerText: ansText,
+          type: 'word_count',
+          detail: `Question is ${words.length} words (hard limit: 30)`,
+          severity: 'critical',
+        });
+        wordCountViolations++;
+      }
+
+      // ── Check 3: Single Sentence Validation ──
+      // Simple heuristic: count sentence-ending punctuation not followed by end of string
+      const sentenceEnds = qText.match(/[.!?]+(?=\s+[A-Z0-9]|$)/g);
+      // If there are more than 1 sentence ends (ignoring the very last one), it's multiple sentences.
+      // A better heuristic is splitting by sentence boundary.
+      const sentences = qText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 0);
+      if (sentences.length > 1) {
+        issues.push({
+          questionIndex: i, questionText: qText, answerText: ansText,
+          type: 'multiple_sentences',
+          detail: `Question contains ${sentences.length} sentences. Must be exactly 1 sentence.`,
+          severity: 'critical',
+        });
+        multipleSentenceViolations++;
+      }
+    }
+
     // Track forms and backdoors
     if (form) formsUsed.add(form);
     if (bd) backdoorsUsed.add(bd);
@@ -121,10 +153,11 @@ export function reviewQuestions(
   const backdoorsMissing = ALL_BACKDOORS_REVIEW.filter(b => !backdoorsUsed.has(b));
 
   // ── Score calculation ──
-  // Only answer leaks are critical — clues and WH-questions are fine
-  const criticalIssues = answerLeaks;
+  // Answer leaks, word count, and multiple sentences are critical
+  const criticalIssues = answerLeaks + wordCountViolations + multipleSentenceViolations;
   const scoreBreakdown = {
     answerLeaks: Math.max(0, 30 - answerLeaks * 15),
+    formatting: Math.max(0, 10 - (wordCountViolations * 5) - (multipleSentenceViolations * 5)),
     formDiversity: Math.min(25, formsUsed.size * 2.5),
     backdoorDiversity: Math.min(20, backdoorsUsed.size * 2),
     difficultyBalance: (() => {
@@ -136,6 +169,7 @@ export function reviewQuestions(
 
   const score = Math.round(
     scoreBreakdown.answerLeaks +
+    scoreBreakdown.formatting +
     scoreBreakdown.formDiversity +
     scoreBreakdown.backdoorDiversity +
     scoreBreakdown.difficultyBalance
@@ -153,6 +187,8 @@ export function reviewQuestions(
   // ── Summary ──
   const parts: string[] = [];
   if (answerLeaks > 0) parts.push(`🔴 ${answerLeaks} answer-in-question leak(s)`);
+  if (wordCountViolations > 0) parts.push(`🔴 ${wordCountViolations} word count violation(s)`);
+  if (multipleSentenceViolations > 0) parts.push(`🔴 ${multipleSentenceViolations} multiple sentence violation(s)`);
   parts.push(`📋 ${formsUsed.size}/10 forms used`);
   parts.push(`🔐 ${backdoorsUsed.size}/10 backdoors used`);
   parts.push(`📊 Difficulty: ${difficultySpread.easy}E/${difficultySpread.medium}M/${difficultySpread.challenging}C/${difficultySpread.expert}X`);

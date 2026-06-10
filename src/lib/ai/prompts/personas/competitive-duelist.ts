@@ -36,5 +36,7 @@ CURRENT PLAYER CONTEXT:
 │           the advantage of knowing        │
 │ POINTS: Full 100-500 range with           │
 │         steeper difficulty curve          │
+│ MAX WORD COUNT: Strictly 25 words         │
+│ REQUIRED FEATURE: Must have genuine depth │
 └──────────────────────────────────────────┘
 `;

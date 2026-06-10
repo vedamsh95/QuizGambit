@@ -33,7 +33,7 @@ import type { LensType, TopicType, KnowledgeDomain, QuizStyle, FormType, Backdoo
 import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS, ALL_PERSONAS, ALL_TOPIC_TYPES, ALL_KNOWLEDGE_DOMAINS, ALL_QUIZ_STYLES } from '../../src/lib/ai/types.js';
 import { generateThemeSubtopics } from '../../src/lib/ai/themes.js';
 import { generateAdminQuizQuestions } from '../../src/lib/ai.js';
-import { determinePhase, PHASE_ICONS } from '../../src/lib/phaseDiscovery.js';
+import { determinePhase, PHASE_ICONS, type PhaseConfig } from '../../src/lib/phaseDiscovery.js';
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 
@@ -412,7 +412,7 @@ async function cmdPick() {
   // Spin up the analyzer for this topic
   // For diverse topics, use 'focused' mode to trigger smart routing (loadout recommendations)
   // For focused topics, use their actual mode
-  const analyzerMode = selected.lens_mode === 'focused' ? 'focused' : 'focused';
+  const analyzerMode = selected.lens_mode === 'focused' ? 'focused' : 'diverse';
   console.log(`\n🚀 Running analyzer for "${selected.name}" (${analyzerMode} mode)...\n`);
 
   const result = spawnSync('npx', [
@@ -597,7 +597,7 @@ async function cmdGenerate(name?: string) {
     return;
   }
 
-  const analyzerMode = row.lens_mode === 'focused' ? 'focused' : 'focused';
+  const analyzerMode = row.lens_mode === 'focused' ? 'focused' : 'diverse';
   console.log(`🚀 Generating ${maxQ - qCount} questions for "${name}" (${analyzerMode})...\n`);
 
   const result = spawnSync('npx', [
@@ -1230,13 +1230,16 @@ async function cmdGenerateTheme(theme?: string) {
       const needed = Math.min(BATCH_SIZE, MAX_Q - existing.length);
       if (needed <= 0) break;
 
+      const existingAnswers = existing.map((q: any) => q.answer_text).filter(Boolean);
+      const existingLenses = existing.map((q: any) => q.lens).filter(Boolean);
+
       process.stdout.write(`   Batch ${b}/${batches}: generating ${needed}q... `);
 
       try {
         const result = await generateAdminQuizQuestions({
           topics: [topic.name],
           questionCount: needed,
-          persona: 'Casual Explorer',
+          persona: ALL_PERSONAS[Math.floor(Math.random() * ALL_PERSONAS.length)],
           personas: ALL_PERSONAS,
           mode: 'STANDARD' as GameMode,
           provider,
@@ -1245,15 +1248,36 @@ async function cmdGenerateTheme(theme?: string) {
           selectedLenses: ALL_LENSES as LensType[],
           selectedForms: ALL_FORMS,
           selectedBackdoors: ALL_BACKDOORS,
-        });
+          runSolver: true,
+          runFactCheck: true,
+          existingAnswers,
+          existingLenses,
+        } as any);
 
         if (!result.questions || result.questions.length === 0) {
           console.log('❌ No questions returned');
           break;
         }
 
+        let validQuestions = result.questions;
+        if (result.solver_results) {
+          validQuestions = validQuestions.filter((q, i) => {
+             const solverRes = result.solver_results![i];
+             if (solverRes && solverRes.deducible_without_knowledge === false) {
+               console.log(`❌ Rejecting Q${i + 1} - failed Answerability Test (prior knowledge required).`);
+               return false;
+             }
+             return true;
+          });
+        }
+
+        if (validQuestions.length === 0) {
+          console.log('❌ All generated questions failed Answerability Test. Retrying batch...');
+          continue;
+        }
+
         // Save to DB
-        const updatedData = [...existing, ...result.questions];
+        const updatedData = [...existing, ...validQuestions];
         const { error } = await writeClient
           .from('categories_library')
           .update({ data: updatedData })
