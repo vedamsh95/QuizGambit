@@ -1,6 +1,7 @@
 import { SYSTEM_PROMPT_STANDARD } from './prompts';
 import { generateQuestions, generateGridQuestions, generateCustomQuestions, runQualityChecks } from './ai/generator';
 import { formatAuditReport } from './ai/auditor';
+import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS } from './ai/types';
 import type { GenerationConfig, GenerationResult, QuizGambitQuestion, PlayerPersona, GameMode, AdminGeneratorConfig, CompactGeneratorConfig, LensType, FormType, BackdoorType } from './ai/types';
 
 // Aggressive Client-Side JSON Repair
