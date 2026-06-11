@@ -234,14 +234,24 @@ export default function SimultaneousBoard({
         if (phaseAdvanced || isPickerSync) {
           // Merge revealed questions before applying DB state, so optimistic
           // tile reveals that haven't reached the DB yet aren't reverted.
+          const current = gameStateRef.current;
           const merged = { ...newData.arena_state };
           if (merged.revealed_questions_by_round?.["1"]) {
-            const localRevealed = gameStateRef.current.revealed_questions_by_round?.["1"] || [];
+            const localRevealed = current.revealed_questions_by_round?.["1"] || [];
             merged.revealed_questions_by_round["1"] = Array.from(
               new Set([...merged.revealed_questions_by_round["1"], ...localRevealed])
             );
           }
-          setGameState(merged);
+          // BAILOUT: For same-phase PICKING updates, only apply if pickerId or
+          // revealed questions actually changed (prevents no-op renders from
+          // isPickerSync firing on every DB poll when nothing changed).
+          const isPickerSyncNoop = isPickerSync &&
+            merged.pickerId === current.pickerId &&
+            merged.activeQuestion?.id === current.activeQuestion?.id &&
+            (merged.revealed_questions_by_round?.["1"]?.length ?? 0) === (current.revealed_questions_by_round?.["1"]?.length ?? 0);
+          if (!isPickerSyncNoop) {
+            setGameState(merged);
+          }
           if (newData.arena_state.phase === "PICKING") {
             setSelectedAnswer(null);
             setTypedAnswer("");
@@ -370,6 +380,24 @@ export default function SimultaneousBoard({
 
     unsubs.push(
       onBroadcast("question:open", (payload: any) => {
+        // BAILOUT: If we already transitioned to this question (optimistic update on
+        // picker's client), skip the state update to avoid a duplicate render cycle.
+        // React batches the set* calls below but setGameState with a new object
+        // reference forces a render even when the phase+question are identical.
+        setGameState((prev: any) => {
+          if (!payload.question) return prev;
+          if (prev.phase === "OPEN" && prev.activeQuestion?.id === payload.questionId) {
+            return prev; // same reference → no render
+          }
+          // Each client derives timerEndTime from their OWN clock, eliminating cross-device clock skew
+          const localTimerEnd = Math.floor(Date.now() / 1000) + (payload.timerSecs || 15);
+          return appendRevealedRound1({
+            ...prev,
+            phase: "OPEN",
+            activeQuestion: payload.question,
+            timerEndTime: localTimerEnd,
+          }, payload.questionId);
+        });
         setSelectedAnswer(null);
         setTypedAnswer("");
         setSubmitStatus(null);
@@ -377,33 +405,20 @@ export default function SimultaneousBoard({
         syncStateRef.current.submitGuard = false;
         // Clock-skew fix: record when WE received the broadcast using our own monotonic clock
         syncStateRef.current.questionReceivedAt = performance.now();
-        // Immediately show the question + mark tile revealed on ALL clients — broadcast-first, no DB wait
-        if (payload.question) {
-          // Each client derives timerEndTime from their OWN clock, eliminating cross-device clock skew
-          const localTimerEnd = Math.floor(Date.now() / 1000) + (payload.timerSecs || 15);
-          setGameState((prev: any) => appendRevealedRound1({
-            ...prev,
-            phase: "OPEN",
-            activeQuestion: payload.question,
-            timerEndTime: localTimerEnd,
-          }, payload.questionId));
-        }
       })
     );
 
     unsubs.push(
       onBroadcast("phase:change", (payload: any) => {
         if (payload.phase === "PICKING") {
-          setSelectedAnswer(null);
-          setTypedAnswer("");
-          setSubmitStatus(null);
-          setAnswerTimings([]);
-          setBroadcastedAnswers(new Set());
-          syncStateRef.current.submitGuard = false;
-          syncStateRef.current.closeCalledForQuestion = null;
-          syncStateRef.current.nextTurnGuard = false;
-          // Immediately transition to PICKING phase + mark tile revealed on ALL clients
+          // BAILOUT: If we already transitioned to PICKING (optimistic update on
+          // the originator's client) and the closed question is already revealed,
+          // skip setGameState to avoid a duplicate render cycle.
           setGameState((prev: any) => {
+            const alreadyPicking = prev.phase === "PICKING" && !prev.activeQuestion;
+            const alreadyRevealed = !payload.closedQuestionId ||
+              prev.revealed_questions_by_round?.["1"]?.includes(payload.closedQuestionId);
+            if (alreadyPicking && alreadyRevealed) return prev;
             const base = {
               ...prev,
               phase: "PICKING",
@@ -414,6 +429,14 @@ export default function SimultaneousBoard({
               ? appendRevealedRound1(base, payload.closedQuestionId)
               : base;
           });
+          setSelectedAnswer(null);
+          setTypedAnswer("");
+          setSubmitStatus(null);
+          setAnswerTimings([]);
+          setBroadcastedAnswers(new Set());
+          syncStateRef.current.submitGuard = false;
+          syncStateRef.current.closeCalledForQuestion = null;
+          syncStateRef.current.nextTurnGuard = false;
         }
       })
     );
@@ -639,6 +662,15 @@ export default function SimultaneousBoard({
           const phaseAdvanced = (phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1);
           const isPickerSync = dbPhase === "PICKING" && localPhase === "PICKING";
           if (phaseAdvanced || isPickerSync) {
+            // BAILOUT: Skip same-phase PICKING update when nothing changed
+            if (isPickerSync) {
+              const current = gameStateRef.current;
+              if (lobbyData.arena_state.pickerId === current.pickerId &&
+                  lobbyData.arena_state.activeQuestion?.id === current.activeQuestion?.id &&
+                  (lobbyData.arena_state.revealed_questions_by_round?.["1"]?.length ?? 0) === (current.revealed_questions_by_round?.["1"]?.length ?? 0)) {
+                return; // no-op: nothing changed, skip setGameState to avoid render
+              }
+            }
             setGameState(lobbyData.arena_state);
           }
         }
@@ -985,8 +1017,12 @@ export default function SimultaneousBoard({
       p_lobby_code: code,
     }).then(
       ({ data }: any) => {
+        // BAILOUT: Only update if pickerId actually changed (prevents no-op render
+        // when the current picker wins again and keeps the turn).
         if (data?.nextPickerId) {
-          setGameState((prev: any) => ({ ...prev, pickerId: data.nextPickerId }));
+          setGameState((prev: any) =>
+            prev.pickerId === data.nextPickerId ? prev : { ...prev, pickerId: data.nextPickerId }
+          );
         }
       },
       (error: any) => {
