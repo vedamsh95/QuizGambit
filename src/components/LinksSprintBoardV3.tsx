@@ -357,13 +357,16 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
         const dbPhase = parsed.phase;
         const localPhase = lobbyPhaseGuardRef.current.phase;
         if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          console.log(`[Sync:Sprint] ✅ Phase guard allowed — dbPhase=${dbPhase} localPhase=${localPhase} dbWave=${parsed.currentWave} localWave=${lobbyPhaseGuardRef.current.currentWave}`)
           setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true);
+        } else {
+          console.warn(`[Sync:Sprint] ⚠️ Phase guard BLOCKED — dbPhase=${dbPhase} localPhase=${localPhase} dbOrder=${phaseOrder[dbPhase] ?? -1} localOrder=${phaseOrder[localPhase] ?? -1} dbWave=${parsed.currentWave} localWave=${lobbyPhaseGuardRef.current.currentWave}`)
         }
       }
     },
     onPlayerChange: async () => { const { data } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (data) setPlayers(data); },
     onArenaAnswer: (payload: any) => { const newWord = payload.new as SprintWord; if (!newWord) return; setSprintWords((prev) => { if (prev.find(w => w.id === newWord.id)) return prev; return [...prev, newWord]; }); if (newWord.is_target && newWord.player_id === effectivePlayerId) { setTargetHitFlash({ word: newWord.word, level: newWord.target_level || 1 }); setTimeout(() => setTargetHitFlash(null), 2500); } },
-    onReconnect: async () => { const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); const parsed = parseArenaState(lobbyData?.arena_state); if (parsed) setGameState(parsed); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); },
+    onReconnect: async () => { console.log(`[Sync:Sprint] 🔄 onReconnect firing — localPhase=${lobbyPhaseGuardRef.current.phase} localWave=${lobbyPhaseGuardRef.current.currentWave}`); const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle(); const parsed = parseArenaState(lobbyData?.arena_state); if (parsed) { console.log(`[Sync:Sprint] 🔄 onReconnect result — dbPhase=${parsed.phase} localPhase=${lobbyPhaseGuardRef.current.phase} dbWave=${parsed.currentWave}`); setGameState(parsed); } const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); },
   });
 
   // ── Connection banner ────────────────────────────────────────────────
@@ -437,7 +440,7 @@ export default function LinksSprintBoardV3({ code: gameCode, playerId: propPlaye
 
   // ── Polling fallback ─────────────────────────────────────────────────
   useEffect(() => { const poll = setInterval(async () => { if (isConnected) return; try {        const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
-        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { WAVE_INTRO: 0, PLAYING: 1, WAVE_RESULTS: 2, GAME_OVER: 3 }; const dbPhase = parsed.phase; const localPhase = lobbyPhaseGuardRef.current?.phase; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) { setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); } } } const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (playerData) setPlayers(playerData); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); } catch {} }, 3000); return () => clearInterval(poll); }, [gameCode, isConnected]);
+        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { WAVE_INTRO: 0, PLAYING: 1, WAVE_RESULTS: 2, GAME_OVER: 3 }; const dbPhase = parsed.phase; const localPhase = lobbyPhaseGuardRef.current?.phase; const isDisconnected = !isConnected; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1) || isDisconnected) { if (isDisconnected && (phaseOrder[dbPhase] ?? -1) < (phaseOrder[localPhase] ?? -1)) { console.log(`[Sync:Sprint] 📡 Polling catch-up (bypassing guard — disconnected) — dbPhase=${dbPhase} localPhase=${localPhase}`); } setGameState(parsed); if (parsed.phase === "GAME_OVER") setIsGameOver(true); } } } const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false }); if (playerData) setPlayers(playerData); const { data: wordsData } = await supabase.from("links_sprint_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true }); if (wordsData) setSprintWords(wordsData); } catch {} }, 3000); return () => clearInterval(poll); }, [gameCode, isConnected]);
 
   // ── Word validation (redesigned: min 2 chars, at least 2 pool letters) ──
   const [validWordCache, setValidWordCache] = useState<Set<string> | null>(null);

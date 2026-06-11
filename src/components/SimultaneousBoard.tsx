@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { useRealtimeChannel } from "../hooks/useRealtimeChannel";
 import {
-  Trophy, Zap, Clock, Wifi, WifiOff, ArrowLeft, Play,
+  Trophy, Zap, Clock, Wifi, WifiOff, ArrowLeft, Play, Users, Settings, X,
 } from "lucide-react";
 import GameOver from "./GameOver";
 import { ClayTile, ClayCard, ClayBadge, ClayButton, ClayAvatar } from "./ui";
@@ -232,6 +232,7 @@ export default function SimultaneousBoard({
         const phaseAdvanced = (phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1);
         const isPickerSync = dbPhase === "PICKING" && localPhase === "PICKING";
         if (phaseAdvanced || isPickerSync) {
+          console.log(`[Sync:Simul] ✅ Phase guard allowed — dbPhase=${dbPhase} localPhase=${localPhase} advanced=${phaseAdvanced} pickerSync=${isPickerSync} dbQuestionId=${newData.arena_state.activeQuestion?.id || 'none'} localQuestionId=${gameStateRef.current.activeQuestion?.id || 'none'} dbPickerId=${newData.arena_state.pickerId || 'none'} localPickerId=${gameStateRef.current.pickerId || 'none'}`)
           // Merge revealed questions before applying DB state, so optimistic
           // tile reveals that haven't reached the DB yet aren't reverted.
           const current = gameStateRef.current;
@@ -251,6 +252,8 @@ export default function SimultaneousBoard({
             (merged.revealed_questions_by_round?.["1"]?.length ?? 0) === (current.revealed_questions_by_round?.["1"]?.length ?? 0);
           if (!isPickerSyncNoop) {
             setGameState(merged);
+          } else {
+            console.log(`[Sync:Simul] ⏭️ Phase guard skipped — isPickerSync no-op (nothing changed)`)
           }
           if (newData.arena_state.phase === "PICKING") {
             setSelectedAnswer(null);
@@ -262,6 +265,8 @@ export default function SimultaneousBoard({
             syncStateRef.current.closeCalledForQuestion = null;
             syncStateRef.current.nextTurnGuard = false;
           }
+        } else {
+          console.warn(`[Sync:Simul] ⚠️ Phase guard BLOCKED — dbPhase=${dbPhase} localPhase=${localPhase} dbOrder=${phaseOrder[dbPhase] ?? -1} localOrder=${phaseOrder[localPhase] ?? -1} dbQuestionId=${newData.arena_state.activeQuestion?.id || 'none'} localQuestionId=${gameStateRef.current.activeQuestion?.id || 'none'} dbPickerId=${newData.arena_state.pickerId || 'none'} localPickerId=${gameStateRef.current.pickerId || 'none'}`)
         }
       }
     },
@@ -291,12 +296,17 @@ export default function SimultaneousBoard({
     },
     onReconnect: async () => {
       // Re-fetch stale state after reconnection
+      console.log(`[Sync:Simul] 🔄 onReconnect firing — localPhase=${gameStateRef.current.phase} localQuestionId=${gameStateRef.current.activeQuestion?.id || 'none'} localPickerId=${gameStateRef.current.pickerId || 'none'}`)
       const { data: lobbyData } = await supabase
         .from("lobbies")
         .select("*")
         .eq("code", code)
         .maybeSingle();
+      
       if (lobbyData?.arena_state) {
+        const dbPhase = lobbyData.arena_state.phase;
+        const localPhase = gameStateRef.current.phase;
+        console.log(`[Sync:Simul] 🔄 onReconnect result — dbPhase=${dbPhase} localPhase=${localPhase} dbQuestionId=${lobbyData.arena_state.activeQuestion?.id || 'none'} localQuestionId=${gameStateRef.current.activeQuestion?.id || 'none'}`)
         setGameState(lobbyData.arena_state);
         // BUG FIX #7: Re-fetch answer timings if reconnecting during RESULTS
         const qId = lobbyData.arena_state.activeQuestion?.id;
@@ -661,7 +671,15 @@ export default function SimultaneousBoard({
 
           const phaseAdvanced = (phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1);
           const isPickerSync = dbPhase === "PICKING" && localPhase === "PICKING";
-          if (phaseAdvanced || isPickerSync) {
+          // When channel is disconnected, bypass the phase guard entirely.
+          // The client's local state may be stale (e.g., stuck on RESULTS while
+          // DB has advanced to PICKING), and the guard would block the catch-up
+          // because it only allows "forward" transitions. Trust DB unconditionally.
+          const isDisconnected = !isConnectedRef.current;
+          if (phaseAdvanced || isPickerSync || isDisconnected) {
+            if (isDisconnected) {
+              console.log(`[Sync:Simul] 📡 Polling catch-up (bypassing guard — disconnected) — dbPhase=${dbPhase} localPhase=${localPhase}`)
+            }
             // BAILOUT: Skip same-phase PICKING update when nothing changed
             if (isPickerSync) {
               const current = gameStateRef.current;
@@ -671,6 +689,7 @@ export default function SimultaneousBoard({
                 return; // no-op: nothing changed, skip setGameState to avoid render
               }
             }
+            console.log(`[Sync:Simul] 📡 Polling applied missed update — dbPhase=${dbPhase} localPhase=${localPhase}`)
             setGameState(lobbyData.arena_state);
           }
         }
@@ -790,6 +809,42 @@ export default function SimultaneousBoard({
 
     return () => clearInterval(interval);
   }, [gameState.timerEndTime, gameState.phase, isHost, code, broadcast]);
+
+  // ── Dynamic question font size ────────────────────────────────────
+  // Shrink font proportionally as question text gets longer, so option
+  // buttons stay anchored on-screen (critical on mobile where long narrative
+  // questions would otherwise push options below the viewport).
+  // Tiers go from text-2xl (24px) down to text-[8px] for extreme lengths.
+  const questionFontClass = useMemo(() => {
+    const len = (activeQ?.question_text || "").length;
+    if (len <= 40) return "text-2xl md:text-3xl";
+    if (len <= 70) return "text-xl md:text-2xl";
+    if (len <= 110) return "text-lg md:text-xl";
+    if (len <= 160) return "text-base md:text-lg";
+    if (len <= 220) return "text-sm md:text-base";
+    if (len <= 290) return "text-xs md:text-sm";
+    if (len <= 375) return "text-[11px] md:text-xs";
+    if (len <= 475) return "text-[10px] md:text-[11px]";
+    if (len <= 600) return "text-[9px] md:text-[10px]";
+    return "text-[8px] md:text-[9px]";
+  }, [activeQ?.question_text]);
+
+  // ── Mobile drawer toggles ─────────────────────────────────────────
+  const [showMobileLeaderboard, setShowMobileLeaderboard] = useState(false);
+  const [showMobileSettings, setShowMobileSettings] = useState(false);
+
+  // Close drawers on phase changes that need full screen space
+  useEffect(() => {
+    if (gameState.phase === "OPEN") {
+      // Question overlay needs full screen — close both drawers
+      setShowMobileLeaderboard(false);
+      setShowMobileSettings(false);
+    } else if (gameState.phase !== "PICKING") {
+      // RESULTS / GAME_OVER — close settings (not needed mid-round)
+      setShowMobileSettings(false);
+    }
+    // PICKING: allow drawers to stay open for checking standings
+  }, [gameState.phase]);
 
   // ── Actions ──────────────────────────────────────────────────────────
 
@@ -1107,8 +1162,63 @@ export default function SimultaneousBoard({
       )}
 
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-3 sm:px-6 py-3 flex items-center justify-between gap-2 flex-wrap border-b border-warm-gray/10 bg-warm-white/80 backdrop-blur-sm">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <div className="shrink-0 border-b border-warm-gray/10 bg-warm-white/80 backdrop-blur-sm">
+        {/* Desktop header: full featured */}
+        <div className="hidden lg:flex px-3 sm:px-6 py-3 items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={async () => {
+                if (confirm("Leave the game?")) {
+                  broadcast("player:leave", { playerId: effectivePlayerId });
+                  await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
+                  store.clearArenaHostCode();
+                  window.location.href = `/lobby/${code}?from=game`;
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Leave</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="font-outfit font-black text-lg text-plum">5×5</span>
+              <span className="text-[10px] font-mono text-warm-gray/50">{code}</span>
+            </div>
+            <LanguageSwitcher compact />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold">
+              {showDisconnected ? (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
+                  <span className="text-peach">Reconnecting</span>
+                </>
+              ) : (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-mint" />
+                  <span className="text-mint">{onlineCount} online</span>
+                </>
+              )}
+            </div>
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                isPicker && gameState.phase === "PICKING"
+                  ? "bg-soft-purple text-white animate-pulse"
+                  : "bg-warm-gray/10 text-warm-gray/60"
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              <span>
+                {isPicker && gameState.phase === "PICKING"
+                  ? "Your turn!"
+                  : `${pickerName} picks`}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile header: ultra-compact — collapses further during question overlay to maximize content space */}
+        <div className={`flex lg:hidden items-center justify-between px-3 ${(gameState.phase === "OPEN" || gameState.phase === "RESULTS") ? "py-1" : "py-2"}`}>
           <button
             onClick={async () => {
               if (confirm("Leave the game?")) {
@@ -1118,57 +1228,65 @@ export default function SimultaneousBoard({
                 window.location.href = `/lobby/${code}?from=game`;
               }
             }}
-            className="flex items-center gap-1.5 text-xs font-bold text-peach hover:text-peach/80 transition-colors"
+            className="text-peach hover:text-peach/80 transition-colors"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Leave</span>
+            <ArrowLeft className="w-4 h-4" />
           </button>
 
-          {/* Title + code */}
           <div className="flex items-center gap-2">
-            <span className="font-outfit font-black text-lg text-plum">5×5</span>
-            <span className="text-[10px] font-mono text-warm-gray/50 hidden sm:inline">{code}</span>
+            <span className="font-outfit font-black text-base text-plum">5×5</span>
+            <span className="text-[9px] font-mono text-warm-gray/40">{code}</span>
           </div>
 
-          <LanguageSwitcher compact />
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Connection status — uses delayed showDisconnected to avoid flashing on brief WebSocket reconnects */}
-          <div className="flex items-center gap-1.5 text-[10px] font-bold">
-            {showDisconnected ? (
-              <>
-                <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
-                <span className="text-peach">Reconnecting</span>
-              </>
-            ) : (
-              <>
-                <Wifi className="w-3.5 h-3.5 text-mint" />
-                <span className="text-mint">{onlineCount} online</span>
-              </>
+          {/* During question overlay: compress right-side icons to just online dot + settings */}
+          {(gameState.phase === "OPEN" || gameState.phase === "RESULTS") ? (
+            <div className="flex items-center gap-2">
+              {showDisconnected ? (
+                <WifiOff className="w-3 h-3 text-peach animate-pulse" />
+              ) : (
+                <Wifi className="w-3 h-3 text-mint" />
+              )}
+              <button
+                onClick={() => { setShowMobileSettings(true); setShowMobileLeaderboard(false); }}
+                className="text-warm-gray/40 hover:text-warm-gray/60 transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+          <div className="flex items-center gap-2">
+            {/* Picker indicator dot (compact) */}
+            {isPicker && gameState.phase === "PICKING" && (
+              <div className="bg-soft-purple text-white rounded-full w-2 h-2 animate-pulse" />
             )}
+            {/* Online dot */}
+            {showDisconnected ? (
+              <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
+            ) : (
+              <Wifi className="w-3.5 h-3.5 text-mint" />
+            )}
+            {/* Leaderboard button — toggle */}
+            <button
+              onClick={() => { setShowMobileLeaderboard(prev => !prev); setShowMobileSettings(false); }}
+              className="flex items-center gap-1 text-[10px] font-bold text-warm-gray/60 hover:text-warm-gray/80 transition-colors"
+            >
+              <Users className="w-4 h-4" />
+              <span className="font-mono">{players.length}</span>
+            </button>
+            {/* Settings button — toggle */}
+            <button
+              onClick={() => { setShowMobileSettings(prev => !prev); setShowMobileLeaderboard(false); }}
+              className="text-warm-gray/60 hover:text-warm-gray/80 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
-
-          {/* Picker indicator */}
-          <div
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-              isPicker && gameState.phase === "PICKING"
-                ? "bg-soft-purple text-white animate-pulse"
-                : "bg-warm-gray/10 text-warm-gray/60"
-            }`}
-          >
-            <Zap className="w-3 h-3" />
-            <span>
-              {isPicker && gameState.phase === "PICKING"
-                ? "Your turn!"
-                : `${pickerName} picks`}
-            </span>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Scoring info bar */}
-      <div className="px-3 py-1 flex items-center gap-2 text-[10px] text-warm-gray/50 font-medium justify-center">
+      {/* Scoring info bar — hidden on mobile (shown in settings drawer) */}
+      <div className="hidden lg:flex px-3 py-1 items-center gap-2 text-[10px] text-warm-gray/50 font-medium justify-center">
         <span>{scoringType === "RELATIVE" ? "Relative Scoring" : "Fastest Finger"}</span>
         <span>·</span>
         <span>{penaltyType === "HALF" ? "-50% Penalty" : "-100% Penalty"}</span>
@@ -1176,7 +1294,7 @@ export default function SimultaneousBoard({
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* ── Main Area ─────────────────────────────────────────────── */}
-        <div className="flex-1 p-1.5 sm:p-4 overflow-y-auto relative min-h-0">
+        <div className="flex-1 p-1 sm:p-4 overflow-y-auto relative min-h-0">
           {/* ── QUESTION OVERLAY ────────────────────────────────────── */}
           {(gameState.phase === "OPEN" || gameState.phase === "RESULTS") && activeQ ? (
             <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-clay-pop">
@@ -1202,10 +1320,10 @@ export default function SimultaneousBoard({
                   {getCategoryEmoji(activeQ.category || "")} {getCategoryDisplayName(activeQ.category || "")} · {activeQ.points} PTS
                 </ClayBadge>
 
-                {/* Question text */}
-                <h2 className="font-outfit font-extrabold text-2xl md:text-3xl text-plum text-center leading-tight">
-                  {activeQ.question_text}
-                </h2>                        {/* MCQ Options (OPEN phase) */}
+                {/* Question text — auto-shrinks font for long questions so options stay visible */}
+                  <h2 className={`font-outfit font-extrabold text-plum text-center leading-tight px-1 ${questionFontClass}`}>
+                    {activeQ.question_text}
+                  </h2>                        {/* MCQ Options (OPEN phase) */}
                         {gameState.phase === "OPEN" && activeQ.options && Array.isArray(activeQ.options) && activeQ.options.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {activeQ.options.map((opt: string, i: number) => (
@@ -1405,8 +1523,8 @@ export default function SimultaneousBoard({
           )}
         </div>
 
-        {/* ── Sidebar ────────────────────────────────────────────────── */}
-        <div className="w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-warm-gray/10 bg-warm-white/50 overflow-y-auto p-2 sm:p-3 space-y-3 sm:space-y-4 flex-shrink-0 max-h-48 lg:max-h-none">
+        {/* ── Sidebar (desktop only — on mobile it's a slide-up drawer) ── */}
+        <div className="hidden lg:block w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-warm-gray/10 bg-warm-white/50 overflow-y-auto p-2 sm:p-3 space-y-3 sm:space-y-4 flex-shrink-0 max-h-48 lg:max-h-none">
           {/* Standings */}
           <div className="space-y-1 sm:space-y-2">
             <h4 className="text-[10px] font-black text-warm-gray/70 uppercase tracking-wider flex items-center gap-1.5">
@@ -1491,6 +1609,186 @@ export default function SimultaneousBoard({
           </div>
         </div>
       </div>
+
+      {/* ═══ MOBILE DRAWERS ═══════════════════════════════════════════ */}
+
+      {/* Leaderboard Drawer */}
+      {showMobileLeaderboard && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm lg:hidden"
+            onClick={() => setShowMobileLeaderboard(false)}
+          />
+          {/* Drawer */}
+          <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-warm-white rounded-t-3xl shadow-2xl max-h-[70vh] overflow-y-auto animate-slide-up-fade pb-safe">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-warm-gray/20" />
+            </div>
+            {/* Header */}
+            <div className="px-4 py-2 flex items-center justify-between border-b border-warm-gray/10">
+              <h3 className="text-xs font-black text-plum uppercase tracking-wider flex items-center gap-2">
+                <Trophy className="w-4 h-4" /> Leaderboard
+              </h3>
+              <button onClick={() => setShowMobileLeaderboard(false)} className="text-warm-gray/40 hover:text-warm-gray/60">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Standings */}
+            <div className="p-4 space-y-2">
+              {players.map((p, idx) => (
+                <ClayCard key={p.id} elevation="flat" padding="sm" className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="font-outfit font-black text-xs text-warm-gray/80 w-6 text-center flex-shrink-0">
+                      {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}
+                    </span>
+                    <ClayAvatar
+                      name={p.name}
+                      size="sm"
+                      color={getAvatarColor(p.name, idx)}
+                      status={p.id === gameState.pickerId ? "online" : undefined}
+                    />
+                    <span className="font-outfit font-bold text-sm text-plum truncate">{p.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-base text-soft-purple flex-shrink-0 ml-2">{p.score || 0}</span>
+                </ClayCard>
+              ))}
+            </div>
+            {/* This Round status — only shown when a question is active (not PICKING) */}
+            {gameState.phase !== "PICKING" && (
+              <>
+                <div className="border-t border-warm-gray/10" />
+                <div className="p-4 space-y-2">
+                  <h4 className="text-[10px] font-black text-warm-gray/70 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" /> This Round
+                  </h4>
+                  {answerTimings.length > 0 || broadcastedAnswers.size > 0 ? (
+                    <>
+                      {Array.from(broadcastedAnswers).map((pid) => {
+                        if (answerTimings.find((a: any) => a.player_id === pid)) return null;
+                        const p = players.find((pl: any) => pl.id === pid);
+                        return (
+                          <div key={`mbc-${pid}`} className="flex items-center justify-between p-2 rounded-xl bg-mint-light border border-mint/20 animate-pulse">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm">⏳</span>
+                              <span className="text-mint text-xs font-bold truncate">{p?.name || pid.slice(0, 6)}</span>
+                            </div>
+                            <span className="text-mint/60 font-mono text-[10px]">answering...</span>
+                          </div>
+                        );
+                      })}
+                      {answerTimings.map((a) => (
+                        <div key={`mba-${a.player_id}`} className={`flex items-center justify-between p-2 rounded-xl ${a.is_correct ? "bg-mint-light border border-mint/20" : "bg-peach-light border border-peach/20"}`}>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm flex-shrink-0">
+                              {a.rank === 1 ? "🥇" : a.rank === 2 ? "🥈" : a.rank === 3 ? "🥉" : a.is_correct ? "✅" : "❌"}
+                            </span>
+                            <span className={`text-xs font-bold truncate ${a.is_correct ? "text-plum" : "text-peach"}`}>{a.player_name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-warm-gray/50 font-mono text-[10px]">{(a.answer_time_ms / 1000).toFixed(1)}s</span>
+                            <span className={`font-mono font-bold text-xs ${a.points_awarded >= 0 ? "text-mint" : "text-peach"}`}>
+                              {a.points_awarded >= 0 ? "+" : ""}{a.points_awarded}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="text-center text-warm-gray/50 text-[10px] py-4">Waiting for answers...</div>
+                  )}
+                </div>
+              </>
+            )}
+            <div className="h-6" />
+          </div>
+        </>
+      )}
+
+      {/* Settings Drawer */}
+      {showMobileSettings && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm lg:hidden"
+            onClick={() => setShowMobileSettings(false)}
+          />
+          {/* Drawer */}
+          <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-warm-white rounded-t-3xl shadow-2xl animate-slide-up-fade pb-safe">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-warm-gray/20" />
+            </div>
+            {/* Header */}
+            <div className="px-4 py-2 flex items-center justify-between border-b border-warm-gray/10">
+              <h3 className="text-xs font-black text-plum uppercase tracking-wider flex items-center gap-2">
+                <Settings className="w-4 h-4" /> Game
+              </h3>
+              <button onClick={() => setShowMobileSettings(false)} className="text-warm-gray/40 hover:text-warm-gray/60">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="p-4 space-y-4">
+              {/* Connection */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-warm-gray/70">Connection</span>
+                <div className="flex items-center gap-1.5 text-xs font-bold">
+                  {showDisconnected ? (
+                    <>
+                      <WifiOff className="w-3.5 h-3.5 text-peach animate-pulse" />
+                      <span className="text-peach">Reconnecting</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="w-3.5 h-3.5 text-mint" />
+                      <span className="text-mint">{onlineCount} online</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {/* Picker status */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-warm-gray/70">Picker</span>
+                <span className={`text-xs font-black uppercase ${isPicker && gameState.phase === "PICKING" ? "text-soft-purple" : "text-warm-gray/50"}`}>
+                  {isPicker && gameState.phase === "PICKING" ? "Your turn!" : pickerName}
+                </span>
+              </div>
+              {/* Scoring */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-warm-gray/70">Scoring</span>
+                <span className="text-xs text-warm-gray/50">
+                  {scoringType === "RELATIVE" ? "Relative · -50%" : "Fastest · -100%"}
+                </span>
+              </div>
+              {/* Language */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-warm-gray/70">Language</span>
+                <LanguageSwitcher compact />
+              </div>
+              {/* Divider */}
+              <div className="border-t border-warm-gray/10" />
+              {/* Leave button */}
+              <ClayButton
+                variant="secondary"
+                className="w-full !text-peach !border-peach/30"
+                onClick={async () => {
+                  if (confirm("Leave the game?")) {
+                    broadcast("player:leave", { playerId: effectivePlayerId });
+                    await supabase.from("players").delete().eq("id", effectivePlayerId).eq("lobby_code", code);
+                    store.clearArenaHostCode();
+                    window.location.href = `/lobby/${code}?from=game`;
+                  }
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" /> Leave Game
+              </ClayButton>
+            </div>
+            <div className="h-6" />
+          </div>
+        </>
+      )}
     </div>
   );
 }

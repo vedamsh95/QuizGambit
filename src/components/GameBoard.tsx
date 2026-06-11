@@ -97,6 +97,7 @@ export default function GameBoard({ lobbyCode, settings, isLocal = false, initia
                 return;
             }
             const newLobby = payload.new
+            console.log(`[Sync:Standard] 📡 onLobbyChange — dbStatus=${newLobby.status} localStatus=${statusRef.current} dbBuzzedId=${newLobby.buzzed_player_id || 'none'} localBuzzedId=${buzzedPlayerId || 'none'}`)
             if (newLobby.status) setStatus(newLobby.status)
             if (newLobby.buzzed_player_id !== undefined) setBuzzedPlayerId(newLobby.buzzed_player_id)
         },

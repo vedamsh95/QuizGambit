@@ -543,17 +543,26 @@ export default function UnifiedLobby() {
     await supabase.from("lobbies").update({ mode }).eq("code", code);
     await updateLobbySetting("play_style", playStyle);
 
-    // Seed default settings based on game type
-    const defaultSettings: any = { rounds: 1, timer: 15 };
+    // Seed default settings based on game type.
+    // CRITICAL: Nuke ALL game-specific settings from previous games so stale
+    // categories/drafts don't leak into the new game session.
+    const defaultSettings: any = {
+      rounds: 1,
+      timer: 15,
+      // Always clear these across ALL game types — prevents stale data leaks
+      draftPicks: [],
+      draft: null,
+      selectedCategories: {},
+      selectedCategoryIds: [],
+      round_categories: {},
+      simultaneous_categories: null,
+    };
     if (mode === "QUIZ_5X5") {
       Object.assign(defaultSettings, {
         catsPerRound: 5,
         selectionMode: "HOST_PICK",
         draftPhase: "pending",
-        draftPicks: [],
         draftTurnIndex: 0,
-        roundCategories: {},
-        selectedCategoryIds: [],
       });
     }
     await Promise.all(
@@ -582,7 +591,19 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = { ...lobby?.settings, ...optimisticSettings };
+      // ── Read settings DIRECTLY from DB (not from stale lobby state) ───
+      const { data: freshLobby } = await supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", code)
+        .single();
+
+      if (!freshLobby?.settings) {
+        setStartError("Failed to read lobby settings. Please try again.");
+        setIsStarting(false);
+        return;
+      }
+      const s = freshLobby.settings;
 
       if (isBuzzer5x5(lobbyMode, lobbyPlayStyle)) {
         // Build round categories from draft picks or selected categories
@@ -649,7 +670,7 @@ export default function UnifiedLobby() {
       setStartError(err?.message || "Failed to start game.");
       setIsStarting(false);
     }
-  }, [code, isStarting, lobbyMode, lobbyPlayStyle, lobby, allCategories, isHost, updateLobbySetting, broadcast, navigate]);
+  }, [code, isStarting, lobbyMode, lobbyPlayStyle, allCategories, isHost, updateLobbySetting, broadcast, navigate]);
 
   // ── Start Simultaneous Game ──────────────────────────────────────────────
 
@@ -666,7 +687,12 @@ export default function UnifiedLobby() {
         .eq("code", code)
         .single();
 
-      const s = freshLobby?.settings || { ...lobby?.settings, ...optimisticSettings };
+      if (!freshLobby?.settings) {
+        setStartError("Failed to read lobby settings. Please try again.");
+        setIsStarting(false);
+        return;
+      }
+      const s = freshLobby.settings;
 
       // ── Build categories with question data ──────────────────────────
 
@@ -700,6 +726,12 @@ export default function UnifiedLobby() {
       }
 
       console.log("[Simul] handleStartSimultaneousGame catsToProcess:", catsToProcess.length, catsToProcess.map(c => c.name));
+
+      if (catsToProcess.length === 0) {
+        setStartError("No categories selected. Please select categories in the setup phase before starting.");
+        setIsStarting(false);
+        return;
+      }
 
       // Match against allCategories (which carry .data with questions)
       const simultaneousCategories = catsToProcess.map(({ id, name, round }) => {
@@ -771,7 +803,7 @@ export default function UnifiedLobby() {
       setStartError(msg);
       setIsStarting(false);
     }
-  }, [code, isStarting, lobby, allCategories, updateLobbySetting, broadcast, navigate]);
+  }, [code, isStarting, allCategories, updateLobbySetting, broadcast, navigate]);
 
   // ── Start LINKS Game ─────────────────────────────────────────────────
 
@@ -781,7 +813,19 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = { ...lobby?.settings, ...optimisticSettings };
+      // ── Read settings DIRECTLY from DB (not from stale lobby state) ───
+      const { data: freshLobby } = await supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", code)
+        .single();
+
+      if (!freshLobby?.settings) {
+        setStartError("Failed to read lobby settings. Please try again.");
+        setIsStarting(false);
+        return;
+      }
+      const s = freshLobby.settings;
 
       // ── Nuke stale arena_state from previous game modes BEFORE calling
       //     the RPC.  The old migration (blacklist) would otherwise "resume"
@@ -842,7 +886,7 @@ export default function UnifiedLobby() {
       setStartError(err?.message || "Failed to start LINKS game.");
       setIsStarting(false);
     }
-  }, [code, isStarting, lobby, broadcast, navigate]);
+  }, [code, isStarting, broadcast, navigate]);
 
   // ── Start LINKS Sprint Game ───────────────────────────────────────────
 
@@ -852,7 +896,19 @@ export default function UnifiedLobby() {
     setStartError("");
 
     try {
-      const s = { ...lobby?.settings, ...optimisticSettings };
+      // ── Read settings DIRECTLY from DB (not from stale lobby state) ───
+      const { data: freshLobby } = await supabase
+        .from("lobbies")
+        .select("settings")
+        .eq("code", code)
+        .single();
+
+      if (!freshLobby?.settings) {
+        setStartError("Failed to read lobby settings. Please try again.");
+        setIsStarting(false);
+        return;
+      }
+      const s = freshLobby.settings;
 
       // Nuke stale arena_state before calling RPC
       const { error: nullErr } = await supabase
@@ -909,7 +965,7 @@ export default function UnifiedLobby() {
       setStartError(err?.message || "Failed to start LINKS Sprint game.");
       setIsStarting(false);
     }
-  }, [code, isStarting, lobby, broadcast, navigate]);
+  }, [code, isStarting, broadcast, navigate]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 

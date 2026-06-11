@@ -557,9 +557,12 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
         const dbPhase = parsed.phase;
         const localPhase = gameStateRef.current.phase;
         if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) {
+          console.log(`[Sync:Links] ✅ Phase guard allowed — dbPhase=${dbPhase} localPhase=${localPhase}`)
           setGameState(parsed);
           if (parsed.phase === "PLAYING") { setSelectedLetter(null); setMyLetterPicks([]); setSubmitStatus(null); submitGuardRef.current = false; setPoisonAssignments({}); }
           if (parsed.phase === "RESULTS") setIsGameOver(true);
+        } else {
+          console.warn(`[Sync:Links] ⚠️ Phase guard BLOCKED — dbPhase=${dbPhase} localPhase=${localPhase} dbOrder=${phaseOrder[dbPhase] ?? -1} localOrder=${phaseOrder[localPhase] ?? -1}`)
         }
       }
     },
@@ -577,9 +580,10 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
       }
     },
     onReconnect: async () => {
+      console.log(`[Sync:Links] 🔄 onReconnect firing — localPhase=${gameStateRef.current?.phase}`)
       const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
       const parsed = parseArenaState(lobbyData?.arena_state);
-      if (parsed) setGameState(parsed);
+      if (parsed) { console.log(`[Sync:Links] 🔄 onReconnect result — dbPhase=${parsed.phase} localPhase=${gameStateRef.current?.phase}`); setGameState(parsed); }
     },
   });
 
@@ -687,7 +691,7 @@ export default function LinksBoardV3({ code: gameCode, playerId: propPlayerId, p
       if (isConnected) return;
       try {
         const { data: lobbyData } = await supabase.from("lobbies").select("*").eq("code", gameCode).maybeSingle();
-        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { LETTER_SELECT: 0, POISON_SETUP: 1, PLAYING: 2, RESULTS: 3, GAME_OVER: 4 }; const dbPhase = parsed.phase; const localPhase = gameStateRef.current?.phase; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1)) setGameState(parsed); } }
+        if (lobbyData) { setLobby(lobbyData); const parsed = parseArenaState(lobbyData.arena_state); if (parsed) { const phaseOrder: Record<string, number> = { LETTER_SELECT: 0, POISON_SETUP: 1, PLAYING: 2, RESULTS: 3, GAME_OVER: 4 }; const dbPhase = parsed.phase; const localPhase = gameStateRef.current?.phase; const isDisconnected = !isConnected; if ((phaseOrder[dbPhase] ?? -1) >= (phaseOrder[localPhase] ?? -1) || isDisconnected) { if (isDisconnected && (phaseOrder[dbPhase] ?? -1) < (phaseOrder[localPhase] ?? -1)) { console.log(`[Sync:Links] 📡 Polling catch-up (bypassing guard — disconnected) — dbPhase=${dbPhase} localPhase=${localPhase}`); } setGameState(parsed); } } }
         const { data: playerData } = await supabase.from("players").select("*").eq("lobby_code", gameCode).order("score", { ascending: false });
         if (playerData) setPlayers(playerData);
         const { data: wordsData } = await supabase.from("links_words").select("*").eq("lobby_code", gameCode).order("created_at", { ascending: true });

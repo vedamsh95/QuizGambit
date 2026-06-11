@@ -349,6 +349,7 @@ export function useRealtimeChannel(
         }
         reconnectCountRef.current += 1
         const count = reconnectCountRef.current
+        console.warn(`[Sync:Channel] 🔴 Channel "${channelName}" ${status} — local state may be stale (reconnect #${count})`)
         if (count <= 5) {
           console.warn(`[Realtime] Channel "${channelName}" ${status} (reconnect #${count})`)
         } else if (count % 10 === 0) {
@@ -357,7 +358,8 @@ export function useRealtimeChannel(
         isConnectedRef.current = false
         setIsConnected(false)
       } else if (status === 'SUBSCRIBED') {
-        console.log(`[Realtime] Channel "${channelName}" connected`)
+        const isReconnect = reconnectCountRef.current > 0
+        console.log(`[Realtime] Channel "${channelName}" ${isReconnect ? 'RECONNECTED' : 'connected'} (reconnectCount=${reconnectCountRef.current})`)
         reconnectCountRef.current = 0
         isConnectedRef.current = true
         setIsConnected(true)
@@ -374,7 +376,12 @@ export function useRealtimeChannel(
         flushPendingBroadcasts()
 
         // Re-fetch stale state after reconnection
-        onReconnectRef.current?.()
+        if (onReconnectRef.current) {
+          console.log(`[Sync:Channel] 🔄 onReconnect firing for "${channelName}" (reconnection=${isReconnect})`)
+          onReconnectRef.current()
+        } else {
+          console.log(`[Sync:Channel] ⚠️ No onReconnect handler for "${channelName}" — state may be stale after reconnect`)
+        }
       }
     })
 
