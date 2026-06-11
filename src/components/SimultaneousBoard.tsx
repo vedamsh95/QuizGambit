@@ -471,15 +471,17 @@ export default function SimultaneousBoard({
                 };
               }
             });
-            const catIds = Object.keys(catMap);
-            if (catIds.length > 0) {
+            // Query by lobby_code + category name (questions table uses text "category" column, not UUID)
+            const catNames = Object.values(catMap).map((c: any) => c.name);
+            if (catNames.length > 0) {
               const { data: questions } = await supabase
                 .from("questions")
                 .select("*")
-                .in("category_id", catIds);
+                .eq("lobby_code", code)
+                .in("category", catNames);
               if (questions) {
                 questions.forEach((q: any) => {
-                  const cat = catMap[q.category_id];
+                  const cat = Object.values(catMap).find((c: any) => c.name === q.category);
                   if (cat) cat.data.push(q);
                 });
               }

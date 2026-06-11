@@ -712,10 +712,9 @@ export default function UnifiedLobby() {
         };
       });
 
-      // ── Store categories FIRST (before RPC — so SimultaneousBoard can read them) ──
-      await updateLobbySetting("simultaneous_categories", simultaneousCategories);
-
       // ── Call the atomic reset_and_start_simultaneous_session RPC to init game state ────
+      // simultaneous_categories is included in p_settings so the RPC's atomic delete+merge
+      // preserves the category data with embedded questions for SimultaneousBoard to read.
 
       const { data: sessionResult, error: sessionErr } = await supabase.rpc(
         "reset_and_start_simultaneous_session",
@@ -730,6 +729,7 @@ export default function UnifiedLobby() {
             selectionMode: s.selectionMode || "HOST_PICK",
             draftPicks: s.draftPicks || [],
             selectedCategories: s.selectedCategories || {},
+            simultaneous_categories: simultaneousCategories,
           },
         }
       );
