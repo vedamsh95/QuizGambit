@@ -6,6 +6,7 @@ CRITICAL INSTRUCTIONS:
 1. Use the EXACT topic name provided in the list. Do not use synonyms or variations.
 2. For EACH topic, generate exactly {questionCount} questions with increasing difficulty.
 3. ALL questions must be MCQ (Multiple Choice Question) with exactly 4 options.
+4. GLOBAL FOCUS: Do not restrict questions to US/European contexts. Actively include global, non-Western perspectives, events, and figures.
 
 Output strictly valid JSON object with this schema:
 {

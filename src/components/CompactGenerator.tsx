@@ -468,7 +468,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         provider,
         apiKey,
         model,
-      }, excludeNames, phase.types, phase.domains, phase.styles);
+      }, excludeNames, lensMode === "diverse" ? [] : phase.types, lensMode === "diverse" ? [] : phase.domains, lensMode === "diverse" ? [] : phase.styles);
 
       setSubtopics(result.subtopics);
       store.addRecentTheme(theme.trim());
@@ -516,7 +516,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         provider,
         apiKey,
         model,
-      }, excludeNames, autoPhase?.types, autoPhase?.domains, autoPhase?.styles);
+      }, excludeNames, lensMode === "diverse" ? [] : autoPhase?.types, lensMode === "diverse" ? [] : autoPhase?.domains, lensMode === "diverse" ? [] : autoPhase?.styles);
 
       // Append, don't replace
       setSubtopics((prev) => [...prev, ...result.subtopics]);

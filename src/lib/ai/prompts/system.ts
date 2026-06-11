@@ -527,6 +527,13 @@ ${describeBackdoorSubset(backdoors)}
    • At least one plausible alternate interpretation
    Never include obviously wrong or joke options.
 
+5. GLOBAL CULTURAL & GEOGRAPHIC DIVERSITY:
+   • Do not default to US or European history, pop culture, geography, or sports.
+   • Actively pull facts from all seven continents (especially Asia, Africa, 
+     South America, the Middle East, and Oceania).
+   • If a topic is broad, ensure questions feature global players, international 
+     events, foreign-language landmarks, or non-Western history.
+
 🟡 SHOULD (aim for these, but prioritize natural phrasing):
 
 5. ONE SENTENCE with ~25 words. Shorter is punchier. If a brilliant
