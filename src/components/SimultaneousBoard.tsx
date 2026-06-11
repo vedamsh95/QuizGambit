@@ -227,8 +227,21 @@ export default function SimultaneousBoard({
         const phaseOrder: Record<string, number> = { PICKING: 0, OPEN: 1, RESULTS: 2, GAME_OVER: 3 };
         const dbPhase = newData.arena_state.phase;
         const localPhase = gameStateRef.current.phase;
-        if ((phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1)) {
-          setGameState(newData.arena_state);
+        // Allow same-phase PICKING updates so that pickerId rotations from
+        // next_simultaneous_turn are applied (optimistic nextTurn preserves old pickerId).
+        const phaseAdvanced = (phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1);
+        const isPickerSync = dbPhase === "PICKING" && localPhase === "PICKING";
+        if (phaseAdvanced || isPickerSync) {
+          // Merge revealed questions before applying DB state, so optimistic
+          // tile reveals that haven't reached the DB yet aren't reverted.
+          const merged = { ...newData.arena_state };
+          if (merged.revealed_questions_by_round?.["1"]) {
+            const localRevealed = gameStateRef.current.revealed_questions_by_round?.["1"] || [];
+            merged.revealed_questions_by_round["1"] = Array.from(
+              new Set([...merged.revealed_questions_by_round["1"], ...localRevealed])
+            );
+          }
+          setGameState(merged);
           if (newData.arena_state.phase === "PICKING") {
             setSelectedAnswer(null);
             setTypedAnswer("");
@@ -623,7 +636,9 @@ export default function SimultaneousBoard({
              lobbyData.arena_state.revealed_questions_by_round["1"] = Array.from(new Set([...serverRevealed, ...localRevealed]));
           }
 
-          if ((phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1)) {
+          const phaseAdvanced = (phaseOrder[dbPhase] ?? -1) > (phaseOrder[localPhase] ?? -1);
+          const isPickerSync = dbPhase === "PICKING" && localPhase === "PICKING";
+          if (phaseAdvanced || isPickerSync) {
             setGameState(lobbyData.arena_state);
           }
         }
@@ -964,11 +979,21 @@ export default function SimultaneousBoard({
     broadcast("phase:change", { phase: "PICKING", closedQuestionId: activeQ?.id });
 
     // Fire-and-forget RPC — DB is NOT in the critical path
+    // Read nextPickerId from result so the picker rotates immediately
+    // without waiting for the realtime/polling sync.
     supabase.rpc("next_simultaneous_turn", {
       p_lobby_code: code,
     }).then(
-      () => {},
-      (error) => console.error("next_simultaneous_turn error:", error)
+      ({ data }: any) => {
+        if (data?.nextPickerId) {
+          setGameState((prev: any) => ({ ...prev, pickerId: data.nextPickerId }));
+        }
+      },
+      (error: any) => {
+        console.error("next_simultaneous_turn error:", error);
+        // Reset guard so the button isn't permanently dead
+        syncStateRef.current.nextTurnGuard = false;
+      }
     );
   };
 
