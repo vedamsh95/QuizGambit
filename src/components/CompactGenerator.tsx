@@ -302,6 +302,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   // ── Unified Input State ──────────────────────────────────────────
   const [rawInput, setRawInput] = useState("");
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showApiKeyAlert, setShowApiKeyAlert] = useState(false);
 
   // Derived state/helpers to maintain compatibility with existing functions:
   const topics = rawInput.trim() ? rawInput.split(/[,\n]+/).map(t => t.trim()).filter(Boolean) : [];
@@ -538,7 +539,11 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
   // ── Theme: Generate Subtopics (first batch, replaces) ─────────────
   const handleThemeGenerate = async () => {
-    if (!theme.trim() || !apiKey) return;
+    if (!theme.trim()) return;
+    if (!apiKey) {
+      setShowApiKeyAlert(true);
+      return;
+    }
 
     setGenerationMode("themed");
     setGeneratingSubtopics(true);
@@ -619,7 +624,11 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
   // ── Theme: Append 5 More Subtopics (keeps existing) ────────────────
   const handleThemeAppend = async () => {
-    if (!theme.trim() || !apiKey) return;
+    if (!theme.trim()) return;
+    if (!apiKey) {
+      setShowApiKeyAlert(true);
+      return;
+    }
 
     setAppendingSubtopics(true);
 
@@ -767,7 +776,10 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
   // ── Theme: Re-roll single subtopic ────────────────────────────────
   const handleRerollSubtopic = async (index: number) => {
-    if (!apiKey) return;
+    if (!apiKey) {
+      setShowApiKeyAlert(true);
+      return;
+    }
 
     setRerollingIndex(index);
     addLog(`🔄 Re-rolling subtopic "${subtopics[index].name}"...`, "info");
@@ -806,6 +818,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
     if (topicList.length === 0) return;
     if (!apiKey) {
+      setShowApiKeyAlert(true);
       addLog("Error: API Key is required to generate questions.", "error");
       return;
     }
@@ -1584,6 +1597,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
         {/* ── 3. Collapsible Advanced Settings Accordion ───────── */}
         <div className="clay p-5 sm:p-6 space-y-1">
           <button
+            id="advanced-settings-heading"
             onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
             className="flex items-center gap-2 text-sm font-outfit font-bold text-plum/60 hover:text-soft-purple transition-colors w-full"
           >
@@ -2025,6 +2039,55 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           </div>
         )}
       </div>
+
+      {/* API Key Missing Alert Modal */}
+      {showApiKeyAlert && (
+        <div className="fixed inset-0 bg-plum/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="clay p-6 sm:p-8 max-w-sm w-full text-center space-y-6 bg-clay-cream relative">
+            <button
+              onClick={() => setShowApiKeyAlert(false)}
+              className="absolute top-4 right-4 text-plum/30 hover:text-plum transition-colors p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="w-14 h-14 bg-peach-light/20 rounded-full flex items-center justify-center mx-auto text-peach text-2xl">
+              🔑
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="font-outfit font-black text-lg text-plum">
+                API Key Required
+              </h3>
+              <p className="text-xs text-plum/50 font-medium leading-relaxed">
+                You need an API Key configured to generate questions or suggest subtopics. Expand the Advanced Customization settings below to add your key.
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setShowApiKeyAlert(false);
+                  setShowAdvancedSettings(true);
+                  // Scroll to advanced settings after a short delay
+                  setTimeout(() => {
+                    document.getElementById("advanced-settings-heading")?.scrollIntoView({ behavior: "smooth" });
+                  }, 100);
+                }}
+                className="clay-btn bg-soft-purple text-white font-outfit font-bold py-2.5 text-xs"
+              >
+                Go to API Key Settings
+              </button>
+              <button
+                onClick={() => setShowApiKeyAlert(false)}
+                className="text-[10px] font-bold text-plum/35 hover:text-plum/60 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Load from Library modal */}
       <LoadFromLibrary
