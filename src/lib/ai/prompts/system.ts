@@ -84,7 +84,15 @@ ${describeAllForms()}
    (Note: single-sentence is strongly preferred — multi-sentence questions
    will be rejected in validation.)
 
-6. 🔴 NO ANSWER OR DISTRACTOR LEAKAGE IN QUESTION TEXT:
+6. EVERY QUESTION NEEDS A TAG — EXACTLY 2 WORDS.
+   The tag is a cryptic hint displayed to players for betting/intuition modes.
+   - 🔴 EXACTLY 2 words — never 1, never 3
+   - NO words from the answer_text (not even partial)
+   - NO verbatim words from question_text (synonyms are fine)
+   - Evoke the feel of the question without revealing it
+   - All tags across the set must be UNIQUE
+
+7. 🔴 NO ANSWER OR DISTRACTOR LEAKAGE IN QUESTION TEXT:
    • The answer_text is strictly banned from appearing anywhere in the question_text.
      If the correct answer is "Nintendo", the word "Nintendo" must never appear
      anywhere in the question itself — not even as a substring or partial match.
@@ -93,13 +101,13 @@ ${describeAllForms()}
      cannot be in the question).
    The answer must be deducible from clues, synonyms, and context only.
 
-8. MICRO-PYRAMIDAL FLOW:
+9. MICRO-PYRAMIDAL FLOW:
    • Opening (~40%): Lead with the specific, expert-level hook
    • Middle (~40%): Bridge context connecting the hook to common knowledge
    • Closing (~20%): The giveaway anchor — a recognizable detail anyone can grab
    Think in proportions, not exact word counts. The giveaway should land near the end.
 
-9. DIFFICULTY RAMP (GRID COLUMN COMPATIBILITY):
+10. DIFFICULTY RAMP (GRID COLUMN COMPATIBILITY):
    You are generating questions that will be used to populate columns in a 5x5 grid.
    Even if generating a larger batch, assume they will be split into 5-question columns.
    Therefore, strictly adhere to the 100->500 point difficulty tier constraints for every 5 questions:
@@ -139,6 +147,7 @@ The JSON object MUST match this exact schema:
       "planning": {
         "lens": "[One of the 13 lenses]",
         "form": "[One of the 10 forms]",
+        "tag": "[EXACTLY 2 words — cryptic, evocative, no answer words]",
         "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
         "backdoor_logic": {
           "opening_hook": "[The specific, intriguing opener]",
@@ -151,11 +160,13 @@ The JSON object MUST match this exact schema:
           "word_count": "[approximate — aim for ~25, hard max 30]",
           "banned_starter_avoided": true,
           "micro_pyramidal_flow": true,
-          "backdoor_present": true
+          "backdoor_present": true,
+          "tag_valid": true
         }
       },
       "lens": "string",
-      "form": "string", 
+      "form": "string",
+      "tag": "string (EXACTLY 2 words — cryptic hint)",
       "question_text": "string (~25 words, one sentence, hard max 30)",
       "answer_text": "string",
       "options": ["wrong1", "wrong2", "correct", "wrong3"],
@@ -177,6 +188,8 @@ The JSON object MUST match this exact schema:
 ❌ Write rambling questions over 30 words
 ❌ Make wrong options that are jokes or obviously wrong
 ❌ Force wordplay/anagram backdoors where they don't naturally fit
+❌ Generate tags that are 1 word or 3+ words — must be EXACTLY 2
+❌ Include answer words in the tag (e.g. if answer is "Nintendo", "Nintendo" is banned from the tag)
 ❌ Include the answer_text as a substring anywhere in the question_text
    (e.g. if answer is "Nintendo", "Nintendo" is banned from the question)
 `;
@@ -286,18 +299,24 @@ TIER ASSIGNMENT (LOCKED — do NOT change these):
               TAG REQUIREMENT
 ═══════════════════════════════════════════
 
-Each question MUST include a "tag" — a 1-2 word thematic hint displayed 
-on the grid tile. The tag should intrigue WITHOUT revealing the answer.
+Each question MUST include a "tag" — EXACTLY TWO WORDS that together
+create a cryptic, evocative hint. The tag is displayed on the 5×5 grid tile.
+Players see ONLY the tag (and the category name) before deciding to bet or
+answer — so the tag must intrigue WITHOUT revealing the answer.
 
 TAG RULES:
-- Exactly 1-2 words maximum
+- 🔴 EXACTLY 2 WORDS — never 1, never 3, always 2
+- Both words together should evoke the FEEL of the question
+- NO words from the answer_text anywhere in the tag (not even partial)
+- NO words from the question_text that appear verbatim (synonyms are fine)
 - NO proper nouns that directly give away the answer
-- Should evoke curiosity: the player thinks "I wonder what this is..."
-- Should connect to both the question text AND the lens being used
-- Think of it as the "title" of the question's story
+- Should provoke curiosity: "I wonder what kind of question this is..."
+- Think of it as the cryptic title of the question's story
+- Each tag across all 5 questions must be UNIQUE (no duplicates)
 
-✅ Good tags: "Flame", "Silver", "Rivals", "Discovery", "Vanished"
-❌ Bad tags: "Paris" (too obvious), "Unknown" (too vague), "Science" (too broad)
+✅ Good tags: "Wave Rebel", "Twisted Ladder", "Lion Voice", "Dancing Goats"
+❌ Bad tags: "Paris" (too obvious/gives answer), "Unknown" (too vague),
+   "Science" (too broad), "Wave" (only 1 word), "Quantum Theory" (3 words)
 
 ═══════════════════════════════════════════
               PLAYER CONTEXT
@@ -327,7 +346,7 @@ The JSON object MUST match this exact schema:
         "points": "[100|200|300|400|500]",
         "lens": "[Unique lens from the 13]",
         "form": "[Unique form from the 10]",
-        "tag": "[1-2 word thematic hint — intriguing, not revealing]",
+        "tag": "[EXACTLY 2 words — cryptic, evocative, no answer words]",
         "backdoor_type": "[${ALL_BACKDOORS.join(' / ')}]",
         "backdoor_logic": {
           "opening_hook": "[The specific, intriguing opener]",
@@ -347,7 +366,7 @@ The JSON object MUST match this exact schema:
       },
       "lens": "string",
       "form": "string",
-      "tag": "string (1-2 words)",
+      "tag": "string (EXACTLY 2 words — cryptic hint)",
       "question_text": "string (~25 words, one sentence, hard max 30)",
       "answer_text": "string",
       "options": ["wrong1", "wrong2", "correct", "wrong3"],
@@ -366,6 +385,8 @@ The JSON object MUST match this exact schema:
 ❌ Start with banned starters
 ❌ Use the same lens or form twice
 ❌ Make tags that reveal the answer
+❌ Generate tags that are 1 word or 3+ words — must be EXACTLY 2
+❌ Include answer words in the tag (e.g. if answer is "Nintendo", "Nintendo" is banned from the tag)
 ❌ Write rambling questions over 30 words
 ❌ Skip the backdoor
 ❌ Force wordplay/anagram backdoors where they don't naturally fit
@@ -541,9 +562,17 @@ ${describeBackdoorSubset(backdoors)}
    • If a topic is broad, ensure questions feature global players, international 
      events, foreign-language landmarks, or non-Western history.
 
+7. EVERY QUESTION NEEDS A TAG — EXACTLY 2 WORDS.
+   The tag is a cryptic hint displayed to players for betting/intuition modes.
+   - 🔴 EXACTLY 2 words — never 1, never 3
+   - NO words from the answer_text (not even partial)
+   - NO verbatim words from question_text (synonyms are fine)
+   - Evoke the feel of the question without revealing it
+   - All tags across the set must be UNIQUE
+
 🟡 SHOULD (aim for these, but prioritize natural phrasing):
 
-5. ONE SENTENCE with ~25 words. Shorter is punchier. If a brilliant
+8. ONE SENTENCE with ~25 words. Shorter is punchier. If a brilliant
    question needs 26-27 words, that's better than a forced 22-word mess.
    Just don't ramble — every word should earn its place.
    (Note: single-sentence is strongly preferred — multi-sentence questions
@@ -555,13 +584,13 @@ ${describeBackdoorSubset(backdoors)}
    anywhere in the question itself — not even as a substring or partial match.
    The answer must be deducible from clues, synonyms, and context only.
 
-7. MICRO-PYRAMIDAL FLOW:
+8. MICRO-PYRAMIDAL FLOW:
    • Opening (~40%): Lead with the specific, expert-level hook
    • Middle (~40%): Bridge context connecting the hook to common knowledge
    • Closing (~20%): The giveaway anchor — a recognizable detail anyone can grab
    Think in proportions, not exact word counts. The giveaway should land near the end.
 
-8. DIFFICULTY RAMP:
+9. DIFFICULTY RAMP:
    • Q1-2: Easy (hospitable entry, build confidence)
    • Q3-5: Medium (raise stakes, introduce twists)
    • Q6-8: Challenging (require connections and deduction)
@@ -598,6 +627,7 @@ The JSON object MUST match this exact schema:
       "planning": {
         "lens": "[One of: ${lenses.join(' / ')}]",
         "form": "[One of: ${forms.join(' / ')}]",
+        "tag": "[EXACTLY 2 words — cryptic, evocative, no answer words]",
         "backdoor_type": "[${backdoorList}]",
         "backdoor_logic": {
           "opening_hook": "[The specific, intriguing opener]",
@@ -610,11 +640,13 @@ The JSON object MUST match this exact schema:
           "word_count": "[approximate — aim for ~25, hard max 30]",
           "banned_starter_avoided": true,
           "micro_pyramidal_flow": true,
-          "backdoor_present": true
+          "backdoor_present": true,
+          "tag_valid": true
         }
       },
       "lens": "string",
-      "form": "string", 
+      "form": "string",
+      "tag": "string (EXACTLY 2 words — cryptic hint)",
       "question_text": "string (~25 words, one sentence, hard max 30)",
       "answer_text": "string",
       "options": ["wrong1", "wrong2", "correct", "wrong3"],
@@ -636,6 +668,8 @@ The JSON object MUST match this exact schema:
 ❌ Write rambling questions over 30 words
 ❌ Make wrong options that are jokes or obviously wrong
 ❌ Use lenses, forms, or backdoors NOT in the available lists above
+❌ Generate tags that are 1 word or 3+ words — must be EXACTLY 2
+❌ Include answer words in the tag (e.g. if answer is "Nintendo", "Nintendo" is banned from the tag)
 ❌ Include the answer_text as a substring anywhere in the question_text
    (e.g. if answer is "Nintendo", "Nintendo" is banned from the question)
 `;

@@ -155,7 +155,7 @@ export interface QuizGambitQuestion {
   backdoor_explanation: string;            // How to deduce the answer without prior knowledge
   points: number;                          // 100–500
   difficulty_tier: DifficultyTier;
-  tag?: string;                            // 1-2 word thematic hint for betting/intuition grid (grid mode only)
+  tag?: string;                            // EXACTLY 2-word cryptic hint for betting/intuition grid (no answer words)
 }
 
 // ─── XML Analysis Block Types ───────────────────────────────────────
