@@ -105,6 +105,8 @@ export const store = {
   },
   clearLocalGameSettings(): void {
     sessionStorage.removeItem("qb_local_game");
+    // Also clear solo SRS history so new games start fresh
+    localStorage.removeItem("qb_solo_history");
   },
 
   // ── Recent Topics (for AI generator quick-pick in Topic mode) ──────

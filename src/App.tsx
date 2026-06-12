@@ -20,6 +20,7 @@ import ClayPrototype from "./components/ClayPrototype";
 import LinksBoardV3 from "./components/LinksBoardV3";
 import LinksSprintBoardV3 from "./components/LinksSprintBoardV3";
 import BuzzerPlayerView from "./components/BuzzerPlayerView";
+import GameOverDemo from "./components/GameOverDemo";
 
 // ── Solo Mode Components ──────────────────────────────────────────────
 import SoloModeSelection from "./components/SoloModeSelection";
@@ -275,6 +276,7 @@ export default function App() {
             {/* ── Prototype (dev only) ───────────────────────────── */}
             <Route path="/prototype" element={<ClayPrototype />} />
             <Route path="/prototype-links" element={<LinksBoardV3 />} />
+            <Route path="/demo/gameover" element={<GameOverDemo />} />
 
             {/* ── Solo Modes ────────────────────────────────────── */}
             <Route path="/solo" element={<SoloModeSelection />} />

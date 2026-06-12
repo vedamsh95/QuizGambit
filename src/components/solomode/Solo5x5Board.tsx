@@ -38,6 +38,7 @@ interface GameSettings {
   rounds: number;
   timer: number;
   randomPicker: boolean;
+  optionsMode?: boolean; // true = MCQ auto-grade, false/undefined = text + self-grade
   categories: any[];
   roundCategories: Record<number, any[]>;
 }
@@ -108,15 +109,19 @@ export default function Solo5x5Board() {
   const [gameOver, setGameOver] = useState(false);
   const [loading, setLoading] = useState(true);
   const [round, setRound] = useState(1);
-  const [eliminatorCleared, setEliminatorCleared] = useState(false);
+  const [starRowBonusClaimed, setStarRowBonusClaimed] = useState(false);
+  const [starColBonusClaimed, setStarColBonusClaimed] = useState(false);
   const [randomPicker, setRandomPicker] = useState(true);
   const [showOptions, setShowOptions] = useState(false);
 
   // Stats for end screen
   const [answerTimes, setAnswerTimes] = useState<number[]>([]);
+  const [tierStats, setTierStats] = useState<Record<number, { correct: number; wrong: number; times: number[] }>>({});
+  const [categoryStats, setCategoryStats] = useState<Record<string, { correct: number; wrong: number; points: number; times: number[] }>>({});
   const lastAnswerTime = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoPickRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoGradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load settings & build grid ──────────────────────────────────────
   useEffect(() => {
@@ -134,7 +139,7 @@ export default function Solo5x5Board() {
   const buildGrid = useCallback((s: GameSettings, roundNum: number) => {
     const roundCats = s.roundCategories[roundNum] || [];
     const newGrid: GridTile[][] = [];
-    const allQuestions: { catName: string; data: any[] }[] = roundCats;
+    const allQuestions = roundCats as any[];
 
     // Build category column headers
     const catHeaders = roundCats.map((cat: any, idx: number) => ({
@@ -155,21 +160,22 @@ export default function Solo5x5Board() {
         const colorIdx = col % 5;
         let question: Question | null = null;
         let catName = "";
-        for (const catData of allQuestions) {
+        // Each column maps to one category — column 0 = cat[0], column 1 = cat[1], etc.
+        const catData = allQuestions[col];
+        if (catData) {
           const q = (catData.data || []).find(
             (q: any) => q.points === points
           );
           if (q) {
             question = {
-              id: q.id || `${catData.catName}-${points}`,
+              id: q.id || q.question_id || `${catData.catName || catData.name}-${points}`,
               question_text: q.question_text || q.question,
               options: q.options || [],
-              correct_answer: q.correct_answer,
+              correct_answer: q.answer_text || q.correct_answer,
               points: q.points,
               category: catData.catName || (catData as any).name,
             };
             catName = q.category || catData.catName || (catData as any).name || "";
-            break;
           }
         }
 
@@ -186,13 +192,49 @@ export default function Solo5x5Board() {
       newGrid.push(gridRow);
     }
     setGrid(newGrid);
-    setEliminatorCleared(false);
+    setStarRowBonusClaimed(false);
+    setStarColBonusClaimed(false);
   }, []);
+
+  // ── Round transition helper ───────────────────────────────────────────
+  const advanceToRound = useCallback((s: GameSettings, nextRound: number) => {
+    setRound(nextRound);
+    buildGrid(s, nextRound);
+  }, [buildGrid]);
+
+  // ── Star Bonus: check if the star tile's row/column is fully completed ──
+  const checkStarBonus = useCallback((currentGrid: GridTile[][]) => {
+    let starRow = -1, starCol = -1;
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (currentGrid[r]?.[c]?.isEliminator) { starRow = r; starCol = c; break; }
+      }
+      if (starRow >= 0) break;
+    }
+    if (starRow < 0) return;
+
+    let bonus = 0;
+    const rowComplete = currentGrid[starRow]?.every(t => t.state === "revealed" || t.state === "disabled");
+    if (rowComplete && !starRowBonusClaimed) {
+      setStarRowBonusClaimed(true);
+      bonus += currentGrid[starRow].reduce((s, t) => s + t.points, 0);
+    }
+    const colComplete = currentGrid.every(r => (r[starCol]?.state === "revealed" || r[starCol]?.state === "disabled"));
+    if (colComplete && !starColBonusClaimed) {
+      setStarColBonusClaimed(true);
+      bonus += currentGrid.reduce((s, r) => s + (r[starCol]?.points || 0), 0);
+    }
+    if (bonus > 0) {
+      setScore(s => s + bonus);
+    }
+  }, [starRowBonusClaimed, starColBonusClaimed]);
 
   // ── Handle tile click ────────────────────────────────────────────────
   const handleTileClick = useCallback(
     (row: number, col: number) => {
       if (isTimerRunning || activeTile) return;
+      // Clear any pending auto-grade from previous question
+      if (autoGradeTimerRef.current) clearTimeout(autoGradeTimerRef.current);
       const tile = grid[row]?.[col];
       if (!tile || tile.state !== "unrevealed") return;
 
@@ -213,6 +255,7 @@ export default function Solo5x5Board() {
     if (!activeTile || !activeCoords) return;
     setIsTimerRunning(false);
     if (timerRef.current) clearInterval(timerRef.current);
+    if (autoGradeTimerRef.current) { clearTimeout(autoGradeTimerRef.current); autoGradeTimerRef.current = null; }
 
     setGrid((prev) => {
       const newGrid = [...prev.map((r) => [...r])];
@@ -230,7 +273,11 @@ export default function Solo5x5Board() {
     setSelectedAnswer(null);
     setIsAnswerRevealed(false);
     setShowOptions(false);
-  }, [activeTile, activeCoords]);
+    // Defer star bonus check until grid state has updated
+    setTimeout(() => {
+      setGrid((prev) => { checkStarBonus(prev); return prev; });
+    }, 100);
+  }, [activeTile, activeCoords, checkStarBonus]);
 
   // ── Timer logic ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -256,26 +303,13 @@ export default function Solo5x5Board() {
     }
   }, [timer, isTimerRunning]);
 
-  // ── Handle answer select ─────────────────────────────────────────────
-  const handleAnswerSelect = useCallback(
-    (answer: string) => {
-      if (!isTimerRunning || isAnswerRevealed) return;
-      setIsTimerRunning(false);
-      setSelectedAnswer(answer);
-      setIsAnswerRevealed(true);
-    },
-    [isTimerRunning, isAnswerRevealed]
-  );
+  // Derived options mode (must be before callbacks that reference it in deps)
+  const optionsMode = settings?.optionsMode !== false; // default true for backward compat
 
-  // ── Self-grade ──────────────────────────────────────────────────────
-  const handleSelfGrade = useCallback(
-    (gotItRight: boolean) => {
+  // ── Shared scoring logic (used by both auto-grade and self-grade) ──
+  const applyGrade = useCallback(
+    (isCorrect: boolean) => {
       if (!activeTile || !activeCoords) return;
-
-      const actualCorrect = selectedAnswer === activeTile.question?.correct_answer;
-      const isCorrect = selectedAnswer !== null
-        ? (gotItRight && actualCorrect) || (!gotItRight && !actualCorrect)
-        : false;
 
       const timeSpent = (Date.now() - lastAnswerTime.current) / 1000;
       const basePoints = activeTile.points;
@@ -292,28 +326,6 @@ export default function Solo5x5Board() {
         const maxTime = settings?.timer || 15;
         const timeBonus = Math.round(basePoints * 0.5 * Math.max(0, (maxTime - timeSpent) / maxTime));
         earnedPoints += timeBonus;
-
-        if (activeTile.isEliminator && !eliminatorCleared) {
-          setEliminatorCleared(true);
-          const { row, col } = activeCoords;
-          setGrid((prev) => {
-            const newGrid = [...prev.map((r) => [...r])];
-            for (let c = 0; c < 5; c++) {
-              if (newGrid[row][c].state === "unrevealed" && !(row === activeCoords.row && c === activeCoords.col)) {
-                earnedPoints += newGrid[row][c].points;
-                newGrid[row][c] = { ...newGrid[row][c], state: "revealed", answer: "CLEARED" };
-              }
-            }
-            for (let r = 0; r < 5; r++) {
-              if (newGrid[r][col].state === "unrevealed" && !(r === activeCoords.row && col === activeCoords.col)) {
-                earnedPoints += newGrid[r][col].points;
-                newGrid[r][col] = { ...newGrid[r][col], state: "revealed", answer: "CLEARED" };
-              }
-            }
-            return newGrid;
-          });
-        }
-
         setCorrectCount((c) => c + 1);
       } else {
         setStreak(0);
@@ -322,6 +334,20 @@ export default function Solo5x5Board() {
 
       setScore((s) => s + earnedPoints);
       setAnswerTimes((prev) => [...prev, timeSpent]);
+
+      // Track per-tier stats
+      setTierStats((prev) => {
+        const pts = activeTile.points;
+        const tier = prev[pts] || { correct: 0, wrong: 0, times: [] };
+        return { ...prev, [pts]: { correct: tier.correct + (isCorrect ? 1 : 0), wrong: tier.wrong + (isCorrect ? 0 : 1), times: [...tier.times, timeSpent] } };
+      });
+
+      // Track per-category stats
+      setCategoryStats((prev) => {
+        const cat = getCategoryDisplayName(activeTile.question?.category || activeTile.categoryName || "Unknown");
+        const existing = prev[cat] || { correct: 0, wrong: 0, points: 0, times: [] };
+        return { ...prev, [cat]: { correct: existing.correct + (isCorrect ? 1 : 0), wrong: existing.wrong + (isCorrect ? 0 : 1), points: existing.points + earnedPoints, times: [...existing.times, timeSpent] } };
+      });
 
       setGrid((prev) => {
         const newGrid = [...prev.map((r) => [...r])];
@@ -339,9 +365,60 @@ export default function Solo5x5Board() {
       setSelectedAnswer(null);
       setIsAnswerRevealed(false);
       setShowOptions(false);
+      // Use a ref-based pattern: defer the check so grid state has updated
+      setTimeout(() => {
+        setGrid((prev) => { checkStarBonus(prev); return prev; });
+      }, 100);
     },
-    [activeTile, activeCoords, selectedAnswer, streak, bestStreak, settings, eliminatorCleared]
+    [activeTile, activeCoords, streak, bestStreak, settings, checkStarBonus]
   );
+
+  // ── Handle answer select ─────────────────────────────────────────────
+  const handleAnswerSelect = useCallback(
+    (answer: string) => {
+      if (!isTimerRunning || isAnswerRevealed) return;
+      setIsTimerRunning(false);
+      setSelectedAnswer(answer);
+
+      // Auto-grade when options mode is ON: compare to correct answer immediately
+      const optsOn = settings?.optionsMode !== false;
+      if (optsOn) {
+        const isCorrect = answer === activeTile?.question?.correct_answer;
+        setIsAnswerRevealed(true);
+        // Delay auto-grade slightly so user sees the highlighted correct/wrong state
+        if (autoGradeTimerRef.current) clearTimeout(autoGradeTimerRef.current);
+        autoGradeTimerRef.current = setTimeout(() => {
+          applyGrade(isCorrect);
+        }, 800);
+      } else {
+        setIsAnswerRevealed(true);
+      }
+    },
+    [isTimerRunning, isAnswerRevealed, settings, activeTile, applyGrade]
+  );
+
+  // ── Self-grade (options mode OFF or no-options questions) ──────────
+  const handleSelfGrade = useCallback(
+    (gotItRight: boolean) => {
+      if (!activeTile || !activeCoords) return;
+
+      // Verify self-grade against actual correct answer when user selected an option
+      const actualCorrect = selectedAnswer === activeTile.question?.correct_answer;
+      const isCorrect = selectedAnswer !== null
+        ? (gotItRight && actualCorrect) || (!gotItRight && !actualCorrect)
+        : gotItRight; // text-only mode: trust the self-grade
+
+      applyGrade(isCorrect);
+    },
+    [activeTile, activeCoords, selectedAnswer, applyGrade]
+  );
+
+  // Cleanup auto-grade timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoGradeTimerRef.current) clearTimeout(autoGradeTimerRef.current);
+    };
+  }, []);
 
   // ── Auto-pick next tile (random picker) ──────────────────────────────
   useEffect(() => {
@@ -384,12 +461,31 @@ export default function Solo5x5Board() {
     setRandomPicker((prev) => !prev);
   }, []);
 
+  // ── Game over / round transition detection (for manual pick mode; auto-pick handles itself) ──
+  useEffect(() => {
+    if (loading || gameOver || activeTile || randomPicker) return;
+    const allDone = grid.flat().every(t => t.state !== "unrevealed");
+    if (!allDone || grid.length === 0) return;
+
+    // Small delay so the last tile's answer is visible
+    const tm = setTimeout(() => {
+      if (round < (settings?.rounds || 1)) {
+        advanceToRound(settings!, round + 1);
+      } else {
+        setGameOver(true);
+      }
+    }, 800);
+    return () => clearTimeout(tm);
+  }, [grid, activeTile, loading, gameOver, round, settings, advanceToRound]);
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if (isAnswerRevealed && activeTile) {
+      // Allow self-grade via keyboard when options mode is OFF, or
+      // when timer expired in auto-grade mode (user didn't select an option)
+      if (isAnswerRevealed && activeTile && (!optionsMode || (optionsMode && !selectedAnswer))) {
         if (e.key === "y" || e.key === "Y") {
           handleSelfGrade(true);
         } else if (e.key === "n" || e.key === "N") {
@@ -403,7 +499,7 @@ export default function Solo5x5Board() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isAnswerRevealed, activeTile, handleSelfGrade, handleSkipTile]);
+  }, [isAnswerRevealed, activeTile, handleSelfGrade, handleSkipTile, optionsMode, selectedAnswer]);
 
   // ── Derived data ─────────────────────────────────────────────────────
   const unrevealedCount = useMemo(
@@ -434,6 +530,11 @@ export default function Solo5x5Board() {
         wrongCount={wrongCount}
         bestStreak={bestStreak}
         answerTimes={answerTimes}
+        tierStats={tierStats}
+        categoryStats={categoryStats}
+        starRowBonusEarned={starRowBonusClaimed}
+        starColBonusEarned={starColBonusClaimed}
+        totalRounds={settings?.rounds || 1}
         onPlayAgain={() => {
           try { store.clearLocalGameSettings(); } catch {}
           navigate("/solo/5x5");
@@ -560,7 +661,7 @@ export default function Solo5x5Board() {
       )}
 
       {/* ── Main content ──────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center p-3 sm:p-4 gap-3 overflow-y-auto">
+      <div className={`flex-1 flex flex-col items-center p-3 sm:p-4 gap-3 overflow-y-auto ${activeTile ? "justify-center" : ""}`}>
         {/* ── Category headers ─────────────────────────────────── */}
         {!activeTile && categoryColumns.length > 0 && (
           <div className="w-full max-w-lg mx-auto grid grid-cols-5 gap-1.5 sm:gap-2 mb-1">
@@ -581,7 +682,8 @@ export default function Solo5x5Board() {
           </div>
         )}
 
-        {/* ── 5×5 Grid ─────────────────────────────────────────── */}
+        {/* ── 5×5 Grid (hidden during question) ──────────── */}
+        {!activeTile && (
         <div className="w-full max-w-lg mx-auto">
           <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
             {grid.map((row, rIdx) =>
@@ -599,7 +701,7 @@ export default function Solo5x5Board() {
                     }
                     className="w-full h-full"
                   />
-                  {/* Eliminator indicator */}
+                  {/* Star bonus indicator */}
                   {tile.isEliminator && tile.state === "unrevealed" && (
                     <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-butter flex items-center justify-center shadow-md z-10">
                       <Star className="w-2.5 h-2.5 text-white" />
@@ -610,6 +712,7 @@ export default function Solo5x5Board() {
             )}
           </div>
         </div>
+        )}
 
         {/* ── Question overlay ──────────────────────────────────── */}
         {activeTile && activeTile.question && (
@@ -630,12 +733,12 @@ export default function Solo5x5Board() {
                 · {activeTile.points} PTS
               </ClayBadge>
 
-              {/* Eliminator banner */}
+              {/* Star bonus banner */}
               {activeTile.isEliminator && !isAnswerRevealed && (
                 <div className="bg-butter-light border border-butter/20 rounded-xl p-2.5 flex items-center gap-2">
                   <Star className="w-4 h-4 text-butter flex-shrink-0" />
                   <span className="text-[11px] font-bold text-butter">
-                    {t("solo.eliminatorDesc")}
+                    ⭐ Star Tile — Complete this row or column for bonus points!
                   </span>
                 </div>
               )}
@@ -678,8 +781,8 @@ export default function Solo5x5Board() {
                 )}
               </div>
 
-              {/* Answer options */}
-              {activeTile.question.options && activeTile.question.options.length > 0 && (
+              {/* Answer options — only when optionsMode is ON and question has options */}
+              {optionsMode && activeTile.question.options && activeTile.question.options.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   {activeTile.question.options.map((opt, idx) => {
                     const isSelected = selectedAnswer === opt;
@@ -720,8 +823,8 @@ export default function Solo5x5Board() {
                 </div>
               )}
 
-              {/* No options - reveal answer */}
-              {(!activeTile.question.options || activeTile.question.options.length === 0) && !isAnswerRevealed && (
+              {/* No options (or optionsMode OFF) — reveal answer button */}
+              {(!optionsMode || !activeTile.question.options || activeTile.question.options.length === 0) && !isAnswerRevealed && (
                 <ClayButton
                   variant="success"
                   size="lg"
@@ -733,15 +836,15 @@ export default function Solo5x5Board() {
                 </ClayButton>
               )}
 
-              {/* Revealed answer (no options case) */}
-              {(!activeTile.question.options || activeTile.question.options.length === 0) && isAnswerRevealed && (
+              {/* Revealed answer (no-options / options-off case) */}
+              {(!optionsMode || !activeTile.question.options || activeTile.question.options.length === 0) && isAnswerRevealed && (
                 <div className="p-4 bg-mint-light rounded-2xl border border-mint/20 text-mint font-bold text-lg text-center">
                   {activeTile.question.correct_answer}
                 </div>
               )}
 
-              {/* Self-grade buttons (after reveal) */}
-              {isAnswerRevealed && (
+              {/* Self-grade buttons — when options mode is OFF, or timer expired in auto-grade mode */}
+              {isAnswerRevealed && (!optionsMode || !activeTile.question.options || activeTile.question.options.length === 0 || (optionsMode && !selectedAnswer)) && (
                 <div className="flex gap-3 animate-slide-up-fade pt-1">
                   <button
                     onClick={() => handleSelfGrade(true)}
@@ -777,8 +880,8 @@ export default function Solo5x5Board() {
           </div>
         )}
 
-        {/* ── Keyboard hint ──────────────────────────────────────── */}
-        {isAnswerRevealed && activeTile && (
+        {/* ── Keyboard hint (only in self-grade mode) ──────────── */}
+        {isAnswerRevealed && activeTile && !optionsMode && (
           <p className="text-[10px] font-bold text-warm-gray/40 text-center">
             Press <kbd className="px-1 py-0.5 rounded bg-warm-gray/10 text-warm-gray/60 font-mono text-[9px]">Y</kbd> /{" "}
             <kbd className="px-1 py-0.5 rounded bg-warm-gray/10 text-warm-gray/60 font-mono text-[9px]">N</kbd>{" "}

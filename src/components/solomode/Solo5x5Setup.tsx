@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { smartSelectQuestions } from "../../lib/smartSelection";
 import { store } from "../../lib/storage";
-import { ArrowLeft, Play, Check, Zap } from "lucide-react";
+import { ArrowLeft, Play, Check, Zap, ListChecks, Shuffle, RefreshCw } from "lucide-react";
 import ClayButton from "../ui/ClayButton";
 
 interface Category {
@@ -25,6 +25,8 @@ export default function Solo5x5Setup() {
   const [rounds, setRounds] = useState(3);
   const [timer, setTimer] = useState(15);
   const [randomPicker, setRandomPicker] = useState(true);
+  const [optionsMode, setOptionsMode] = useState(true); // true = MCQ options, auto-grade; false = text answer, self-grade
+  const [autoPickCategories, setAutoPickCategories] = useState(false); // auto-select 5 random categories
   const [isStarting, setIsStarting] = useState(false);
 
   // Fetch categories on mount
@@ -37,6 +39,20 @@ export default function Solo5x5Setup() {
     };
     fetchCats();
   }, []);
+
+  // Auto-pick 5 random categories when toggle is enabled
+  const rollRandomCategories = useCallback(() => {
+    if (categories.length === 0) return;
+    const shuffled = [...categories].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, Math.min(5, categories.length));
+    setSelectedCats(new Set(picked.map((c) => c.id)));
+  }, [categories]);
+
+  useEffect(() => {
+    if (autoPickCategories && categories.length > 0 && selectedCats.size === 0) {
+      rollRandomCategories();
+    }
+  }, [autoPickCategories, categories]);
 
   const toggleCategory = useCallback((id: string) => {
     setSelectedCats((prev) => {
@@ -74,6 +90,7 @@ export default function Solo5x5Setup() {
         rounds,
         timer,
         randomPicker,
+        optionsMode,
         categories: chosenCategories,
         roundCategories: processedCategories,
       };
@@ -85,7 +102,7 @@ export default function Solo5x5Setup() {
     } finally {
       setIsStarting(false);
     }
-  }, [selectedCats, categories, rounds, timer, randomPicker, navigate]);
+  }, [selectedCats, categories, rounds, timer, randomPicker, optionsMode, navigate]);
 
   const canStart = selectedCats.size > 0;
 
@@ -197,6 +214,76 @@ export default function Solo5x5Setup() {
               />
             </button>
           </div>
+
+          {/* Options Mode toggle */}
+          <div className="clay p-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-outfit font-bold text-sm text-plum flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-mint" />
+                MCQ Options
+              </h3>
+              <p className="text-[10px] text-warm-gray/50 mt-0.5">
+                {optionsMode
+                  ? "Multiple choice — auto-graded when you select"
+                  : "Text answer — reveal then self-grade"}
+              </p>
+            </div>
+            <button
+              onClick={() => setOptionsMode(!optionsMode)}
+              className={`relative w-14 h-8 rounded-full transition-all ${
+                optionsMode ? "bg-mint" : "bg-warm-gray/30"
+              }`}
+            >
+              <span
+                className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all ${
+                  optionsMode ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Auto-pick Categories toggle */}
+          <div className="clay p-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-outfit font-bold text-sm text-plum flex items-center gap-2">
+                <Shuffle className="w-4 h-4 text-butter" />
+                Auto-pick Categories
+              </h3>
+              <p className="text-[10px] text-warm-gray/50 mt-0.5">
+                {autoPickCategories
+                  ? "5 random categories selected for you"
+                  : "Choose your own categories below"}
+              </p>
+            </div>
+            <button
+              onClick={() => setAutoPickCategories(!autoPickCategories)}
+              className={`relative w-14 h-8 rounded-full transition-all ${
+                autoPickCategories ? "bg-butter" : "bg-warm-gray/30"
+              }`}
+            >
+              <span
+                className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all ${
+                  autoPickCategories ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Re-roll button (only when auto-pick is on) */}
+          {autoPickCategories && (
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-[10px] font-bold text-warm-gray/50">
+                {selectedCats.size} categories picked
+              </span>
+              <button
+                onClick={rollRandomCategories}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-butter-light text-butter text-xs font-bold hover:bg-butter/20 transition-all"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Re-roll
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Category grid */}

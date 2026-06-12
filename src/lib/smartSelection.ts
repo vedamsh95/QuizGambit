@@ -14,8 +14,8 @@ export async function smartSelectQuestions(
     const history = JSON.parse(localStorage.getItem(historyKey) || '{}')
     const seenIds = new Set(history[categoryName] || [])
 
-    // 2. Filter available
-    let available = allQuestions.filter(q => !seenIds.has(q.id))
+    // 2. Filter available (use question_id first, fall back to id for backward compat)
+    let available = allQuestions.filter(q => !seenIds.has(q.question_id || q.id))
 
     // Fallback: If ran out, reset history for this category
     if (available.length < targetCount) {
@@ -48,9 +48,9 @@ export async function smartSelectQuestions(
             const pick = pool[Math.floor(Math.random() * pool.length)]
             selected.push(pick)
 
-            // Mark as seen
+            // Mark as seen (use question_id first, fall back to id)
             if (!history[categoryName]) history[categoryName] = []
-            history[categoryName].push(pick.id)
+            history[categoryName].push(pick.question_id || pick.id)
         } else {
             // Tier missing? We'll backfill later
         }
@@ -58,9 +58,10 @@ export async function smartSelectQuestions(
 
     // 5. Backfill if specific tiers were empty but we have space
     let attempts = 0
+    const qid = (q: any) => q.question_id || q.id;
     while (selected.length < targetCount && attempts < 100) {
         const randomQ = available[Math.floor(Math.random() * available.length)]
-        if (!selected.find(s => s.id === randomQ.id)) {
+        if (!selected.find(s => qid(s) === qid(randomQ))) {
             selected.push(randomQ)
         }
         attempts++
