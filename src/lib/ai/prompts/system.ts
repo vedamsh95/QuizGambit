@@ -511,23 +511,30 @@ ${describeBackdoorSubset(backdoors)}
    "How many", "In what year"
    The answer noun must appear in the second half of the sentence.
 
-2. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
+2. 🔴 ABSOLUTE TRUTH RULE (NO FABRICATION):
+   Every factual claim in your question MUST be verifiable. You are NOT writing fiction.
+   - Do NOT invent anecdotes, quotes, or stories unless you are 100% sure they are real.
+   - Do NOT attribute specific numbers (costs, percentages, distances) unless they are real.
+   - If you're unsure about a fact, use a different fact you ARE sure about.
+   - "Creative" means creative FRAMING of real facts, not inventing fake ones.
+
+3. EVERY QUESTION MUST HAVE A "BACKDOOR" — a secondary logical pathway.
    Choose ONLY from the available backdoors listed above.
    If a player doesn't know the exact fact, they must be able to figure it 
    out from contextual clues, synonyms, patterns, or sensory descriptions.
 
-3. ZERO SYNTACTIC REPETITION: Use all forms at least once across the set.
+4. ZERO SYNTACTIC REPETITION: Use all forms at least once across the set.
    No two consecutive questions may use the same form. Pick whichever form 
    best fits each lens/topic — you are not forced into a rotation order.
    No two questions may feel like the same "type" of question.
 
-4. WRONG OPTIONS MUST BE TEMPTING:
+5. WRONG OPTIONS MUST BE TEMPTING:
    • At least one common misconception
    • At least one closely related but incorrect item  
    • At least one plausible alternate interpretation
    Never include obviously wrong or joke options.
 
-5. GLOBAL CULTURAL & GEOGRAPHIC DIVERSITY:
+6. GLOBAL CULTURAL & GEOGRAPHIC DIVERSITY:
    • Do not default to US or European history, pop culture, geography, or sports.
    • Actively pull facts from all seven continents (especially Asia, Africa, 
      South America, the Middle East, and Oceania).

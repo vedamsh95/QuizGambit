@@ -62,6 +62,8 @@ ${styleRule}
 
 5. No two subtopics should overlap in content. Each must be distinct.
 
+6. ABSOLUTE TRUTH RULE (NO FABRICATION): Every suggested subtopic MUST be a real, factually accurate category, historical area, or concept related to the theme. Do NOT generate fictional, imaginary, or non-existent subtopics.
+
 IMPORTANT: Output ONLY valid JSON in this exact format (no markdown, no explanations):
 {
   "subtopics": [
@@ -114,6 +116,7 @@ REQUIREMENTS:
 - Should use a Knowledge Domain underrepresented. Used domains: [${usedDomains.join(", ")}]
 - Should use a Quiz Style underrepresented. Used styles: [${usedStyles.join(", ")}]
 - Must sound like a great quiz round title — creative, intriguing, not generic
+- ABSOLUTE TRUTH RULE (NO FABRICATION): The suggested subtopic MUST be a real, factually accurate category, historical area, or concept related to the theme. Do NOT generate fictional, imaginary, or non-existent subtopics.
 
 IMPORTANT: Output ONLY valid JSON in this exact format:
 {

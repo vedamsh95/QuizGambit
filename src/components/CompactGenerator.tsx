@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ArrowLeft, Sparkles, ChevronDown, LogIn } from "lucide-react";
+import { ArrowLeft, Sparkles, ChevronDown, LogIn, Pencil, X, Plus, Save, RefreshCw, Loader2, HelpCircle } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "../lib/supabase";
 import { store } from "../lib/storage";
 import { generateCompactQuizQuestions } from "../lib/ai";
 import type { PlayerPersona, LensType, FormType, BackdoorType, GenerationResult } from "../lib/ai/types";
-import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS } from "../lib/ai/types";
+import { ALL_LENSES, ALL_FORMS, ALL_BACKDOORS, ALL_TOPIC_TYPES, ALL_KNOWLEDGE_DOMAINS, ALL_QUIZ_STYLES } from "../lib/ai/types";
 import {
   ProviderConfig,
   TopicInput,
@@ -26,6 +26,32 @@ import { generateThemeSubtopics, rerollSubtopic } from "../lib/ai/themes";
 import { determinePhase, PHASE_ICONS } from "../lib/phaseDiscovery";
 import type { PhaseConfig } from "../lib/phaseDiscovery";
 import Auth from "./Auth";
+
+// ─── Theme subtopic metadata for list rendering ──────────────────────
+
+const TYPE_META: Record<TopicType, { icon: string; label: string }> = {
+  Core: { icon: "🎯", label: "Core" },
+  Niche: { icon: "🔬", label: "Niche" },
+  Human: { icon: "👤", label: "Human" },
+  Surprise: { icon: "💡", label: "Surprise" },
+  Scale: { icon: "🌌", label: "Scale" },
+  Mystery: { icon: "❓", label: "Mystery" },
+};
+
+const DOMAIN_META: Record<KnowledgeDomain, { color: string }> = {
+  Facts: { color: "text-sky" },
+  Stories: { color: "text-soft-purple" },
+  Concepts: { color: "text-mint" },
+  Data: { color: "text-peach" },
+  Connections: { color: "text-butter" },
+};
+
+const STYLE_META: Record<QuizStyle, { icon: string }> = {
+  Classic: { icon: "📋" },
+  Trick: { icon: "🎭" },
+  Visual: { icon: "👁️" },
+  Timeline: { icon: "⏳" },
+};
 
 // ─── Lens/Form/Backdoor metadata for pickers ────────────────────────
 
@@ -50,6 +76,30 @@ const BACKDOOR_ITEMS = ALL_BACKDOORS.map((b: BackdoorType) => ({
   label: b,
   subtitle: getBackdoorSubtitle(b),
   icon: getBackdoorIcon(b),
+  color: "mint" as const,
+}));
+
+const THEME_TYPE_ITEMS = ALL_TOPIC_TYPES.map((t) => ({
+  id: t,
+  label: t,
+  subtitle: t === "Core" ? "Foundational" : t === "Niche" ? "Deep dive" : t === "Human" ? "Biography/Culture" : t === "Surprise" ? "Unexpected/Fun" : t === "Scale" ? "Big numbers" : "Obscure/Mystery",
+  icon: TYPE_META[t]?.icon || "📝",
+  color: "purple" as const,
+}));
+
+const THEME_DOMAIN_ITEMS = ALL_KNOWLEDGE_DOMAINS.map((d) => ({
+  id: d,
+  label: d,
+  subtitle: d === "Facts" ? "Raw info" : d === "Stories" ? "Narrative" : d === "Concepts" ? "Theories/Ideas" : d === "Data" ? "Stats/Charts" : "Interconnections",
+  icon: d === "Facts" ? "📖" : d === "Stories" ? "🎬" : d === "Concepts" ? "🧠" : d === "Data" ? "📊" : "🔗",
+  color: "sky" as const,
+}));
+
+const THEME_STYLE_ITEMS = ALL_QUIZ_STYLES.map((s) => ({
+  id: s,
+  label: s,
+  subtitle: s === "Classic" ? "Standard Q&A" : s === "Trick" ? "Misdirection" : s === "Visual" ? "Sensory/Imagery" : "Time/History",
+  icon: STYLE_META[s]?.icon || "📋",
   color: "mint" as const,
 }));
 
@@ -245,19 +295,70 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   });
 
   // ── Generation mode ─────────────────────────────────────────────
-  const [generationMode, setGenerationMode] = useState<"topic" | "themed">("topic");
+  const [generationMode, setGenerationMode] = useState<"topic" | "themed">("themed");
+  const [showModeHelp, setShowModeHelp] = useState(false);
+  const [showStrategyHelp, setShowStrategyHelp] = useState(false);
 
-  // ── Topic mode params ────────────────────────────────────────────
-  const [topics, setTopics] = useState<string[]>([""]);
+  // ── Unified Input State ──────────────────────────────────────────
+  const [rawInput, setRawInput] = useState("");
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+
+  // Derived state/helpers to maintain compatibility with existing functions:
+  const topics = rawInput.trim() ? rawInput.split(/[,\n]+/).map(t => t.trim()).filter(Boolean) : [];
+  const theme = rawInput;
+
+  const setTopics = useCallback((list: string[]) => {
+    setRawInput(list.join(", "));
+  }, []);
+
+  const setTheme = useCallback((val: string) => {
+    setRawInput(val);
+  }, []);
 
   // ── Theme mode params ────────────────────────────────────────────
-  const [theme, setTheme] = useState("");
   const [subtopics, setSubtopics] = useState<ThemeSubtopic[]>([]);
   const [generatingSubtopics, setGeneratingSubtopics] = useState(false);
   const [rerollingIndex, setRerollingIndex] = useState<number | undefined>(undefined);
   const [appendingSubtopics, setAppendingSubtopics] = useState(false);
   const [savingSubtopics, setSavingSubtopics] = useState(false);
   const [autoPhase, setAutoPhase] = useState<PhaseConfig | null>(null);
+
+  // Subtopics inline editing state
+  const [isEditingTheme, setIsEditingTheme] = useState(false);
+  const [editThemeValue, setEditThemeValue] = useState("");
+  const [customTopic, setCustomTopic] = useState("");
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const handleRemoveSubtopic = useCallback(
+    (index: number) => {
+      setSubtopics(subtopics.filter((_, i) => i !== index));
+    },
+    [subtopics]
+  );
+
+  const handleAddCustomSubtopic = useCallback(() => {
+    const trimmed = customTopic.trim();
+    if (!trimmed) return;
+    const custom: ThemeSubtopic = {
+      name: trimmed,
+      type: "Core",
+      domain: "Facts",
+      style: "Classic",
+    };
+    setSubtopics([...subtopics, custom]);
+    setCustomTopic("");
+    setShowCustomInput(false);
+  }, [customTopic, subtopics]);
+
+  const handleSaveThemeRename = useCallback(() => {
+    const trimmed = editThemeValue.trim();
+    if (trimmed && trimmed !== theme) {
+      setRawInput(trimmed);
+      setSubtopics([]);
+    }
+    setIsEditingTheme(false);
+  }, [editThemeValue, theme]);
+
   const recentThemes = store.getRecentThemes();
   const recentTopics = store.getRecentTopics();
 
@@ -276,6 +377,15 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   );
   const [selectedBackdoors, setSelectedBackdoors] = useState<string[]>(
     ALL_BACKDOORS.map((b) => b),
+  );
+  const [selectedThemeTypes, setSelectedThemeTypes] = useState<string[]>(
+    ALL_TOPIC_TYPES.map((t) => t),
+  );
+  const [selectedThemeDomains, setSelectedThemeDomains] = useState<string[]>(
+    ALL_KNOWLEDGE_DOMAINS.map((d) => d),
+  );
+  const [selectedThemeStyles, setSelectedThemeStyles] = useState<string[]>(
+    ALL_QUIZ_STYLES.map((s) => s),
   );
   const [advancedViewMode, setAdvancedViewMode] = useState<"tiles" | "detailed">("tiles");
 
@@ -430,6 +540,7 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   const handleThemeGenerate = async () => {
     if (!theme.trim() || !apiKey) return;
 
+    setGenerationMode("themed");
     setGeneratingSubtopics(true);
     setSubtopics([]);
 
@@ -456,19 +567,42 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
       // Non-critical — proceed without exclusions if query fails
     }
 
-    // Auto-phase: detect the right matrix based on existing topic count
-    const phase = determinePhase(existingTopicInfos);
-    setAutoPhase(phase);
-    addLog(`${PHASE_ICONS[phase.phase]} Phase ${phase.phase}/4 — ${phase.label}: ${phase.rationale}`, "info");
+    // Detect if user manually changed the matrix checkboxes (not all-selected = manual mode)
+    const allTypesSelected = selectedThemeTypes.length === ALL_TOPIC_TYPES.length;
+    const allDomainsSelected = selectedThemeDomains.length === ALL_KNOWLEDGE_DOMAINS.length;
+    const allStylesSelected = selectedThemeStyles.length === ALL_QUIZ_STYLES.length;
+    const usingManualMatrix = !allTypesSelected || !allDomainsSelected || !allStylesSelected;
+
+    let effectiveTypes: TopicType[];
+    let effectiveDomains: KnowledgeDomain[];
+    let effectiveStyles: QuizStyle[];
+
+    if (usingManualMatrix) {
+      effectiveTypes = selectedThemeTypes as TopicType[];
+      effectiveDomains = selectedThemeDomains as KnowledgeDomain[];
+      effectiveStyles = selectedThemeStyles as QuizStyle[];
+      setAutoPhase(null);
+      addLog(`⚙️ Custom Theme Matrix enabled: Types (${selectedThemeTypes.length}/6), Domains (${selectedThemeDomains.length}/5), Styles (${selectedThemeStyles.length}/4)`, "info");
+    } else {
+      const phase = determinePhase(existingTopicInfos);
+      setAutoPhase(phase);
+      effectiveTypes = phase.types;
+      effectiveDomains = phase.domains;
+      effectiveStyles = phase.styles;
+      addLog(`${PHASE_ICONS[phase.phase]} Phase ${phase.phase}/4 — ${phase.label}: ${phase.rationale}`, "info");
+    }
 
     addLog(`🧠 Generating 5 subtopics for theme: "${theme}"...`, "info");
 
     try {
-      const result = await generateThemeSubtopics(theme.trim(), {
-        provider,
-        apiKey,
-        model,
-      }, excludeNames, lensMode === "diverse" ? [] : phase.types, lensMode === "diverse" ? [] : phase.domains, lensMode === "diverse" ? [] : phase.styles);
+      const result = await generateThemeSubtopics(
+        theme.trim(),
+        { provider, apiKey, model },
+        excludeNames,
+        effectiveTypes,
+        effectiveDomains,
+        effectiveStyles
+      );
 
       setSubtopics(result.subtopics);
       store.addRecentTheme(theme.trim());
@@ -511,12 +645,39 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
     addLog(`🧠 Appending 5 more subtopics for theme: "${theme}" (excluding ${excludeNames.length} existing names)...`, "info");
 
+    // Use same matrix as the generate phase (auto or manual)
+    const allThemeTypesSelected = selectedThemeTypes.length === ALL_TOPIC_TYPES.length;
+    const allThemeDomainsSelected = selectedThemeDomains.length === ALL_KNOWLEDGE_DOMAINS.length;
+    const allThemeStylesSelected = selectedThemeStyles.length === ALL_QUIZ_STYLES.length;
+    const usingManualThemeMatrix = !allThemeTypesSelected || !allThemeDomainsSelected || !allThemeStylesSelected;
+
+    let effectiveThemeTypes: TopicType[];
+    let effectiveThemeDomains: KnowledgeDomain[];
+    let effectiveThemeStyles: QuizStyle[];
+
+    if (usingManualThemeMatrix) {
+      effectiveThemeTypes = selectedThemeTypes as TopicType[];
+      effectiveThemeDomains = selectedThemeDomains as KnowledgeDomain[];
+      effectiveThemeStyles = selectedThemeStyles as QuizStyle[];
+    } else if (autoPhase) {
+      effectiveThemeTypes = autoPhase.types;
+      effectiveThemeDomains = autoPhase.domains;
+      effectiveThemeStyles = autoPhase.styles;
+    } else {
+      effectiveThemeTypes = ALL_TOPIC_TYPES as TopicType[];
+      effectiveThemeDomains = ALL_KNOWLEDGE_DOMAINS as KnowledgeDomain[];
+      effectiveThemeStyles = ALL_QUIZ_STYLES as QuizStyle[];
+    }
+
     try {
-      const result = await generateThemeSubtopics(theme.trim(), {
-        provider,
-        apiKey,
-        model,
-      }, excludeNames, lensMode === "diverse" ? [] : autoPhase?.types, lensMode === "diverse" ? [] : autoPhase?.domains, lensMode === "diverse" ? [] : autoPhase?.styles);
+      const result = await generateThemeSubtopics(
+        theme.trim(),
+        { provider, apiKey, model },
+        excludeNames,
+        effectiveThemeTypes,
+        effectiveThemeDomains,
+        effectiveThemeStyles
+      );
 
       // Append, don't replace
       setSubtopics((prev) => [...prev, ...result.subtopics]);
@@ -635,10 +796,13 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
   const isAppendingQuestions = results.length > 0 && status === "success";
 
   const handleGenerate = async () => {
+    const activeMode = subtopics.length > 0 ? "themed" : "topic";
+    setGenerationMode(activeMode);
+
     const topicList =
-      generationMode === "themed"
+      activeMode === "themed"
         ? subtopics.map((s) => s.name).filter((n) => n.trim().length > 0)
-        : topics.map((t) => t.trim()).filter((t) => t.length > 0);
+        : rawInput.split(/[,\n]+/).map((t) => t.trim()).filter((t) => t.length > 0);
 
     if (topicList.length === 0) return;
     if (!apiKey) {
@@ -928,40 +1092,250 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
 
       {/* Main content */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pb-16 space-y-6">
-        {/* Provider config (collapsed) */}
-        <ProviderConfig
-          provider={provider}
-          onProviderChange={setProvider}
-          apiKey={apiKey}
-          onApiKeyChange={setApiKey}
-          model={model}
-          onModelChange={setModel}
-          collapsed={configCollapsed}
-          onToggleCollapse={() => setConfigCollapsed(!configCollapsed)}
-        />
 
-        {/* ── Generation Mode Toggle ──────────────────────────── */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setGenerationMode("topic")}
-            className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-sm transition-colors ${
+        {/* ── 1. Unified Smart Input Card ────────────────────── */}
+        <div className="clay p-5 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-black uppercase tracking-wider text-plum/60">
+              {generationMode === "topic" ? "What do you feel like playing?" : "What theme do you feel like exploring?"}
+            </label>
+            <button
+              onClick={() => setShowLoadLibrary(true)}
+              className="text-[10px] font-bold text-soft-purple hover:underline flex items-center gap-1"
+            >
+              📚 Browse Library
+            </button>
+          </div>
+
+          <textarea
+            value={rawInput}
+            onChange={(e) => setRawInput(e.target.value)}
+            placeholder={
               generationMode === "topic"
-                ? "bg-soft-purple text-white hover:bg-soft-purple/90"
-                : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum hover:border-soft-purple/30"
-            }`}
-          >
-            📝 Topic Mode
-          </button>
-          <button
-            onClick={() => setGenerationMode("themed")}
-            className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-sm transition-colors ${
-              generationMode === "themed"
-                ? "bg-soft-purple text-white hover:bg-soft-purple/90"
-                : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum hover:border-soft-purple/30"
-            }`}
-          >
-            🎯 Themed Mode
-          </button>
+                ? 'Type whatever you feel like! e.g. "Physics, Chemistry, Astronomy" OR describe your game (e.g. "An easy history quiz for kids", "Classic rock hits")'
+                : 'Type whatever you feel like! e.g. "Ancient Rome", "Marvel Cinematic Universe", or "1990s Hip Hop"'
+            }
+            className="w-full h-24 clay-input p-3.5 font-outfit font-bold text-sm placeholder:text-plum/25 rounded-xl bg-warm-white border border-warm-gray/20 focus:border-soft-purple/50 focus:outline-none resize-none"
+          />
+
+          <p className="text-[10px] text-plum/40 font-medium">
+            ✨ Feel free to type anything! You can list categories, enter a theme, or describe the specific quiz style or audience you want in plain English.
+          </p>
+
+          {/* Minimal row for necessary settings: Mode, Count & Strategy */}
+          <div className="flex flex-col gap-3 text-xs font-outfit font-bold text-plum/60 bg-plum/[0.02] border border-clay-border/10 p-3.5 rounded-xl">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              {/* Generation Mode Selector */}
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1">
+                  Mode:
+                  <button
+                    onClick={() => setShowModeHelp(!showModeHelp)}
+                    className={clsx(
+                      "p-0.5 rounded-full hover:bg-warm-gray/10 transition-colors",
+                      showModeHelp ? "text-soft-purple" : "text-plum/30"
+                    )}
+                    title="Explain modes"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+                <div className="flex bg-clay-cream p-0.5 rounded-lg border border-clay-border/10">
+                  <button
+                    onClick={() => {
+                      setGenerationMode("topic");
+                      setSubtopics([]); // clear subtopics when switching to topic mode
+                    }}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      generationMode === "topic"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                  >
+                    📝 Topic Mode
+                  </button>
+                  <button
+                    onClick={() => setGenerationMode("themed")}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      generationMode === "themed"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                  >
+                    🎭 Theme Mode
+                  </button>
+                </div>
+              </div>
+
+              {/* Questions per Topic Selector */}
+              <div className="flex items-center gap-2">
+                <span>Questions per Topic:</span>
+                <select
+                  value={questionCount}
+                  onChange={(e) => setQuestionCount(parseInt(e.target.value))}
+                  className="clay-input py-1.5 px-3 rounded-lg text-xs font-bold bg-warm-white border border-warm-gray/15 text-plum focus:outline-none cursor-pointer"
+                >
+                  <option value={5}>5 Questions</option>
+                  <option value={10}>10 Questions</option>
+                  <option value={15}>15 Questions</option>
+                  <option value={20}>20 Questions</option>
+                  <option value={25}>25 Questions</option>
+                  <option value={30}>30 Questions</option>
+                </select>
+              </div>
+
+              {/* Strategy Selector */}
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1">
+                  Strategy:
+                  <button
+                    onClick={() => setShowStrategyHelp(!showStrategyHelp)}
+                    className={clsx(
+                      "p-0.5 rounded-full hover:bg-warm-gray/10 transition-colors",
+                      showStrategyHelp ? "text-soft-purple" : "text-plum/30"
+                    )}
+                    title="Explain strategies"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+                <div className="flex bg-clay-cream p-0.5 rounded-lg border border-clay-border/10">
+                  <button
+                    onClick={() => setLensMode("diverse")}
+                    className={clsx(
+                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      lensMode === "diverse"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                    title="Diverse: AI rotates conceptual lenses per question"
+                  >
+                    🔀 Diverse
+                  </button>
+                  <button
+                    onClick={() => setLensMode("focused")}
+                    className={clsx(
+                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
+                      lensMode === "focused"
+                        ? "bg-white text-plum shadow-sm"
+                        : "text-plum/50 hover:text-plum"
+                    )}
+                    title="Focused: AI locks onto one conceptual lens for all questions"
+                  >
+                    🎯 Focused
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Mode Explanations (Detailed with Examples) */}
+            {showModeHelp && (
+              <div className="text-[10px] text-plum/50 font-medium leading-relaxed border-t border-clay-border/5 pt-2.5 space-y-2 animate-slide-up-fade">
+                <div>
+                  <p className="font-bold text-plum/70 flex items-center gap-1">
+                    <span>📝 Topic Mode</span>
+                  </p>
+                  <p className="mt-0.5">
+                    Generates questions directly for multiple distinct categories or areas. You type them as a comma-separated list (e.g. <code>Physics, Chemistry, Astronomy</code>). The AI will generate a set of questions for each. Best when you already know your grid categories.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold text-plum/70 flex items-center gap-1">
+                    <span>🎭 Theme Mode (Default)</span>
+                  </p>
+                  <p className="mt-0.5">
+                    Builds a fully-integrated thematic experience from a single overarching idea (e.g. <code>Ancient Rome</code> or <code>1990s Pop Hits</code>). The AI will brainstorm 5 subtopics representing different facets, allowing you to edit and customize them before generating questions. Perfect for cohesive themed game nights.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Strategy Explanations (Detailed with Examples) */}
+            {showStrategyHelp && (
+              <div className="text-[10px] text-plum/50 font-medium leading-relaxed border-t border-clay-border/5 pt-2.5 space-y-2 animate-slide-up-fade">
+                <div>
+                  <p className="font-bold text-plum/70 flex items-center gap-1">
+                    <span>🔀 Diverse Strategy</span>
+                  </p>
+                  <p className="mt-0.5">
+                    Rotates conceptual lenses (e.g. Origin Story, Rivalry, Numbers, Cultural Impact) per question. For example, Q1 might focus on a founder story, Q2 on a bitter feud, and Q3 on a mind-boggling scale. This ensures a varied, multi-faceted round that stays fresh.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold text-plum/70 flex items-center gap-1">
+                    <span>🎯 Focused Strategy</span>
+                  </p>
+                  <p className="mt-0.5">
+                    Locks the entire round into one single conceptual lens (e.g. all 5 questions are written strictly through the lens of "The Unexpected" or "Behind the Scenes"). Best for specific rounds where you want a very uniform style or tone.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            {generationMode === "topic" ? (
+              <button
+                onClick={handleGenerate}
+                disabled={!rawInput.trim() || status === "generating"}
+                className="flex-1 clay-btn py-3 bg-soft-purple text-white font-outfit font-bold text-sm hover:bg-soft-purple/90 transition-colors flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                {status === "generating" ? "Generating Questions..." : "Generate Questions"}
+              </button>
+            ) : subtopics.length === 0 ? (
+              <button
+                onClick={handleThemeGenerate}
+                disabled={!rawInput.trim() || generatingSubtopics}
+                className="flex-1 clay-btn py-3 bg-soft-purple text-white font-outfit font-bold text-sm hover:bg-soft-purple/90 transition-colors flex items-center justify-center gap-2"
+              >
+                {generatingSubtopics ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {generatingSubtopics ? "Suggesting Subtopics..." : "Suggest 5 Subtopics"}
+              </button>
+            ) : (
+              <button
+                onClick={handleGenerate}
+                disabled={generatingSubtopics || subtopics.length === 0 || status === "generating"}
+                className="flex-1 clay-btn py-3 bg-soft-purple text-white font-outfit font-bold text-sm hover:bg-soft-purple/90 transition-all flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                {status === "generating"
+                  ? "Generating Questions..."
+                  : isAppendingQuestions
+                    ? `Append 5 Questions (total: ${(results[0]?.questions.length || 0) + 5})`
+                    : `Generate ${subtopics.length * 5} Questions`}
+              </button>
+            )}
+          </div>
+
+          {/* Quick Pick Chips */}
+          {((recentTopics && recentTopics.length > 0) || (recentThemes && recentThemes.length > 0)) && (
+            <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-clay-border/10">
+              <span className="text-[9px] font-bold text-plum/25 uppercase tracking-wider flex-shrink-0">
+                Quick Picks:
+              </span>
+              {Array.from(new Set([...(recentTopics || []), ...(recentThemes || [])]))
+                .slice(0, 8)
+                .map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setRawInput(t)}
+                    className="px-2.5 py-1 rounded-full text-[10px] font-bold text-plum/40
+                      bg-warm-gray/5 border border-warm-gray/10
+                      hover:text-soft-purple hover:border-soft-purple/30 hover:bg-soft-purple-light/20
+                      transition-all"
+                  >
+                    {t}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* ── Themed Mode: Auto-Phase Banner ──────────── */}
@@ -990,511 +1364,570 @@ export default function CompactGenerator({ onBack }: CompactGeneratorProps) {
           </div>
         )}
 
+        {/* ── 2. Suggested Subtopics List Card ─────────────────── */}
+        {subtopics.length > 0 && (
+          <div className="clay p-5 sm:p-6 space-y-4 animate-slide-up-fade">
+            {/* Theme header with edit */}
+            <div className="flex items-center gap-2">
+              {isEditingTheme ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    value={editThemeValue}
+                    onChange={(e) => setEditThemeValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveThemeRename();
+                      if (e.key === "Escape") setIsEditingTheme(false);
+                    }}
+                    className="clay-input px-3 py-1.5 text-sm font-outfit font-bold text-plum
+                      rounded-lg bg-warm-white border border-soft-purple/50 focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveThemeRename}
+                    className="text-[10px] font-bold text-soft-purple hover:text-soft-purple/80"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setIsEditingTheme(false)}
+                    className="text-[10px] font-bold text-plum/30 hover:text-plum/60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h3 className="font-outfit font-black text-sm text-plum">
+                    Theme: {theme}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setEditThemeValue(theme);
+                      setIsEditingTheme(true);
+                    }}
+                    className="p-1 text-plum/30 hover:text-soft-purple transition-colors"
+                    title="Change theme"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+            </div>
 
-
-        {/* ── Load from Library ────────────────────────────── */}
-        <div className="clay p-4 flex items-center gap-4">
-          <div className="flex-1">
-            <p className="font-outfit font-bold text-sm text-plum">
-              📚 Load Previously Saved Content
+            <p className="text-[10px] font-medium text-plum/40">
+              {subtopics.length} subtopics suggested. Review, re-roll, delete or customize:
             </p>
-            <p className="text-[10px] text-plum/30 font-medium mt-0.5">
-              Browse topics and themes you&apos;ve already generated — pick one to append more questions
-            </p>
-          </div>
-          <button
-            onClick={() => setShowLoadLibrary(true)}
-            className="clay-btn px-5 py-3 rounded-xl font-outfit font-bold text-sm
-              bg-soft-purple text-white hover:bg-soft-purple/90 transition-colors
-              flex items-center gap-2 flex-shrink-0"
-          >
-            Browse Library
-          </button>
-        </div>
 
+            {/* Subtopics list */}
+            <div className="space-y-2">
+              {subtopics.map((sub, i) => {
+                const typeMeta = TYPE_META[sub.type] || TYPE_META.Core;
+                const domainColor = DOMAIN_META[sub.domain]?.color || "text-warm-gray/60";
+                const styleIcon = STYLE_META[sub.style]?.icon || "📋";
+                const isRerolling = rerollingIndex === i;
 
+                return (
+                  <div
+                    key={`${sub.name}-${i}`}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-warm-white border border-warm-gray/15
+                      group hover:border-soft-purple/20 transition-all"
+                  >
+                    <span className="text-lg flex-shrink-0" title={sub.type}>
+                      {typeMeta.icon}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-outfit font-bold text-sm text-plum truncate">
+                        {sub.name}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={`text-[9px] font-bold ${domainColor}`}>
+                          {sub.domain}
+                        </span>
+                        <span className="text-[9px] text-warm-gray/40">·</span>
+                        <span className="text-[9px] text-warm-gray/60">
+                          {styleIcon} {sub.style}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleRerollSubtopic(i)}
+                        disabled={isRerolling || typeof rerollingIndex === "number"}
+                        className="p-1.5 rounded-lg text-plum/30 hover:text-soft-purple hover:bg-soft-purple-light/30
+                          transition-colors disabled:opacity-50"
+                        title="Re-roll this subtopic"
+                      >
+                        {isRerolling ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveSubtopic(i)}
+                        disabled={typeof rerollingIndex === "number"}
+                        className="p-1.5 rounded-lg text-plum/30 hover:text-peach hover:bg-peach-light/30
+                          transition-colors disabled:opacity-50"
+                        title="Remove this subtopic"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
+            {/* Subtopic actions */}
+            <div className="pt-2 space-y-3">
+              {/* Save to library */}
+              {user && (
+                <div className="clay p-3 bg-mint-light/10 border border-mint/15 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <p className="font-outfit font-bold text-xs text-mint">
+                        💾 Save {subtopics.length} subtopic{subtopics.length !== 1 ? 's' : ''} to Library
+                      </p>
+                      <p className="text-[9px] text-plum/30 font-medium mt-0.5">
+                        Saves theme "{theme}" and all subtopics as empty topics — generate questions later
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleSaveSubtopics}
+                      disabled={savingSubtopics || typeof rerollingIndex === "number"}
+                      className="clay-btn px-4 py-2 rounded-xl font-outfit font-bold text-xs
+                        bg-mint text-white hover:bg-mint/90 transition-colors
+                        flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {savingSubtopics ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      {savingSubtopics ? 'Saving...' : 'Save to Library'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
-
-        {/* Volume & Strategy row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="clay p-5 sm:p-6 flex flex-col justify-center">
-            <div className="flex justify-between items-end mb-4">
-              <div>
-                <h3 className="font-outfit font-black text-lg text-plum">
-                  Questions per Topic
-                </h3>
-                <p className="text-[10px] text-plum/40 font-medium">
-                  {questionCount > 5 ? "Generates in batches of 5" : "Standard 5x5 grid column"}
-                </p>
+              {/* Append & Add Custom */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={handleThemeAppend}
+                  disabled={appendingSubtopics || generatingSubtopics || typeof rerollingIndex === "number"}
+                  className="flex-1 clay-btn py-2.5 rounded-xl font-outfit font-bold text-xs bg-soft-purple/10 text-soft-purple hover:bg-soft-purple/20 transition-all flex items-center justify-center gap-1.5"
+                >
+                  {appendingSubtopics ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  {appendingSubtopics ? "Appending..." : "Append 5 More Subtopics"}
+                </button>
               </div>
-              <span className="font-outfit font-black text-2xl text-soft-purple">
-                {questionCount}
-              </span>
-            </div>
-            <input
-              type="range"
-              min="5"
-              max="30"
-              step="5"
-              value={questionCount}
-              onChange={(e) => setQuestionCount(parseInt(e.target.value))}
-              className="w-full accent-soft-purple"
-            />
-            <div className="flex justify-between text-[10px] font-bold text-plum/30 mt-2 px-1">
-              <span>5</span>
-              <span>10</span>
-              <span>15</span>
-              <span>20</span>
-              <span>25</span>
-              <span>30</span>
+
+              {/* Add custom topic form */}
+              <div>
+                {showCustomInput ? (
+                  <div className="flex gap-2">
+                    <input
+                      value={customTopic}
+                      onChange={(e) => setCustomTopic(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAddCustomSubtopic();
+                        if (e.key === "Escape") setShowCustomInput(false);
+                      }}
+                      placeholder="Custom topic name..."
+                      className="flex-1 clay-input px-3 py-2 text-xs font-outfit font-bold text-plum
+                        rounded-lg bg-warm-white border border-warm-gray/20 focus:border-soft-purple/50
+                        focus:outline-none"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleAddCustomSubtopic}
+                      disabled={!customTopic.trim()}
+                      className="clay-btn px-3 py-2 text-xs font-bold text-soft-purple
+                        hover:bg-soft-purple-light/30 rounded-lg transition-colors disabled:opacity-30"
+                    >
+                      Add
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCustomInput(true)}
+                    className="flex items-center gap-1.5 text-[10px] font-bold text-plum/30
+                      hover:text-soft-purple transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add custom topic
+                  </button>
+                )}
+              </div>
+
+              {/* Generate questions button for subtopics */}
+              <button
+                onClick={handleGenerate}
+                disabled={generatingSubtopics || subtopics.length === 0 || status === "generating"}
+                className="w-full clay-btn py-3 bg-soft-purple text-white font-outfit font-bold text-sm hover:bg-soft-purple/90 transition-all flex items-center justify-center gap-2 mt-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                {status === "generating"
+                  ? "Generating Questions..."
+                  : isAppendingQuestions
+                    ? `Append 5 Questions (total: ${(results[0]?.questions.length || 0) + 5})`
+                    : `Generate ${subtopics.length * 5} Questions`}
+              </button>
             </div>
           </div>
+        )}
 
-          <div className="clay p-5 sm:p-6 flex flex-col justify-center">
-            <h3 className="font-outfit font-black text-lg text-plum mb-1">
-              Generation Strategy
-            </h3>
-            <p className="text-[10px] text-plum/40 font-medium mb-4">
-              Control how the AI assigns perspectives and formats
-            </p>
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setLensMode("diverse")}
-                className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-xs transition-colors ${
-                  lensMode === "diverse"
-                    ? "bg-sky text-white"
-                    : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum"
-                }`}
-              >
-                🔀 Diverse
-              </button>
-              <button
-                onClick={() => setLensMode("focused")}
-                className={`clay-btn flex-1 py-3 rounded-xl font-outfit font-bold text-xs transition-colors ${
-                  lensMode === "focused"
-                    ? "bg-soft-purple text-white"
-                    : "bg-warm-white text-plum/50 border border-warm-gray/15 hover:text-plum"
-                }`}
-              >
-                🎯 Focused
-              </button>
-            </div>
-            <p className="text-[10px] text-plum/50 leading-relaxed font-medium bg-plum/5 p-2.5 rounded-lg">
-              {lensMode === "diverse" 
-                ? "🔀 The AI will constantly switch lenses and forms. Every question in a batch will feel completely different (e.g., Q1: Devil's Advocate, Q2: Explain Like I'm 5, Q3: Historical)."
-                : "🎯 The AI will lock onto ONE random lens for the entire batch. All 5 questions will share the exact same perspective (e.g., an entire round of \"Origin Stories\" for your topic)."}
-            </p>
-          </div>
-        </div>
-
-        {/* Generator Settings (collapsible) */}
+        {/* ── 3. Collapsible Advanced Settings Accordion ───────── */}
         <div className="clay p-5 sm:p-6 space-y-1">
           <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
+            onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
             className="flex items-center gap-2 text-sm font-outfit font-bold text-plum/60 hover:text-soft-purple transition-colors w-full"
           >
             <ChevronDown
               className={`w-4 h-4 transition-transform duration-200 ${
-                showAdvanced ? "rotate-0" : "-rotate-90"
+                showAdvancedSettings ? "rotate-0" : "-rotate-90"
               }`}
             />
-            ⚙️ Generator Settings
-            {!showAdvanced && (
-              <span className="text-[10px] text-plum/30 font-normal ml-auto">
-                {selectedLenses.length === ALL_LENSES.length &&
-                selectedForms.length === ALL_FORMS.length &&
-                selectedBackdoors.length === ALL_BACKDOORS.length
-                  ? `Using all ${ALL_LENSES.length} lenses, ${ALL_FORMS.length} forms, ${ALL_BACKDOORS.length} backdoors`
-                  : `Custom: ${selectedLenses.length}/${ALL_LENSES.length} lenses, ${selectedForms.length}/${ALL_FORMS.length} forms, ${selectedBackdoors.length}/${ALL_BACKDOORS.length} backdoors`}
-              </span>
-            )}
+            ⚙️ Advanced Customization Settings
+            <span className="text-[10px] text-plum/30 font-normal ml-auto">
+              {showAdvancedSettings ? "Hide customization options" : "Configure strategy, personas, and styles"}
+            </span>
           </button>
 
-          {showAdvanced && (
-            <div className="space-y-6 pt-4 animate-slide-up-fade">
-              {/* Persona Picker moved to settings */}
-              <div className="border-b border-clay-border pb-6">
+          {showAdvancedSettings && (
+            <div className="space-y-6 pt-4 border-t border-clay-border/10 mt-4 animate-slide-up-fade">
+              {/* Provider Config */}
+              <ProviderConfig
+                provider={provider}
+                onProviderChange={setProvider}
+                apiKey={apiKey}
+                onApiKeyChange={setApiKey}
+                model={model}
+                onModelChange={setModel}
+                collapsed={false}
+                onToggleCollapse={() => {}}
+              />
+
+              {/* Volume & Strategy (Now handled in minimal format inside main card) */}
+
+              {/* Persona Picker */}
+              <div className="border-t border-clay-border/10 pt-4">
                 <PersonaPicker selected={personas} onChange={setPersonas} />
               </div>
 
-              {/* View Toggle */}
-              <div className="flex items-center justify-between border-b border-clay-border pb-3">
-                <span className="text-[10px] text-plum/50 font-bold uppercase tracking-wider">
-                  Selection View
-                </span>
-                <div className="flex gap-1 bg-clay-cream p-0.5 rounded-lg border border-clay-border">
-                  <button
-                    onClick={() => setAdvancedViewMode("tiles")}
-                    className={clsx(
-                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
-                      advancedViewMode === "tiles"
-                        ? "bg-white text-plum shadow-sm"
-                        : "text-plum/50 hover:text-plum"
-                    )}
-                  >
-                    🎴 Tiles
-                  </button>
-                  <button
-                    onClick={() => setAdvancedViewMode("detailed")}
-                    className={clsx(
-                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all duration-200",
-                      advancedViewMode === "detailed"
-                        ? "bg-white text-plum shadow-sm"
-                        : "text-plum/50 hover:text-plum"
-                    )}
-                  >
-                    📖 Detailed List
-                  </button>
-                </div>
-              </div>
+              {/* Selected Persona details */}
+              {personas.length > 0 && (
+                <DescriptionPanel
+                  title="Selected Personas"
+                  icon={<span>👥</span>}
+                  items={personas.map((p) => {
+                    const meta = PERSONA_META.find((m) => m.id === p);
+                    return {
+                      id: p,
+                      label: meta?.label || p,
+                      subtitle: meta?.subtitle || "",
+                      description: meta?.description || "",
+                      icon: meta?.icon,
+                      color: meta?.color,
+                    };
+                  })}
+                />
+              )}
 
-              {advancedViewMode === "tiles" ? (
-                <>
-                  {/* Lenses */}
-                  <PickerGrid
-                    label="🎨 Conceptual Lenses"
-                    subtitle="Pick which lenses to use. Each question gets a unique lens."
-                    items={LENS_ITEMS}
-                    selected={selectedLenses}
-                    onChange={setSelectedLenses}
-                  />
-
-                  {/* Forms */}
-                  <PickerGrid
-                    label="📝 Syntactic Forms"
-                    subtitle="Pick which sentence structures to use. Rotate through all selected."
-                    items={FORM_ITEMS}
-                    selected={selectedForms}
-                    onChange={setSelectedForms}
-                    columns={5}
-                  />
-
-                  {/* Backdoors */}
-                  <PickerGrid
-                    label="🔑 Backdoor Types"
-                    subtitle="Pick which logical pathways are available. LLM picks the best fit per question."
-                    items={BACKDOOR_ITEMS}
-                    selected={selectedBackdoors}
-                    onChange={setSelectedBackdoors}
-                  />
-
-                  {/* Selection summary */}
-                  {(selectedLenses.length < ALL_LENSES.length ||
-                    selectedForms.length < ALL_FORMS.length ||
-                    selectedBackdoors.length < ALL_BACKDOORS.length) && (
-                    <DescriptionPanel
-                      title="Custom Selection Summary"
-                      items={[
-                        ...selectedLenses.map((l: string) => ({
-                          id: l,
-                          label: l,
-                          subtitle: getLensSubtitle(l as LensType),
-                          description: getLensDescription(l as LensType),
-                          icon: getLensIcon(l as LensType),
-                          color: "purple" as const,
-                        })),
-                        ...selectedForms.map((f: string) => ({
-                          id: f,
-                          label: f.replace(/^Form \d+ \((.+)\)$/, "$1"),
-                          subtitle: getFormSubtitle(f as FormType),
-                          description: getFormDescription(f as FormType),
-                          icon: getFormIcon(f as FormType),
-                          color: "sky" as const,
-                        })),
-                        ...selectedBackdoors.map((b: string) => ({
-                          id: b,
-                          label: b,
-                          subtitle: getBackdoorSubtitle(b as BackdoorType),
-                          description: getBackdoorDescription(b as BackdoorType),
-                          icon: getBackdoorIcon(b as BackdoorType),
-                          color: "mint" as const,
-                        })),
-                      ]}
-                    />
-                  )}
-                </>
-              ) : (
-                <div className="space-y-8">
-                  {/* Detailed Lenses */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-outfit font-bold text-sm text-plum">🎨 Conceptual Lenses</h4>
-                        <p className="text-[10px] text-plum/50 font-medium">Pick which lenses to use. Each question gets a unique lens.</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSelectedLenses(ALL_LENSES.map(l => l))}
-                          className="text-[9px] font-bold text-soft-purple hover:underline"
-                        >
-                          Select All
-                        </button>
-                        <span className="text-plum/20 text-[9px] font-bold">|</span>
-                        <button
-                          onClick={() => setSelectedLenses([])}
-                          className="text-[9px] font-bold text-peach hover:underline"
-                        >
-                          Deselect All
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                      {ALL_LENSES.map((l) => {
-                        const isSelected = selectedLenses.includes(l);
-                        return (
-                          <label
-                            key={l}
-                            className={clsx(
-                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
-                              isSelected && "ring-1 ring-soft-purple/20 bg-soft-purple-light/5"
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {
-                                if (isSelected) {
-                                  setSelectedLenses(selectedLenses.filter(x => x !== l));
-                                } else {
-                                  setSelectedLenses([...selectedLenses, l]);
-                                }
-                              }}
-                              className="mt-1 accent-soft-purple rounded"
-                            />
-                            <span className="text-lg flex-shrink-0">{getLensIcon(l)}</span>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{l}</span>
-                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-soft-purple bg-soft-purple-light/20 px-1.5 py-0.5 rounded">
-                                  {getLensSubtitle(l)}
-                                </span>
-                              </div>
-                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
-                                {getLensDescription(l)}
-                              </p>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
+              {/* Theme Mode subtopic matrix picker grids */}
+              {generationMode === "themed" && (
+                <div className="border-t border-clay-border/10 pt-4 space-y-6">
+                  <span className="text-[10px] text-plum/50 font-bold uppercase tracking-wider block">
+                    Theme Subtopic Suggestion Settings
+                  </span>
+                  <div className="text-[10px] text-plum/40 font-medium leading-relaxed bg-plum/[0.01] p-3 rounded-lg border border-plum/[0.03]">
+                    💡 AI automatically discovers which subtopic Types, Domains, and Styles to suggest based on your current library count (Phase discovery). To manually customize what subtopics to get, uncheck any items below.
                   </div>
-
-                  {/* Detailed Forms */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-outfit font-bold text-sm text-plum">📝 Syntactic Forms</h4>
-                        <p className="text-[10px] text-plum/50 font-medium">Pick which sentence structures to use. Rotate through all selected.</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSelectedForms(ALL_FORMS.map(f => f))}
-                          className="text-[9px] font-bold text-soft-purple hover:underline"
-                        >
-                          Select All
-                        </button>
-                        <span className="text-plum/20 text-[9px] font-bold">|</span>
-                        <button
-                          onClick={() => setSelectedForms([])}
-                          className="text-[9px] font-bold text-peach hover:underline"
-                        >
-                          Deselect All
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                      {ALL_FORMS.map((f) => {
-                        const isSelected = selectedForms.includes(f);
-                        const label = f.replace(/^Form \d+ \((.+)\)$/, "$1");
-                        return (
-                          <label
-                            key={f}
-                            className={clsx(
-                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
-                              isSelected && "ring-1 ring-sky/20 bg-sky-light/5"
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {
-                                if (isSelected) {
-                                  setSelectedForms(selectedForms.filter(x => x !== f));
-                                } else {
-                                  setSelectedForms([...selectedForms, f]);
-                                }
-                              }}
-                              className="mt-1 accent-sky rounded"
-                            />
-                            <span className="text-lg flex-shrink-0">{getFormIcon(f)}</span>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{label}</span>
-                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-sky bg-sky-light/20 px-1.5 py-0.5 rounded">
-                                  {getFormSubtitle(f)}
-                                </span>
-                              </div>
-                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
-                                {getFormDescription(f)}
-                              </p>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Detailed Backdoors */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-outfit font-bold text-sm text-plum">🔑 Backdoor Types</h4>
-                        <p className="text-[10px] text-plum/50 font-medium">Pick which logical pathways are available. LLM picks the best fit per question.</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSelectedBackdoors(ALL_BACKDOORS.map(b => b))}
-                          className="text-[9px] font-bold text-soft-purple hover:underline"
-                        >
-                          Select All
-                        </button>
-                        <span className="text-plum/20 text-[9px] font-bold">|</span>
-                        <button
-                          onClick={() => setSelectedBackdoors([])}
-                          className="text-[9px] font-bold text-peach hover:underline"
-                        >
-                          Deselect All
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                      {ALL_BACKDOORS.map((b) => {
-                        const isSelected = selectedBackdoors.includes(b);
-                        return (
-                          <label
-                            key={b}
-                            className={clsx(
-                              "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
-                              isSelected && "ring-1 ring-mint/20 bg-mint-light/5"
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {
-                                if (isSelected) {
-                                  setSelectedBackdoors(selectedBackdoors.filter(x => x !== b));
-                                } else {
-                                  setSelectedBackdoors([...selectedBackdoors, b]);
-                                }
-                              }}
-                              className="mt-1 accent-mint rounded"
-                            />
-                            <span className="text-lg flex-shrink-0">{getBackdoorIcon(b)}</span>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{b}</span>
-                                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-mint bg-mint-light/20 px-1.5 py-0.5 rounded">
-                                  {getBackdoorSubtitle(b)}
-                                </span>
-                              </div>
-                              <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
-                                {getBackdoorDescription(b)}
-                              </p>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <PickerGrid
+                    label="🎯 Subtopic Types"
+                    subtitle="Select which subtopic types AI can suggest."
+                    items={THEME_TYPE_ITEMS}
+                    selected={selectedThemeTypes}
+                    onChange={setSelectedThemeTypes}
+                  />
+                  <PickerGrid
+                    label="📖 Knowledge Domains"
+                    subtitle="Select which knowledge categories AI can suggest."
+                    items={THEME_DOMAIN_ITEMS}
+                    selected={selectedThemeDomains}
+                    onChange={setSelectedThemeDomains}
+                  />
+                  <PickerGrid
+                    label="📋 Quiz Styles"
+                    subtitle="Select which quiz gameplay styles AI can suggest."
+                    items={THEME_STYLE_ITEMS}
+                    selected={selectedThemeStyles}
+                    onChange={setSelectedThemeStyles}
+                  />
                 </div>
               )}
+
+              {/* Lenses, Forms, Backdoors Picker grids */}
+              <div className="border-t border-clay-border/10 pt-4 space-y-6">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-plum/50 font-bold uppercase tracking-wider">
+                    Advanced Settings grids
+                  </span>
+                  <div className="flex gap-1 bg-clay-cream p-0.5 rounded-lg border border-clay-border/10">
+                    <button
+                      onClick={() => setAdvancedViewMode("tiles")}
+                      className={clsx(
+                        "px-3 py-1 rounded-md text-[9px] font-bold transition-all duration-200",
+                        advancedViewMode === "tiles"
+                          ? "bg-white text-plum shadow-sm"
+                          : "text-plum/50 hover:text-plum"
+                      )}
+                    >
+                      🎴 Tiles
+                    </button>
+                    <button
+                      onClick={() => setAdvancedViewMode("detailed")}
+                      className={clsx(
+                        "px-3 py-1 rounded-md text-[9px] font-bold transition-all duration-200",
+                        advancedViewMode === "detailed"
+                          ? "bg-white text-plum shadow-sm"
+                          : "text-plum/50 hover:text-plum"
+                      )}
+                    >
+                      📖 Detailed
+                    </button>
+                  </div>
+                </div>
+
+                {advancedViewMode === "tiles" ? (
+                  <>
+                    <PickerGrid
+                      label="🎨 Conceptual Lenses"
+                      subtitle="Which lenses to use. Each question gets a unique lens."
+                      items={LENS_ITEMS}
+                      selected={selectedLenses}
+                      onChange={setSelectedLenses}
+                    />
+                    <PickerGrid
+                      label="📝 Syntactic Forms"
+                      subtitle="Which sentence structures to use. Rotate through all selected."
+                      items={FORM_ITEMS}
+                      selected={selectedForms}
+                      onChange={setSelectedForms}
+                      columns={5}
+                    />
+                    <PickerGrid
+                      label="🔑 Backdoor Types"
+                      subtitle="Which logical pathways are available. LLM picks the best fit per question."
+                      items={BACKDOOR_ITEMS}
+                      selected={selectedBackdoors}
+                      onChange={setSelectedBackdoors}
+                    />
+                  </>
+                ) : (
+                  <div className="space-y-8">
+                    {/* Detailed Lenses */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-outfit font-bold text-sm text-plum">🎨 Conceptual Lenses</h4>
+                          <p className="text-[10px] text-plum/50 font-medium">Pick which lenses to use. Each question gets a unique lens.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setSelectedLenses(ALL_LENSES.map(l => l))}
+                            className="text-[9px] font-bold text-soft-purple hover:underline"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-plum/20 text-[9px] font-bold">|</span>
+                          <button
+                            onClick={() => setSelectedLenses([])}
+                            className="text-[9px] font-bold text-peach hover:underline"
+                          >
+                            Deselect All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {ALL_LENSES.map((l) => {
+                          const isSelected = selectedLenses.includes(l);
+                          return (
+                            <label
+                              key={l}
+                              className={clsx(
+                                "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                                isSelected && "ring-1 ring-soft-purple/20 bg-soft-purple-light/5"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setSelectedLenses(selectedLenses.filter(x => x !== l));
+                                  } else {
+                                    setSelectedLenses([...selectedLenses, l]);
+                                  }
+                                }}
+                                className="mt-1 accent-soft-purple rounded"
+                              />
+                              <span className="text-lg flex-shrink-0">{getLensIcon(l)}</span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{l}</span>
+                                  <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-soft-purple bg-soft-purple-light/20 px-1.5 py-0.5 rounded">
+                                    {getLensSubtitle(l)}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                  {getLensDescription(l)}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Detailed Forms */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-outfit font-bold text-sm text-plum">📝 Syntactic Forms</h4>
+                          <p className="text-[10px] text-plum/50 font-medium">Pick which sentence structures to use. Rotate through all selected.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setSelectedForms(ALL_FORMS.map(f => f))}
+                            className="text-[9px] font-bold text-soft-purple hover:underline"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-plum/20 text-[9px] font-bold">|</span>
+                          <button
+                            onClick={() => setSelectedForms([])}
+                            className="text-[9px] font-bold text-peach hover:underline"
+                          >
+                            Deselect All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {ALL_FORMS.map((f) => {
+                          const isSelected = selectedForms.includes(f);
+                          const label = f.replace(/^Form \d+ \((.+)\)$/, "$1");
+                          return (
+                            <label
+                              key={f}
+                              className={clsx(
+                                "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                                isSelected && "ring-1 ring-sky/20 bg-sky-light/5"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setSelectedForms(selectedForms.filter(x => x !== f));
+                                  } else {
+                                    setSelectedForms([...selectedForms, f]);
+                                  }
+                                }}
+                                className="mt-1 accent-sky rounded"
+                              />
+                              <span className="text-lg flex-shrink-0">{getFormIcon(f)}</span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{label}</span>
+                                  <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-sky bg-sky-light/20 px-1.5 py-0.5 rounded">
+                                    {getFormSubtitle(f)}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                  {getFormDescription(f)}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Detailed Backdoors */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-outfit font-bold text-sm text-plum">🔑 Backdoor Types</h4>
+                          <p className="text-[10px] text-plum/50 font-medium">Pick which logical pathways are available. LLM picks the best fit per question.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setSelectedBackdoors(ALL_BACKDOORS.map(b => b))}
+                            className="text-[9px] font-bold text-soft-purple hover:underline"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-plum/20 text-[9px] font-bold">|</span>
+                          <button
+                            onClick={() => setSelectedBackdoors([])}
+                            className="text-[9px] font-bold text-peach hover:underline"
+                          >
+                            Deselect All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {ALL_BACKDOORS.map((b) => {
+                          const isSelected = selectedBackdoors.includes(b);
+                          return (
+                            <label
+                              key={b}
+                              className={clsx(
+                                "flex items-start gap-3 p-3 clay hover:bg-plum/5 cursor-pointer transition-colors",
+                                isSelected && "ring-1 ring-mint/20 bg-mint-light/5"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setSelectedBackdoors(selectedBackdoors.filter(x => x !== b));
+                                  } else {
+                                    setSelectedBackdoors([...selectedBackdoors, b]);
+                                  }
+                                }}
+                                className="mt-1 accent-mint rounded"
+                              />
+                              <span className="text-lg flex-shrink-0">{getBackdoorIcon(b)}</span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-outfit font-bold text-xs sm:text-sm text-plum">{b}</span>
+                                  <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-mint bg-mint-light/20 px-1.5 py-0.5 rounded">
+                                    {getBackdoorSubtitle(b)}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] sm:text-xs text-plum/60 leading-relaxed mt-1">
+                                  {getBackdoorDescription(b)}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
-
-        {/* Persona description panel */}
-        {personas.length > 0 && (
-          <DescriptionPanel
-            title="Selected Personas"
-            icon={<span>👥</span>}
-            items={personas.map((p) => {
-              const meta = PERSONA_META.find((m) => m.id === p);
-              return {
-                id: p,
-                label: meta?.label || p,
-                subtitle: meta?.subtitle || "",
-                description: meta?.description || "",
-                icon: meta?.icon,
-                color: meta?.color,
-              };
-            })}
-          />
-        )}
-
-        {/* ── Topic/Theme Input ────────────────────────────────── */}
-        <div className="clay p-5 sm:p-6">
-          {generationMode === "topic" ? (
-            <TopicInput
-              topics={topics}
-              onChange={setTopics}
-              placeholder="Science"
-              recentTopics={recentTopics}
-              onSelectRecentTopic={handleSelectRecentTopic}
-            />
-          ) : (
-            <ThemeInput
-              theme={theme}
-              onThemeChange={setTheme}
-              subtopics={subtopics}
-              onSubtopicsChange={setSubtopics}
-              isGenerating={generatingSubtopics}
-              onGenerate={handleThemeGenerate}
-              onAppend={handleThemeAppend}
-              appending={appendingSubtopics}
-              onReroll={handleRerollSubtopic}
-              rerollingIndex={rerollingIndex}
-              recentThemes={recentThemes}
-              onSelectRecentTheme={handleSelectRecentTheme}
-              onSaveToLibrary={handleSaveSubtopics}
-              savingToLibrary={savingSubtopics}
-            />
-          )}
-        </div>
-
-        {/* Generate / Append button */}
-        {generationMode === "topic" ? (
-          <GenerateButton
-            onClick={handleGenerate}
-            loading={status === "generating"}
-            disabled={topics.filter((t) => t.trim()).length === 0}
-            fullWidth
-            large
-            icon={<Sparkles className="w-5 h-5" />}
-          >
-            {status === "generating"
-              ? "Generating..."
-              : isAppendingQuestions
-                ? `Append 5 (total: ${results[0]?.questions.length + 5})`
-                : `Generate ${topics.filter((t) => t.trim()).length * 5} Questions`}
-          </GenerateButton>
-        ) : (
-          <GenerateButton
-            onClick={handleGenerate}
-            loading={status === "generating"}
-            disabled={generatingSubtopics || subtopics.length === 0}
-            fullWidth
-            large
-            icon={<Sparkles className="w-5 h-5" />}
-          >
-            {status === "generating"
-              ? "Generating..."
-              : isAppendingQuestions
-                ? `Append 5 (total: ${(results[0]?.questions.length || 0) + 5})`
-                : `Generate ${subtopics.length * 5} Questions`}
-          </GenerateButton>
-        )}
 
         {/* Results */}
         {results.length > 0 && (
